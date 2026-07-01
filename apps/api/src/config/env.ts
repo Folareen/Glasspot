@@ -17,6 +17,10 @@ const EnvSchema = z.object({
   DATABASE_URL: z.string(),
   DB_MIGRATING: stringBoolean,
   DB_SEEDING: stringBoolean,
+  PORT: z.coerce.number().default(4000),
+  WEB_ORIGIN: z.string().default("http://localhost:3000"),
+  REFRESH_TOKEN_SECRET: z.string(),
+  JWT_SECRET: z.string(),
 });
 
 export type EnvSchema = z.infer<typeof EnvSchema>;
