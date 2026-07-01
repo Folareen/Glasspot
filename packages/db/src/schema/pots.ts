@@ -1,6 +1,6 @@
 import { pgTable, uuid, text, bigint, timestamp, pgEnum, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { users } from './users.js';
+import { users } from './users';
 
 /**
  * The core object of the product — a group savings pool. Stores what it's

@@ -1,6 +1,6 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { AuthService } from "./auth.service.js";
-import { AuthError, RateLimitError } from "./auth.errors.js";
+import { AuthService } from "./auth.service";
+import { AuthError, RateLimitError } from "./auth.errors";
 import {
   LoginInput,
   LogoutInput,
@@ -9,7 +9,7 @@ import {
   ResendOtpInput,
   VerifyEmailInput,
   VerifyLoginOtpInput,
-} from "./auth.schema.js";
+} from "./auth.schema";
 
 function handleAuthError(e: unknown, reply: FastifyReply) {
   if (e instanceof RateLimitError) {

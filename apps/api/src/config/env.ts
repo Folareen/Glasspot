@@ -5,7 +5,7 @@ import { ZodError, z } from "zod";
 
 const stringBoolean = z.coerce.string().transform((val) => {
   return val === "true";
-}).default(false);
+}).default("false");
 
 const EnvSchema = z.object({
   NODE_ENV: z.string().default("development"),
@@ -27,8 +27,10 @@ export type EnvSchema = z.infer<typeof EnvSchema>;
 
 expand(config());
 
+let env: EnvSchema;
+
 try {
-  EnvSchema.parse(process.env);
+  env = EnvSchema.parse(process.env);
 } catch (error) {
   if (error instanceof ZodError) {
     let message = "Missing required values in .env:\n";
@@ -38,9 +40,8 @@ try {
     const e = new Error(message);
     e.stack = "";
     throw e;
-  } else {
-    console.error(error);
   }
+  throw error;
 }
 
-export default EnvSchema.parse(process.env);
+export default env;

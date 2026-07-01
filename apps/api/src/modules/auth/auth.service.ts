@@ -1,11 +1,10 @@
 import { and, desc, eq, gte, isNull } from "drizzle-orm";
-import db from "../../db/index.js";
-import { otpCodes, users } from "../../db/schema/index.js";
-import { hashPassword, verifyPassword } from "../../lib/hash.js";
-import { generateOtpCode, hashOtpCode, verifyOtpCode } from "../../lib/otp.js";
-import { hashToken, signRefreshToken, verifyRefreshTokenSignature } from "../../lib/tokens.js";
-import { AuthError, RateLimitError } from "./auth.errors.js";
-import { RegisterInput } from "./auth.schema.js";
+import db, { otpCodes, users } from "@glasspot/db";
+import { hashPassword, verifyPassword } from "@/lib/hash";
+import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
+import { hashToken, signRefreshToken, verifyRefreshTokenSignature } from "@/lib/tokens";
+import { AuthError, RateLimitError } from "./auth.errors";
+import { RegisterInput } from "./auth.schema";
 
 type OtpPurposeValue = "signup_verification" | "login" | "password_reset";
 
@@ -209,7 +208,7 @@ export const AuthService = {
       throw new AuthError("Invalid email or password", 401);
     }
 
-    if (!user.emailVerifiedAt) {
+    if (isValid && !user.emailVerifiedAt) {
       throw new AuthError("Please verify your email before logging in", 403);
     }
 

@@ -1,4 +1,4 @@
-import db from "../db/index.js";
+import db from "@glasspot/db";
 import { sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 

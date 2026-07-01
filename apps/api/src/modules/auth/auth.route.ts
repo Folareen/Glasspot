@@ -7,8 +7,8 @@ import {
   resendOtpHandler,
   verifyEmailHandler,
   verifyLoginOtpHandler,
-} from "./auth.controller.js";
-import { $ref } from "./auth.schema.js";
+} from "./auth.controller";
+import { $ref } from "./auth.schema";
 
 async function authRoutes(server: FastifyInstance) {
   server.post(
@@ -25,6 +25,9 @@ async function authRoutes(server: FastifyInstance) {
   server.post(
     "/verify-email",
     {
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
       schema: {
         body: $ref("verifyEmailSchema"),
         response: { 200: $ref("authTokensSchema") },
@@ -36,6 +39,9 @@ async function authRoutes(server: FastifyInstance) {
   server.post(
     "/resend-otp",
     {
+      config: {
+        rateLimit: { max: 5, timeWindow: "1 minute" },
+      },
       schema: {
         body: $ref("resendOtpSchema"),
         response: { 200: $ref("resendOtpResponseSchema") },
@@ -47,6 +53,9 @@ async function authRoutes(server: FastifyInstance) {
   server.post(
     "/login",
     {
+      config: {
+        rateLimit: { max: 5, timeWindow: "1 minute" },
+      },
       schema: {
         body: $ref("loginSchema"),
         response: { 200: $ref("loginResponseSchema") },
@@ -58,6 +67,9 @@ async function authRoutes(server: FastifyInstance) {
   server.post(
     "/login/verify-otp",
     {
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
       schema: {
         body: $ref("verifyLoginOtpSchema"),
         response: { 200: $ref("authTokensSchema") },

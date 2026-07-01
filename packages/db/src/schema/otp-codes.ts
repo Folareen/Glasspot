@@ -1,5 +1,5 @@
 import { pgTable, uuid, text, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
-import { users } from './users.js';
+import { users } from './users';
 
 /**
  * One-time codes used at two points in the auth flow: verifying a new

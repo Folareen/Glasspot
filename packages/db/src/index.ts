@@ -1,2 +1,3 @@
-// export * from "./client.js";
-// export * from "./schema.js";
+export * from "./client";
+export { default } from "./client";
+export * from "./schema/index";
