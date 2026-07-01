@@ -4,7 +4,7 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import env from "@/config/env";
 
 /**
- * Registers @fastify/jwt and wires up the two things the rest of this
+ * Registers @fastify/jwt and wires up the things the rest of this
  * codebase relies on:
  *
  *  - `request.jwt` — a plain reference to the same signer/verifier
@@ -14,7 +14,12 @@ import env from "@/config/env";
  *    fit a service that just wants a signing function passed in).
  *  - `server.authenticate` — a preHandler that verifies the incoming
  *    Authorization header and populates `request.user` from the token
- *    payload.
+ *    payload. Rejects with 401 if missing/invalid.
+ *  - `server.optionalAuthenticate` — same verification, but does not
+ *    reject when the header is missing or invalid; `request.user` is
+ *    simply left unset. For routes that behave differently for a logged
+ *    in caller (e.g. private-pot visibility) but must also work
+ *    anonymously (e.g. browsing public pots).
  */
 export default fp(async (server) => {
   server.register(fjwt, {
@@ -41,11 +46,23 @@ export default fp(async (server) => {
       }
     }
   );
+
+  server.decorate(
+    "optionalAuthenticate",
+    async function (request: FastifyRequest, _reply: FastifyReply) {
+      try {
+        await request.jwtVerify();
+      } catch {
+        // No/invalid token — proceed anonymously, request.user stays unset.
+      }
+    }
+  );
 });
 
 declare module "fastify" {
   interface FastifyInstance {
     authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>;
+    optionalAuthenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>;
   }
   interface FastifyRequest {
     jwt: JWT;

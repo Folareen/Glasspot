@@ -4,19 +4,35 @@ import { users } from './users';
 
 /**
  * The core object of the product — a group savings pool. Stores what it's
- * called, public/private visibility, whether its payout mechanism is
- * locked (rule-based), flexible (any-authorized-member), or both, and its
+ * called, public/private type, which payout mode governs how money leaves
+ * it, which refund type drains it if payout isn't what closes it, and its
  * lifecycle status. Deliberately has NO balance column — balance is always
  * computed from the ledger later (Milestone 2), never stored here.
  *
- * Flexible-authorization eligibility is NOT stored on this table — who can
- * act on a 'flexible'/'both' pot is derived at query time from
- * potMembers.role (creator/admin can act alone; plain 'member' cannot).
- * See pot-members.ts.
+ * status: draft -> open -> closed, one-way.
+ *   draft  - being configured, nothing below is locked in yet, no contributions.
+ *   open   - activated; payoutMode/refundType are now immutable for the pot's
+ *            remaining lifetime. Reached from draft via an explicit activate action.
+ *   closed - terminal, irreversible. Only reachable once balance is zero.
+ *
+ * payoutMode picks which *_payout_configs table (1:1 on potId) holds the
+ * actual rule — see target-based/manual/recurring/rotation/scheduled-payout-configs.ts.
+ *
+ * Authorization is NOT stored on this table — who can act (e.g. edit a
+ * draft, manage members, trigger a manual payout) is derived at query
+ * time from potMembers.role = 'admin'. creatorId below is historical
+ * record only and carries no special authority — see pot-members.ts.
  */
 export const potTypeEnum = pgEnum('pot_type', ['public', 'private']);
-export const lockModeEnum = pgEnum('lock_mode', ['locked', 'flexible', 'both']);
-export const potStatusEnum = pgEnum('pot_status', ['ACTIVE', 'CLOSED', 'CANCELLED']);
+export const potStatusEnum = pgEnum('pot_status', ['draft', 'open', 'closed']);
+export const payoutModeEnum = pgEnum('payout_mode', [
+  'target_based',
+  'manual',
+  'recurring',
+  'rotation',
+  'scheduled',
+]);
+export const refundTypeEnum = pgEnum('refund_type', ['admin', 'contributors']);
 
 export const pots = pgTable(
   'pots',
@@ -26,17 +42,16 @@ export const pots = pgTable(
     title: text('title').notNull(),
     description: text('description'),
     potType: potTypeEnum('pot_type').notNull(),
-    lockMode: lockModeEnum('lock_mode').notNull(),
-    status: potStatusEnum('status').notNull().default('ACTIVE'),
+    status: potStatusEnum('status').notNull().default('draft'),
+    payoutMode: payoutModeEnum('payout_mode').notNull(),
+    refundType: refundTypeEnum('refund_type').notNull(),
     shareSlug: text('share_slug').unique().notNull(),
     minContributionKobo: bigint('min_contribution_kobo', { mode: 'bigint' })
       .notNull()
       .default(sql`10000`),
     maxContributionKobo: bigint('max_contribution_kobo', { mode: 'bigint' }),
-    contributionCloseAt: timestamp('contribution_close_at', { withTimezone: true }),
-    rulesLockedAt: timestamp('rules_locked_at', { withTimezone: true }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
-    cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 

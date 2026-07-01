@@ -1,5 +1,5 @@
 {
-  "id": "67897e02-135a-4a76-b6fe-b4fea9e7e4f4",
+  "id": "d0f4bd54-9016-4725-b466-2cbfeb1e7d22",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -223,20 +223,27 @@
           "primaryKey": false,
           "notNull": true
         },
-        "lock_mode": {
-          "name": "lock_mode",
-          "type": "lock_mode",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
         "status": {
           "name": "status",
           "type": "pot_status",
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'ACTIVE'"
+          "default": "'draft'"
+        },
+        "payout_mode": {
+          "name": "payout_mode",
+          "type": "payout_mode",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "refund_type": {
+          "name": "refund_type",
+          "type": "refund_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
         },
         "share_slug": {
           "name": "share_slug",
@@ -257,26 +264,14 @@
           "primaryKey": false,
           "notNull": false
         },
-        "contribution_close_at": {
-          "name": "contribution_close_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "rules_locked_at": {
-          "name": "rules_locked_at",
+        "activated_at": {
+          "name": "activated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },
         "closed_at": {
           "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancelled_at": {
-          "name": "cancelled_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -433,8 +428,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.payout_triggers": {
-      "name": "payout_triggers",
+    "public.target_based_payout_configs": {
+      "name": "target_based_payout_configs",
       "schema": "",
       "columns": {
         "id": {
@@ -447,19 +442,6 @@
         "pot_id": {
           "name": "pot_id",
           "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "type": {
-          "name": "type",
-          "type": "payout_trigger_type",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "amount_kobo": {
-          "name": "amount_kobo",
-          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -475,11 +457,24 @@
           "primaryKey": false,
           "notNull": true
         },
-        "config": {
-          "name": "config",
-          "type": "jsonb",
+        "target_date": {
+          "name": "target_date",
+          "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "target_amount_kobo": {
+          "name": "target_amount_kobo",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "admin_manual_enabled": {
+          "name": "admin_manual_enabled",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "fired": {
           "name": "fired",
@@ -504,9 +499,9 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "payout_triggers_pot_id_pots_id_fk": {
-          "name": "payout_triggers_pot_id_pots_id_fk",
-          "tableFrom": "payout_triggers",
+        "target_based_payout_configs_pot_id_pots_id_fk": {
+          "name": "target_based_payout_configs_pot_id_pots_id_fk",
+          "tableFrom": "target_based_payout_configs",
           "tableTo": "pots",
           "columnsFrom": [
             "pot_id"
@@ -519,13 +514,26 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "target_based_payout_configs_pot_id_unique": {
+          "name": "target_based_payout_configs_pot_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "pot_id"
+          ]
+        }
+      },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "chk_target_based_at_least_one_condition": {
+          "name": "chk_target_based_at_least_one_condition",
+          "value": "\"target_based_payout_configs\".\"target_date\" IS NOT NULL OR \"target_based_payout_configs\".\"target_amount_kobo\" IS NOT NULL OR \"target_based_payout_configs\".\"admin_manual_enabled\" = true"
+        }
+      },
       "isRLSEnabled": false
     },
-    "public.refund_triggers": {
-      "name": "refund_triggers",
+    "public.manual_payout_configs": {
+      "name": "manual_payout_configs",
       "schema": "",
       "columns": {
         "id": {
@@ -541,10 +549,82 @@
           "primaryKey": false,
           "notNull": true
         },
-        "type": {
-          "name": "type",
-          "type": "refund_trigger_type",
-          "typeSchema": "public",
+        "destination_account": {
+          "name": "destination_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_bank": {
+          "name": "destination_bank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "manual_payout_configs_pot_id_pots_id_fk": {
+          "name": "manual_payout_configs_pot_id_pots_id_fk",
+          "tableFrom": "manual_payout_configs",
+          "tableTo": "pots",
+          "columnsFrom": [
+            "pot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "manual_payout_configs_pot_id_unique": {
+          "name": "manual_payout_configs_pot_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "pot_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.recurring_payout_configs": {
+      "name": "recurring_payout_configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "pot_id": {
+          "name": "pot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_account": {
+          "name": "destination_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_bank": {
+          "name": "destination_bank",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
@@ -554,9 +634,155 @@
           "primaryKey": false,
           "notNull": true
         },
-        "config": {
-          "name": "config",
-          "type": "jsonb",
+        "interval_days": {
+          "name": "interval_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "next_run_at": {
+          "name": "next_run_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "recurring_payout_configs_pot_id_pots_id_fk": {
+          "name": "recurring_payout_configs_pot_id_pots_id_fk",
+          "tableFrom": "recurring_payout_configs",
+          "tableTo": "pots",
+          "columnsFrom": [
+            "pot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "recurring_payout_configs_pot_id_unique": {
+          "name": "recurring_payout_configs_pot_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "pot_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rotation_payout_configs": {
+      "name": "rotation_payout_configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "pot_id": {
+          "name": "pot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rotation_payout_configs_pot_id_pots_id_fk": {
+          "name": "rotation_payout_configs_pot_id_pots_id_fk",
+          "tableFrom": "rotation_payout_configs",
+          "tableTo": "pots",
+          "columnsFrom": [
+            "pot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rotation_payout_configs_pot_id_unique": {
+          "name": "rotation_payout_configs_pot_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "pot_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.rotation_payout_legs": {
+      "name": "rotation_payout_legs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "rotation_config_id": {
+          "name": "rotation_config_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sequence_order": {
+          "name": "sequence_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_account": {
+          "name": "destination_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_bank": {
+          "name": "destination_bank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_kobo": {
+          "name": "amount_kobo",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scheduled_date": {
+          "name": "scheduled_date",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true
         },
@@ -583,12 +809,160 @@
       },
       "indexes": {},
       "foreignKeys": {
-        "refund_triggers_pot_id_pots_id_fk": {
-          "name": "refund_triggers_pot_id_pots_id_fk",
-          "tableFrom": "refund_triggers",
+        "rotation_payout_legs_rotation_config_id_rotation_payout_configs_id_fk": {
+          "name": "rotation_payout_legs_rotation_config_id_rotation_payout_configs_id_fk",
+          "tableFrom": "rotation_payout_legs",
+          "tableTo": "rotation_payout_configs",
+          "columnsFrom": [
+            "rotation_config_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "rotation_payout_legs_config_id_sequence_order_key": {
+          "name": "rotation_payout_legs_config_id_sequence_order_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "rotation_config_id",
+            "sequence_order"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scheduled_payout_configs": {
+      "name": "scheduled_payout_configs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "pot_id": {
+          "name": "pot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "scheduled_payout_configs_pot_id_pots_id_fk": {
+          "name": "scheduled_payout_configs_pot_id_pots_id_fk",
+          "tableFrom": "scheduled_payout_configs",
           "tableTo": "pots",
           "columnsFrom": [
             "pot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "scheduled_payout_configs_pot_id_unique": {
+          "name": "scheduled_payout_configs_pot_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "pot_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scheduled_payout_entries": {
+      "name": "scheduled_payout_entries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "scheduled_config_id": {
+          "name": "scheduled_config_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_account": {
+          "name": "destination_account",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_bank": {
+          "name": "destination_bank",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount_kobo": {
+          "name": "amount_kobo",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scheduled_date": {
+          "name": "scheduled_date",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fired": {
+          "name": "fired",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "fired_at": {
+          "name": "fired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "scheduled_payout_entries_scheduled_config_id_scheduled_payout_configs_id_fk": {
+          "name": "scheduled_payout_entries_scheduled_config_id_scheduled_payout_configs_id_fk",
+          "tableFrom": "scheduled_payout_entries",
+          "tableTo": "scheduled_payout_configs",
+          "columnsFrom": [
+            "scheduled_config_id"
           ],
           "columnsTo": [
             "id"
@@ -614,22 +988,24 @@
         "password_reset"
       ]
     },
-    "public.lock_mode": {
-      "name": "lock_mode",
+    "public.payout_mode": {
+      "name": "payout_mode",
       "schema": "public",
       "values": [
-        "locked",
-        "flexible",
-        "both"
+        "target_based",
+        "manual",
+        "recurring",
+        "rotation",
+        "scheduled"
       ]
     },
     "public.pot_status": {
       "name": "pot_status",
       "schema": "public",
       "values": [
-        "ACTIVE",
-        "CLOSED",
-        "CANCELLED"
+        "draft",
+        "open",
+        "closed"
       ]
     },
     "public.pot_type": {
@@ -640,30 +1016,20 @@
         "private"
       ]
     },
+    "public.refund_type": {
+      "name": "refund_type",
+      "schema": "public",
+      "values": [
+        "admin",
+        "contributors"
+      ]
+    },
     "public.pot_member_role": {
       "name": "pot_member_role",
       "schema": "public",
       "values": [
-        "creator",
         "admin",
         "member"
-      ]
-    },
-    "public.payout_trigger_type": {
-      "name": "payout_trigger_type",
-      "schema": "public",
-      "values": [
-        "target_reached",
-        "date_reached",
-        "organizer_decision"
-      ]
-    },
-    "public.refund_trigger_type": {
-      "name": "refund_trigger_type",
-      "schema": "public",
-      "values": [
-        "deadline_unmet",
-        "member_approval"
       ]
     }
   },
