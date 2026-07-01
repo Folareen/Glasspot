@@ -25,3 +25,5 @@ packages/db/drizzle/
 
 # vercel
 .vercel
+
+db-data
