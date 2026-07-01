@@ -25,7 +25,7 @@ Glasspot lets a group agree on the rule before anyone pays. Money only moves whe
   - target amount
   - manual: creator only, or any assigned member
 - **Flexible**
-  - manual: creator only, assigned members, or any assigned member
+  - manual: creator only, or any assigned member
 
 ## Refund
 

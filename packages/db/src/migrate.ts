@@ -1,5 +1,11 @@
-// import { migrate } from "drizzle-orm/node-postgres/migrator";
-// import { db } from "./client.js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { db, connection } from "./client";
+import env from "./env";
 
-// await migrate(db, { migrationsFolder: "./drizzle" });
-// process.exit(0);
+if (!env.DB_MIGRATING) {
+  throw new Error('You must set DB_MIGRATING to "true" when running migrations');
+}
+
+await migrate(db, { migrationsFolder: "./drizzle" });
+
+await connection.end();

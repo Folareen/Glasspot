@@ -1,5 +1,5 @@
 import { pgTable, uuid, bigint, boolean, timestamp, jsonb, pgEnum } from 'drizzle-orm/pg-core';
-import { pots } from './pots.js';
+import { pots } from './pots';
 
 /**
  * Mirror of payoutTriggers for the "give the money back" path — configures

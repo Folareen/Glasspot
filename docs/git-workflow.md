@@ -13,18 +13,7 @@ One branch per major task, off `master`:
 - `chore/turborepo-setup`
 
 ## Commits
-
-[Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <subject>
-```
-
-- `feat(api): add pot creation endpoint`
-- `fix(web): correct contribution amount formatting`
-- `chore(db): add drizzle migration for payouts`
-
-Scope is optional, omit it if the change spans the whole repo. Subject is lowercase, imperative, no trailing period.
+- Concise summary of work done in past tense
 
 **Types**: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build`, `revert`
 

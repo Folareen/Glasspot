@@ -1,9 +1,17 @@
-// import { drizzle } from "drizzle-orm/node-postgres";
-// import { Pool } from "pg";
-// import * as schema from "./schema.js";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
+import * as schema from "./schema/index";
+import env from "./env";
 
-// const pool = new Pool({
-//   connectionString: process.env.DATABASE_URL,
-// });
+export const connection = postgres(env.DATABASE_URL, {
+  max: env.DB_MIGRATING ? 1 : undefined,
+});
 
-// export const db = drizzle(pool, { schema });
+export const db = drizzle(connection, {
+  schema,
+  logger: true,
+});
+
+export type db = typeof db;
+
+export default db;

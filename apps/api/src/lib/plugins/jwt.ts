@@ -1,7 +1,7 @@
 import fp from "fastify-plugin";
 import fjwt, { FastifyJWT, JWT } from "@fastify/jwt";
 import { FastifyReply, FastifyRequest } from "fastify";
-import env from "../../config/env.js";
+import env from "@/config/env";
 
 /**
  * Registers @fastify/jwt and wires up the two things the rest of this
@@ -19,6 +19,11 @@ import env from "../../config/env.js";
 export default fp(async (server) => {
   server.register(fjwt, {
     secret: env.JWT_SECRET as string,
+    sign: {
+      // Access tokens are short-lived by design — the refresh token is
+      // what carries session longevity (see lib/tokens.ts).
+      expiresIn: "15m",
+    },
   });
 
   server.addHook("preHandler", (request, _reply, next) => {

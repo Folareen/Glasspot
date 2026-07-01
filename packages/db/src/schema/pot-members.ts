@@ -1,6 +1,6 @@
 import { pgTable, uuid, timestamp, pgEnum, unique } from 'drizzle-orm/pg-core';
-import { pots } from './pots.js';
-import { users } from './users.js';
+import { pots } from './pots';
+import { users } from './users';
 
 /**
  * The membership + permissions layer for a pot — who belongs to it and
