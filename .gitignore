@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+.pnpm-debug.log*
+
+# build outputs
+.next/
+out/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# turbo
+.turbo/
+
+# env
+.env
+.env*.local
+
+# misc
+.DS_Store
+*.pem
+
+# drizzle
+packages/db/drizzle/
+
+# vercel
+.vercel
