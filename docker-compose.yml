@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: glasspot
+      POSTGRES_PASSWORD: glasspot
+      POSTGRES_DB: glasspot
+    ports:
+      - "5434:5432"
+    volumes:
+      - glasspot_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  glasspot_postgres_data:
