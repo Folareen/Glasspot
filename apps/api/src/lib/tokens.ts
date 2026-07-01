@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
-import env from "../config/env.js";
+import env from "@/config/env";
 
 const REFRESH_TOKEN_SECRET = env.REFRESH_TOKEN_SECRET as string;
 const REFRESH_TOKEN_TTL_DAYS = 30;

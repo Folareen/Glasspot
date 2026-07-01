@@ -20,9 +20,6 @@ next-env.d.ts
 .DS_Store
 *.pem
 
-# drizzle
-packages/db/drizzle/
-
 # vercel
 .vercel
 

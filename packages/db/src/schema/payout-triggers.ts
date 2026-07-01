@@ -1,5 +1,5 @@
 import { pgTable, uuid, bigint, text, boolean, timestamp, jsonb, pgEnum } from 'drizzle-orm/pg-core';
-import { pots } from './pots.js';
+import { pots } from './pots';
 
 /**
  * Configured rules deciding when/how money can leave a pot on the "locked"
