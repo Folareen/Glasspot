@@ -21,6 +21,12 @@ const EnvSchema = z.object({
   WEB_ORIGIN: z.string().default("http://localhost:3000"),
   REFRESH_TOKEN_SECRET: z.string(),
   JWT_SECRET: z.string(),
+  NOMBA_ENVIRONMENT: z.enum(["production", "sandbox"]).default("sandbox"),
+  NOMBA_CLIENT_ID: z.string(),
+  NOMBA_CLIENT_SECRET: z.string(),
+  NOMBA_ACCOUNT_ID: z.string(),
+  NOMBA_WEBHOOK_SECRET: z.string(),
+  REDIS_URL: z.string(),
 });
 
 export type EnvSchema = z.infer<typeof EnvSchema>;
