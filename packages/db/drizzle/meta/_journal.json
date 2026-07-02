@@ -8,6 +8,20 @@
       "when": 1782947312322,
       "tag": "0000_stormy_gideon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783002809929,
+      "tag": "0001_absent_vulture",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783004231515,
+      "tag": "0002_condemned_salo",
+      "breakpoints": true
     }
   ]
 }

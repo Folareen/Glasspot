@@ -197,12 +197,33 @@ const messageResponseSchema = z.object({
   message: z.string(),
 });
 
+// refundDestination has no {account, bank} shape enforcement here (unlike
+// destinationSchema above) — it's free-form contact/account text at this
+// stage since no refund-execution code consumes it yet in this build.
+const contributeSchema = z.object({
+  amountKobo: koboAmount,
+  anonymous: z.boolean().optional(),
+  refundDestination: z.string().optional(),
+  idempotencyKey: z.string().optional(),
+});
+
+const transactionResponseSchema = z.object({
+  id: z.string().uuid(),
+  type: z.enum(["funding", "contribution", "payout", "refund", "fee", "transfer", "reversal"]),
+  status: z.enum(["pending", "processing", "completed", "failed", "reversed"]),
+  reference: z.string(),
+  externalReference: z.string().nullable(),
+  amountKobo: z.string(),
+  createdAt: z.string(),
+});
+
 export type CreatePotInput = z.infer<typeof createPotSchema>;
 export type UpdatePotInput = z.infer<typeof updatePotSchema>;
 export type PotIdParams = z.infer<typeof potIdParamsSchema>;
 export type AddMemberInput = z.infer<typeof addMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
+export type ContributeInput = z.infer<typeof contributeSchema>;
 
 export const { schemas: potSchemas, $ref } = buildJsonSchemas(
   {
@@ -217,6 +238,8 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     memberResponseSchema,
     memberListResponseSchema,
     messageResponseSchema,
+    contributeSchema,
+    transactionResponseSchema,
   },
   { $id: "pots" }
 );

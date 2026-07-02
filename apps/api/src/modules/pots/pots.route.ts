@@ -3,6 +3,7 @@ import {
   activatePotHandler,
   addMemberHandler,
   closePotHandler,
+  contributeHandler,
   createPotHandler,
   getPotHandler,
   listMembersHandler,
@@ -16,6 +17,7 @@ import {
 import { $ref } from "./pots.schema";
 import {
   AddMemberInput,
+  ContributeInput,
   CreatePotInput,
   MemberParams,
   PotIdParams,
@@ -114,7 +116,7 @@ async function potsRoutes(server: FastifyInstance) {
       preHandler: [server.authenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
-        response: { 200: $ref("messageResponseSchema") },
+        response: { 200: $ref("transactionResponseSchema") },
       },
     },
     triggerPayoutHandler
@@ -126,10 +128,23 @@ async function potsRoutes(server: FastifyInstance) {
       preHandler: [server.authenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
-        response: { 200: $ref("messageResponseSchema") },
+        response: { 200: $ref("transactionResponseSchema") },
       },
     },
     triggerRefundHandler
+  );
+
+  server.post<{ Params: PotIdParams; Body: ContributeInput }>(
+    "/:id/contributions",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        body: $ref("contributeSchema"),
+        response: { 201: $ref("transactionResponseSchema") },
+      },
+    },
+    contributeHandler
   );
 
   server.get<{ Params: PotIdParams }>(

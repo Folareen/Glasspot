@@ -1,10 +1,12 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { PotsService } from "./pots.service";
 import { PotMembersService } from "./pot-members.service";
+import { ContributionsService } from "./contributions.service";
 import { assertIsAdmin, getViewablePotOrThrow } from "./pot-authorization";
 import { PotError } from "./pots.errors";
 import {
   AddMemberInput,
+  ContributeInput,
   CreatePotInput,
   MemberParams,
   PotIdParams,
@@ -12,9 +14,15 @@ import {
   UpdatePotInput,
 } from "./pots.schema";
 
+// Catches PotError as well as errors from collaborating modules this
+// controller now calls into (e.g. LedgerService's LedgerError via
+// ContributionsService) — both shapes carry the same
+// { name, message, statusCode } contract, so a structural check here
+// avoids importing every module's error class into this file.
 function handlePotError(e: unknown, reply: FastifyReply) {
-  if (e instanceof PotError) {
-    return reply.code(e.statusCode).send({ message: e.message });
+  if (e instanceof PotError || (e instanceof Error && "statusCode" in e && typeof e.statusCode === "number")) {
+    const statusCode = e instanceof PotError ? e.statusCode : (e as { statusCode: number }).statusCode;
+    return reply.code(statusCode).send({ message: e.message });
   }
   console.log(e);
   return reply.code(500).send({ message: "Something went wrong" });
@@ -132,6 +140,19 @@ export async function triggerRefundHandler(
     const userId = requireUserId(request);
     const result = await PotsService.triggerRefund(request.params.id, userId);
     return reply.code(200).send(result);
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+export async function contributeHandler(
+  request: FastifyRequest<{ Params: PotIdParams; Body: ContributeInput }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    const transaction = await ContributionsService.create(request.params.id, userId, request.body);
+    return reply.code(201).send(transaction);
   } catch (e) {
     return handlePotError(e, reply);
   }
