@@ -19,6 +19,6 @@ One branch per major task, off `master`:
 
 ## Pull requests
 
-- Title: same format as a commit message — `<type>(<scope>): <subject>`
+- Title: same format as a commit message 
 - One branch/task per PR. Squash-merge into `master` so the PR title becomes the commit on `master`.
 - Description covers: what changed, why, and how it was tested.
