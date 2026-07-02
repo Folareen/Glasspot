@@ -527,6 +527,41 @@ async function postDisbursement(
   kind: "payout" | "refund",
   destination: { destinationAccount: string; destinationBank: string }
 ): Promise<Transaction> {
+  const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+  const balance = await LedgerService.getBalance(potAccount.id);
+  if (balance <= 0n) {
+    throw new PotError(`Pot has no balance to ${kind}`, 409);
+  }
+  return postFixedAmountDisbursement(pot, kind, balance, destination);
+}
+
+/**
+ * Core single-leg disbursement: claims pots.pendingOperation atomically
+ * (locking out a second concurrent trigger — see docs/system-rules.md's
+ * "two members approving in the same instant must not both trigger the
+ * payout call"), then looks up the destination, posts the internal ledger
+ * leg (debit pot_account, credit platform_float) for EXACTLY amountKobo
+ * (not necessarily the pot's full balance — see postDisbursement, which
+ * passes the full balance for manual/target_based payout and admin
+ * refund, vs PayoutSchedulerService, which passes a FIXED amount for
+ * recurring/rotation), and calls Nomba's transfer API.
+ *
+ * On SUCCESS, resolves immediately: transaction -> completed,
+ * pendingOperation cleared. On PENDING_BILLING, leaves both the
+ * transaction and pendingOperation as-is — resolution happens later via
+ * the payout_success/payout_failed/payout_refund webhook (see
+ * nomba-webhooks module), never by blind-retrying (system-rules.md). On
+ * any failure (destination lookup, insufficient balance, or the transfer
+ * call itself rejected outright), releases the lock — reversing the
+ * internal ledger leg too if it was already posted, since we know for
+ * certain the transfer never started.
+ */
+export async function postFixedAmountDisbursement(
+  pot: Pot,
+  kind: "payout" | "refund",
+  amountKobo: bigint,
+  destination: { destinationAccount: string; destinationBank: string }
+): Promise<Transaction> {
   // UPDATE ... WHERE pending_operation IS NULL is atomic in Postgres — of
   // two concurrent triggers only one can ever match this row; the other's
   // returning() comes back empty and is rejected before touching the
@@ -554,8 +589,8 @@ async function postDisbursement(
     const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
     const balance = await LedgerService.getBalance(potAccount.id);
 
-    if (balance <= 0n) {
-      throw new PotError(`Pot has no balance to ${kind}`, 409);
+    if (balance < amountKobo) {
+      throw new PotError(`Pot balance is insufficient to ${kind} ${amountKobo} kobo`, 409);
     }
 
     transaction = await LedgerService.postTransaction({
@@ -563,8 +598,8 @@ async function postDisbursement(
       reference,
       status: "processing",
       entries: [
-        { accountId: potAccount.id, direction: "debit", amountKobo: balance },
-        { accountId: platformFloat.id, direction: "credit", amountKobo: balance },
+        { accountId: potAccount.id, direction: "debit", amountKobo },
+        { accountId: platformFloat.id, direction: "credit", amountKobo },
       ],
       metadata: { potId: pot.id },
     });
@@ -575,7 +610,7 @@ async function postDisbursement(
       .where(eq(pots.id, pot.id));
 
     const transfer = await nomba.transferToBankAccount({
-      amount: Number(balance) / 100,
+      amount: Number(amountKobo) / 100,
       accountNumber: destination.destinationAccount,
       accountName: resolved.accountName,
       bankCode: destination.destinationBank,
