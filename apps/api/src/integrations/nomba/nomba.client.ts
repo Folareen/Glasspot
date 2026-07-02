@@ -56,10 +56,10 @@ import {
     CustomerReconciliationSummary,
     ReconciliationReport
 }
-from "./nomba.types.js";
+from "@/integrations/nomba/nomba.types";
 
-import { NombaApiError } from "./nomba.error.js"
-import { InMemoryWebhookIdStore, WebhookIdStore } from "./webhooks.js";
+import { NombaApiError } from "@/integrations/nomba/nomba.error";
+import { InMemoryWebhookIdStore, WebhookIdStore } from "@/integrations/nomba/webhooks";
 
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;

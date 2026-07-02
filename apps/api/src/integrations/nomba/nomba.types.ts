@@ -1,4 +1,4 @@
-import { WebhookIdStore } from "./webhooks.js";
+import { WebhookIdStore } from "@/integrations/nomba/webhooks";
 
 type Environment = "production" | "sandbox";
 
