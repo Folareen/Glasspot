@@ -27,12 +27,12 @@ export function Hero() {
           only moves when that rule is met, or a trusted member acts, and every move stays
           visible to everyone in the pot.
         </Text>
-        <div className="flex flex-col gap-3 sm:flex-row">
-          <Button href="/signup" size="lg">
+        <div className="sm:flex space-y-3 sm:space-y-0 gap-3 sm:flex-row">
+          <Button href="/signup" size="lg" className="w-full sm:w-[unset]">
             Get started
             <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
           </Button>
-          <Button href="#how-it-works" variant="secondary" size="lg">
+          <Button href="#how-it-works" variant="secondary" size="lg" className="w-full sm:w-[unset]">
             See how it works
           </Button>
         </div>
