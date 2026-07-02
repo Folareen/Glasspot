@@ -89,8 +89,26 @@ export interface Transaction {
   [key: string]: unknown;
 }
 
+/**
+ * Every event_type Nomba's webhook sends, confirmed against
+ * developer.nomba.com/docs/api-basics/webhook (2026-07). All six share the
+ * same { merchant, terminal, transaction, customer } envelope — there is
+ * no per-event-type payload shape, only which transaction fields are
+ * populated differs (e.g. payout events include merchantTxRef, payment
+ * events include aliasAccountNumber).
+ */
+export const NOMBA_WEBHOOK_EVENT_TYPES = [
+  "payment_success",
+  "payment_failed",
+  "payment_reversal",
+  "payout_success",
+  "payout_failed",
+  "payout_refund",
+] as const;
+export type NombaWebhookEventType = (typeof NOMBA_WEBHOOK_EVENT_TYPES)[number];
+
 export interface WebhookEvent<T = any> {
-  event_type: string;
+  event_type: NombaWebhookEventType;
   requestId: string;
   data: T;
 }
@@ -111,26 +129,51 @@ export interface NombaClientConfig {
 }
 
 
-/** Payload shape for a virtual account funding notification (event_type "payment_success"). */
-export interface VirtualAccountPaymentData {
+/**
+ * The single `data` shape shared by ALL SIX webhook event types (see
+ * NOMBA_WEBHOOK_EVENT_TYPES) — confirmed against real payload examples in
+ * developer.nomba.com/docs/api-basics/webhook. Which transaction fields
+ * are actually populated depends on event_type:
+ *   - payment_success/payment_failed/payment_reversal (virtual account
+ *     funding): aliasAccountNumber/aliasAccountName/aliasAccountType/
+ *     aliasAccountReference are set, merchantTxRef is NOT (funding is
+ *     provider-initiated, there's no client reference to echo back).
+ *   - payout_success/payout_failed/payout_refund (our own transfer
+ *     calls): merchantTxRef IS set — this is the reference we passed to
+ *     transferToBankAccount(), the correlation key back to our own
+ *     transaction (see resolvePendingTransfer). aliasAccount* fields are
+ *     NOT set.
+ * Every field below is therefore optional except the small core present
+ * on every event; narrow by event_type at the call site, not by which
+ * fields happen to be present.
+ */
+export interface WebhookTransactionData {
   merchant: { walletId: string; walletBalance: number; userId: string };
   transaction: {
-    aliasAccountNumber: string;
-    aliasAccountName: string;
-    aliasAccountType: string; // "VIRTUAL" for virtual-account funding
     transactionId: string;
     transactionAmount: number;
     fee: number;
-    narration: string;
-    time: string;
     type: string;
+    time: string;
+    responseCode?: string;
+    originatingFrom?: string;
+    narration?: string;
+    sessionId?: string;
+    // payment_* (virtual account funding) only:
+    aliasAccountNumber?: string;
+    aliasAccountName?: string;
+    aliasAccountType?: string; // "VIRTUAL" for virtual-account funding
+    aliasAccountReference?: string;
+    // payout_* (our transferToBankAccount() calls) only:
+    merchantTxRef?: string;
     [key: string]: unknown;
   };
-  customer: {
-    senderName: string;
-    accountNumber: string;
-    bankCode: string;
-    bankName: string;
+  customer?: {
+    senderName?: string;
+    recipientName?: string;
+    accountNumber?: string;
+    bankCode?: string;
+    bankName?: string;
   };
 }
 

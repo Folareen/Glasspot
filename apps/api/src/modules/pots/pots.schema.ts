@@ -197,14 +197,19 @@ const messageResponseSchema = z.object({
   message: z.string(),
 });
 
-// refundDestination has no {account, bank} shape enforcement here (unlike
-// destinationSchema above) — it's free-form contact/account text at this
-// stage since no refund-execution code consumes it yet in this build.
+// Same {accountNumber, bankCode} shape as destinationSchema — only
+// meaningful for a refundType='contributors' pot (see contributions.ts
+// schema comment). ContributionsService.create enforces it's
+// required/rejected based on the target pot's actual refundType, since
+// that can't be expressed in this wire schema alone (would need the pot
+// loaded first).
+// Idempotency is enforced via the Idempotency-Key request header (see
+// pots.controller.ts / lib/idempotency.service.ts), not a body field.
 const contributeSchema = z.object({
   amountKobo: koboAmount,
   anonymous: z.boolean().optional(),
-  refundDestination: z.string().optional(),
-  idempotencyKey: z.string().optional(),
+  refundAccountNumber: z.string().min(1).optional(),
+  refundBankCode: z.string().min(1).optional(),
 });
 
 const transactionResponseSchema = z.object({
@@ -215,6 +220,33 @@ const transactionResponseSchema = z.object({
   externalReference: z.string().nullable(),
   amountKobo: z.string(),
   createdAt: z.string(),
+});
+
+// POST /pots/:id/refund always returns an array — one element for
+// refundType='admin', one per contributor for refundType='contributors'
+// (see PotsService.triggerRefund) — so the wire contract doesn't change
+// shape depending on the pot's refund mode.
+const refundResponseSchema = z.array(transactionResponseSchema);
+
+// Returned by POST /pots/:id/contributions — a pending funding intent, not
+// yet a ledger transaction (see contributions.service.ts: the ledger is
+// only touched once Nomba's funding webhook confirms real money moved).
+const contributionResponseSchema = z.object({
+  id: z.string().uuid(),
+  potId: z.string().uuid(),
+  contributorUserId: z.string().uuid(),
+  virtualAccountRef: z.string(),
+  virtualAccountNumber: z.string().nullable(),
+  expectedAmountKobo: z.string(),
+  status: z.enum(["pending", "funded", "underpaid", "failed", "reversed"]),
+  anonymous: z.boolean(),
+  refundAccountNumber: z.string().nullable(),
+  refundAccountName: z.string().nullable(),
+  refundBank: z.string().nullable(),
+  transactionId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  expiresAt: z.string(),
+  fundedAt: z.string().nullable(),
 });
 
 export type CreatePotInput = z.infer<typeof createPotSchema>;
@@ -240,6 +272,8 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     messageResponseSchema,
     contributeSchema,
     transactionResponseSchema,
+    refundResponseSchema,
+    contributionResponseSchema,
   },
   { $id: "pots" }
 );

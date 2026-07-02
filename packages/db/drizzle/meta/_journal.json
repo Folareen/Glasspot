@@ -22,6 +22,48 @@
       "when": 1783004231515,
       "tag": "0002_condemned_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783007704793,
+      "tag": "0003_brown_captain_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783007992445,
+      "tag": "0004_thick_corsair",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783009887805,
+      "tag": "0005_oval_lockheed",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783011103843,
+      "tag": "0006_dapper_bromley",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783012263089,
+      "tag": "0007_flawless_hawkeye",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783014230579,
+      "tag": "0008_gigantic_pride",
+      "breakpoints": true
     }
   ]
 }

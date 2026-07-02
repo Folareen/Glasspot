@@ -7,6 +7,9 @@
     "dev": "tsx watch --env-file=../../.env src/server.ts",
     "build": "tsc --noEmit -p tsconfig.json",
     "start": "tsx --env-file=../../.env src/server.ts",
+    "reconcile": "tsx --env-file=../../.env src/scripts/run-reconciliation.ts",
+    "expire-contributions": "tsx --env-file=../../.env src/scripts/expire-contributions.ts",
+    "fire-payouts": "tsx --env-file=../../.env src/scripts/fire-payouts.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

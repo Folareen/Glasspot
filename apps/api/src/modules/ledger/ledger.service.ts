@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { isUniqueViolation } from "@/lib/db-errors";
 import db, {
   accounts,
   balances,
@@ -134,8 +135,8 @@ export const LedgerService = {
       } catch (err) {
         // Unique violation on `reference` — a concurrent caller won the
         // race to post the same idempotency key between our existence
-        // check above and this insert. Postgres error code 23505.
-        if ((err as { code?: string }).code === "23505") {
+        // check above and this insert.
+        if (isUniqueViolation(err)) {
           throw new DuplicateTransactionReferenceError(input.reference);
         }
         throw err;
@@ -200,5 +201,24 @@ export const LedgerService = {
     await db.update(transactions).set({ status: "reversed" }).where(eq(transactions.id, originalTransactionId));
 
     return transaction;
+  },
+
+  /**
+   * Marks a 'processing' transaction 'completed' — used when an external
+   * call that was left in-flight (e.g. a Nomba transfer returning
+   * PENDING_BILLING) later resolves successfully via webhook. Does not
+   * touch ledgerEntries or balances, which were already applied when the
+   * transaction was first posted.
+   */
+  async markCompleted(transactionId: string): Promise<Transaction> {
+    const [updated] = await db
+      .update(transactions)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(eq(transactions.id, transactionId))
+      .returning();
+    if (!updated) {
+      throw new LedgerError(`Transaction '${transactionId}' does not exist`, 404);
+    }
+    return updated;
   },
 };

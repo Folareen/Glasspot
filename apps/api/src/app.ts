@@ -8,6 +8,7 @@ import authRoutes from "@/modules/auth/auth.route";
 import { authSchemas } from "@/modules/auth/auth.schema";
 import potsRoutes from "@/modules/pots/pots.route";
 import { potSchemas } from "@/modules/pots/pots.schema";
+import nombaWebhooksRoutes from "@/integrations/nomba/nomba-webhooks.route";
 
 /** Builds and configures the Fastify app: registers shared schemas, the JWT/rate-limit/CORS plugins, and all route modules. */
 export function buildApp(): FastifyInstance {
@@ -28,6 +29,7 @@ export function buildApp(): FastifyInstance {
   app.register(healthRoutes);
   app.register(authRoutes, { prefix: "/auth" });
   app.register(potsRoutes, { prefix: "/pots" });
+  app.register(nombaWebhooksRoutes, { prefix: "/webhooks" });
 
   return app;
 }

@@ -98,6 +98,20 @@ const messageResponseSchema = z.object({
   message: z.string(),
 });
 
+// Destination for a refundType='admin' pot's real Nomba transfer when this
+// user triggers the refund (see users.ts schema comment). accountNumber is
+// looked up + confirmed against bankCode before being stored — see
+// AuthService.updateRefundProfile.
+const updateRefundProfileSchema = z.object({
+  accountNumber: z.string().min(1),
+  bankCode: z.string().min(1),
+});
+
+const refundProfileResponseSchema = z.object({
+  defaultRefundAccount: z.string().nullable(),
+  defaultRefundBank: z.string().nullable(),
+});
+
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 export type ResendOtpInput = z.infer<typeof resendOtpSchema>;
@@ -105,6 +119,7 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type VerifyLoginOtpInput = z.infer<typeof verifyLoginOtpSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
+export type UpdateRefundProfileInput = z.infer<typeof updateRefundProfileSchema>;
 
 export const { schemas: authSchemas, $ref } = buildJsonSchemas({
   registerSchema,
@@ -120,4 +135,6 @@ export const { schemas: authSchemas, $ref } = buildJsonSchemas({
   refreshTokenResponseSchema,
   logoutSchema,
   messageResponseSchema,
+  updateRefundProfileSchema,
+  refundProfileResponseSchema,
 });

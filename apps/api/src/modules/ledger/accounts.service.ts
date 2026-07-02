@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import db, { accounts, type Account } from "@glasspot/db";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 /** owner_type <-> normal_balance pairing, see accounts.ts schema comment for the accounting rationale per type. */
 const NORMAL_BALANCE_BY_OWNER_TYPE: Record<Account["ownerType"], Account["normalBalance"]> = {
@@ -27,8 +28,8 @@ async function getOrCreateAccount(ownerType: Account["ownerType"], ownerId: stri
   } catch (err) {
     // Unique violation on (owner_type, owner_id) — a concurrent caller
     // already created this account between our check and this insert.
-    // Postgres error code 23505. Re-select rather than treat as fatal.
-    if ((err as { code?: string }).code === "23505") {
+    // Re-select rather than treat as fatal.
+    if (isUniqueViolation(err)) {
       const [row] = await db.select().from(accounts).where(and(eq(accounts.ownerType, ownerType), whereOwnerId));
       if (row) return row;
     }

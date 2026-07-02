@@ -20,27 +20,32 @@
  * using the bank details included in the payment webhook. refundOverpayment()
  * below wraps that.
  *
- * WEBHOOK PAYLOAD: confirmed against Nomba's docs. A virtual account funding
- * event arrives as event_type "virtual_account.funded" with this shape:
- *   {
- *     event_type: "virtual_account.funded",
- *     requestId: "...",
- *     data: {
- *       merchant: { walletId, walletBalance, userId },
- *       transaction: { aliasAccountNumber, aliasAccountName, aliasAccountType,
- *                       transactionId, transactionAmount, fee, narration, time, type },
- *       customer: { senderName, accountNumber, bankCode, bankName }
- *     }
- *   }
- * Nomba does not echo back the expectedAmount you set when creating the
- * account, so compare transaction.transactionAmount against your own stored
- * expectation (e.g. looked up by aliasAccountNumber or narration).
+ * WEBHOOKS: confirmed against developer.nomba.com/docs/api-basics/webhook
+ * (2026-07). Six event_types exist, all sharing one payload envelope (see
+ * WebhookTransactionData in nomba.types.ts):
+ *   payment_success / payment_failed / payment_reversal  — virtual account
+ *     funding; transaction.aliasAccountNumber/aliasAccountType identify
+ *     which virtual account was paid into. No merchantTxRef (we didn't
+ *     initiate these).
+ *   payout_success / payout_failed / payout_refund       — outcome of our
+ *     own transferToBankAccount() calls; transaction.merchantTxRef echoes
+ *     back the reference we sent, the correlation key to our own
+ *     transaction. No aliasAccountNumber.
+ * Nomba does not echo back the expectedAmount you set when creating a
+ * virtual account, so compare transaction.transactionAmount against your
+ * own stored expectation (e.g. looked up by aliasAccountNumber).
+ *
+ * SIGNATURE VERIFICATION does NOT hash the raw request body. It hashes a
+ * constructed colon-delimited string pulled out of specific payload
+ * fields, keyed with the webhook secret, HMAC-SHA256, Base64-encoded (not
+ * hex) — see handleWebhook()'s doc comment for the exact field order.
+ * Requires the `nomba-timestamp` header as one of the hashed inputs.
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
-import { 
-    NombaClientConfig, 
-    Bank, 
+import {
+    NombaClientConfig,
+    Bank,
     BankAccountLookupResult,
     TransferParams,
     TransferResult,
@@ -49,7 +54,7 @@ import {
     Transaction,
     WebhookEvent,
     BASE_URLS,
-    VirtualAccountPaymentData,
+    WebhookTransactionData,
     ReconciliationStatus,
     LocalPaymentRecord,
     ReconciliationLineItem,
@@ -176,8 +181,9 @@ export class NombaClient {
    * Returns immediately. `status` may be:
    *   - "SUCCESS"         settled
    *   - "PENDING_BILLING" accepted but not yet settled - rely on the
-   *                        transfer.success / transfer.failed webhook for the
-   *                        final outcome; do not retry with a new reference
+   *                        payout_success / payout_failed / payout_refund
+   *                        webhook for the final outcome; do not retry with
+   *                        a new reference
    *   - a failure code (see TransferStatus) - on failure Nomba auto-refunds
    *     your account and status becomes "REFUND"; you may safely retry with
    *     a brand-new merchantTxRef in that case
@@ -196,18 +202,21 @@ export class NombaClient {
    * derived from the original transactionId so a retried webhook can't
    * trigger a duplicate refund.
    *
-   * @param payment        `data` from the payment_success webhook (virtual account funding)
+   * @param payment        `data` from a payment_success webhook (virtual account funding)
    * @param expectedAmount the amount you were expecting for this payment
-   * @throws if the payment isn't actually an overpayment
+   * @throws if the payment isn't actually an overpayment, or is missing the sender's bank details
    */
   async refundOverpayment(
-    payment: VirtualAccountPaymentData,
+    payment: WebhookTransactionData,
     expectedAmount: number,
     opts?: { narration?: string }
   ): Promise<TransferResult> {
     const excess = payment.transaction.transactionAmount - expectedAmount;
     if (excess <= 0) {
       throw new Error("refundOverpayment() called but transactionAmount does not exceed expectedAmount");
+    }
+    if (!payment.customer?.accountNumber || !payment.customer.senderName || !payment.customer.bankCode) {
+      throw new Error("refundOverpayment() called with a payload missing the sender's bank details");
     }
     return this.transferToBankAccount({
       amount: excess,
@@ -233,6 +242,20 @@ export class NombaClient {
       throw new RangeError("accountName must be 8-64 characters");
     }
     return this.post("/v1/accounts/virtual", params);
+  }
+
+  /**
+   * DELETE /v1/accounts/virtual/{accountRef} — releases a virtual account
+   * once we're done with it (past its own expiry window and either fully
+   * funded or abandoned — see ExpiryService). Each user is capped at 2
+   * virtual accounts on Nomba's side, so an account left un-expired
+   * indefinitely blocks that contributor from starting new contributions;
+   * this is how that slot gets freed. `accountRef` is the SAME value
+   * passed as accountRef to createVirtualAccount(), not Nomba's
+   * bankAccountNumber.
+   */
+  async expireVirtualAccount(accountRef: string): Promise<{ expired: boolean }> {
+    return this.del(`/v1/accounts/virtual/${encodeURIComponent(accountRef)}`);
   }
 
   // ---------------------------------------------------------------
@@ -417,51 +440,69 @@ export class NombaClient {
   // ---------------------------------------------------------------
 
   /**
-   * Verifies the "nomba-signature" header (HMAC-SHA256 hex digest of the raw
-   * body), checks for duplicate delivery, then calls `handler` with the
-   * parsed event - so routes stay a few lines, e.g.:
+   * Verifies the "nomba-signature" header, checks for duplicate delivery,
+   * then calls `handler` with the parsed event - so routes stay a few
+   * lines, e.g.:
    *
    *   app.post("/webhooks/nomba", express.raw({ type: "application/json" }), (req, res) => {
    *     nomba
-   *       .handleWebhook(req.body, req.header("nomba-signature"), async (event) => {
+   *       .handleWebhook(req.body, req.header("nomba-signature"), req.header("nomba-timestamp"), async (event) => {
    *         // business logic here
    *       })
    *       .then(() => res.sendStatus(200))
    *       .catch((err) => res.status(401).send(err.message));
    *   });
    *
-   * `rawBody` must be the exact raw request body (a Buffer or string from a
-   * raw-body parser, before JSON.parse) - re-serialized JSON won't match the
-   * bytes Nomba signed. Duplicate deliveries (event.requestId already seen)
+   * SIGNATURE ALGORITHM (confirmed against developer.nomba.com/docs/api-basics/webhook,
+   * 2026-07 — NOT a hash of the raw body, despite that being the more
+   * common webhook pattern): pull nine fields out of the PARSED payload -
+   * event_type, requestId, data.merchant.userId, data.merchant.walletId,
+   * data.transaction.transactionId, data.transaction.type,
+   * data.transaction.time, data.transaction.responseCode (empty string if
+   * absent/"null"), and the `nomba-timestamp` header value - join with
+   * ":", HMAC-SHA256 with the webhook secret, Base64-encode (not hex),
+   * compare case-insensitively against the `nomba-signature` header.
+   *
+   * `rawBody` must be the exact raw request body (a Buffer or string from
+   * a raw-body parser, before JSON.parse) so it can be parsed once here;
+   * `nombaTimestamp` is the `nomba-timestamp` header, required as a
+   * signature input. Duplicate deliveries (event.requestId already seen)
    * are silently skipped without calling `handler` again.
    */
   async handleWebhook(
     rawBody: Buffer | string,
     signature: string | undefined,
+    nombaTimestamp: string | undefined,
     handler: (event: WebhookEvent) => Promise<void> | void
   ): Promise<void> {
     if (!this.config.webhookSecret) {
       throw new Error("webhookSecret not configured");
     }
- 
-    const expected = createHmac("sha256", this.config.webhookSecret).update(rawBody).digest("hex");
-    if (!signature || !safeEqual(signature, expected)) {
-      throw new Error("bad signature");
+    if (!signature) {
+      throw new Error("Missing nomba-signature header");
     }
- 
-    let event: WebhookEvent;
+    if (!nombaTimestamp) {
+      throw new Error("Missing nomba-timestamp header");
+    }
+
+    let event: WebhookEvent<WebhookTransactionData>;
     try {
-      event = JSON.parse(rawBody.toString()) as WebhookEvent;
+      event = JSON.parse(rawBody.toString()) as WebhookEvent<WebhookTransactionData>;
     } catch (err) {
       throw new Error(`Webhook payload is not valid JSON: ${(err as Error).message}`);
     }
- 
+
+    const expected = computeWebhookSignature(event, nombaTimestamp, this.config.webhookSecret);
+    if (!safeEqualCaseInsensitive(signature, expected)) {
+      throw new Error("bad signature");
+    }
+
     if (!event.requestId) {
       throw new Error("Webhook payload missing requestId - cannot dedupe safely");
-    } 
+    }
     // Webhooks may fire twice (network retries) - don't apply the same event twice.
     if (await this.webhookIdStore.has(event.requestId)) return;
- 
+
     await handler(event);
 
     await this.webhookIdStore.add(event.requestId);
@@ -495,8 +536,13 @@ export class NombaClient {
     return this.request("POST", path, body);
   }
 
+  /** Thin DELETE wrapper around request(). */
+  private async del(path: string) {
+    return this.request("DELETE", path);
+  }
+
   /** Sends an authenticated HTTP request to the Nomba API and returns the unwrapped `data` payload, normalizing any failure (non-2xx response or network error) into a NombaApiError. */
-  private async request(method: "GET" | "POST", path: string, body?: unknown) {
+  private async request(method: "GET" | "POST" | "DELETE", path: string, body?: unknown) {
     try {
       // /v1/auth/* endpoints don't need a bearer token; everything else does.
       const needsAuth = !path.startsWith("/v1/auth/");
@@ -541,10 +587,43 @@ export class NombaClient {
   }
 }
 
-/** Compares two strings for equality in constant time, used to check a webhook signature without leaking timing information. */
-function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
+/**
+ * Rebuilds the exact colon-delimited string Nomba signs and HMAC-SHA256 +
+ * Base64-encodes it with the webhook secret — see handleWebhook's doc
+ * comment for the field order/source, confirmed against Nomba's own
+ * reference JS implementation. responseCode is treated as "" when absent
+ * or the literal string "null", matching that reference implementation.
+ */
+function computeWebhookSignature(
+  event: WebhookEvent<WebhookTransactionData>,
+  nombaTimestamp: string,
+  webhookSecret: string
+): string {
+  const merchant = event.data?.merchant;
+  const transaction = event.data?.transaction;
+
+  const responseCode =
+    !transaction?.responseCode || transaction.responseCode === "null" ? "" : transaction.responseCode;
+
+  const hashingPayload = [
+    event.event_type ?? "",
+    event.requestId ?? "",
+    merchant?.userId ?? "",
+    merchant?.walletId ?? "",
+    transaction?.transactionId ?? "",
+    transaction?.type ?? "",
+    transaction?.time ?? "",
+    responseCode,
+    nombaTimestamp,
+  ].join(":");
+
+  return createHmac("sha256", webhookSecret).update(hashingPayload).digest("base64");
+}
+
+/** Compares two strings for equality in constant time and case-insensitively, matching Nomba's own reference signature-comparison behavior. */
+function safeEqualCaseInsensitive(a: string, b: string): boolean {
+  const bufA = Buffer.from(a.toLowerCase());
+  const bufB = Buffer.from(b.toLowerCase());
   return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
@@ -576,9 +655,9 @@ function safeEqual(a: string, b: string): boolean {
 // // --- Webhooks + refund on overpayment ---
 // app.post("/webhooks/nomba", express.raw({ type: "application/json" }), (req, res) => {
 //   nomba
-//     .handleWebhook(req.body, req.header("nomba-signature"), async (event) => {
+//     .handleWebhook(req.body, req.header("nomba-signature"), req.header("nomba-timestamp"), async (event) => {
 //       if (event.event_type !== "payment_success") return;
-//       const payment = event.data as VirtualAccountPaymentData;
+//       const payment = event.data; // WebhookTransactionData
 //       if (payment.transaction.aliasAccountType !== "VIRTUAL") return;
 //
 //       const invoice = await db.invoices.findOne({ virtualAccountNumber: payment.transaction.aliasAccountNumber });

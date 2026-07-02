@@ -1,0 +1,1 @@
+ALTER TYPE "public"."contribution_status" ADD VALUE 'reversed';

@@ -1,6 +1,7 @@
-import { pgTable, uuid, text, bigint, timestamp, pgEnum, check } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, bigint, integer, timestamp, pgEnum, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from './users';
+import { transactions } from './transactions';
 
 /**
  * The core object of the product — a group savings pool. Stores what it's
@@ -22,6 +23,10 @@ import { users } from './users';
  * draft, manage members, trigger a manual payout) is derived at query
  * time from potMembers.role = 'admin'. creatorId below is historical
  * record only and carries no special authority — see pot-members.ts.
+ *
+ * pendingOperation/pendingOperationTransactionId/pendingOperationLegCount:
+ * see potPendingOperationEnum comment below — tracks an in-flight
+ * payout/refund disbursement without introducing a new pot.status value.
  */
 export const potTypeEnum = pgEnum('pot_type', ['public', 'private']);
 export const potStatusEnum = pgEnum('pot_status', ['draft', 'open', 'closed']);
@@ -33,6 +38,27 @@ export const payoutModeEnum = pgEnum('payout_mode', [
   'scheduled',
 ]);
 export const refundTypeEnum = pgEnum('refund_type', ['admin', 'contributors']);
+/**
+ * Set while a payout/refund's outbound Nomba transfer(s) are in flight
+ * (internal ledger leg(s) already posted, disbursement call(s) made or
+ * PENDING_BILLING) — blocks a second payout/refund trigger from touching
+ * the same funds until every in-flight transfer resolves (see
+ * docs/system-rules.md's "money in flight is tagged" rule). Pot stays
+ * status='open' throughout; this is deliberately NOT a pot.status value —
+ * see pots.ts status semantics above, which this does not change.
+ *
+ * pendingOperationLegCount is how many independent outbound transfers are
+ * still unresolved for the current operation — 1 for a normal
+ * single-destination payout/admin-refund (pendingOperationTransactionId
+ * points at that one transaction), N for a refundType='contributors'
+ * fan-out refund (one independent ledger transaction + transfer per
+ * contributor — pendingOperationTransactionId is null in that case, since
+ * no single transaction id represents the whole operation; each leg's own
+ * transaction is found via its metadata.potId + status='processing').
+ * Decremented by one each time resolvePendingTransfer resolves one leg;
+ * the pendingOperation lock only clears once it reaches 0.
+ */
+export const potPendingOperationEnum = pgEnum('pot_pending_operation', ['payout', 'refund']);
 
 export const pots = pgTable(
   'pots',
@@ -50,6 +76,9 @@ export const pots = pgTable(
       .notNull()
       .default(sql`10000`),
     maxContributionKobo: bigint('max_contribution_kobo', { mode: 'bigint' }),
+    pendingOperation: potPendingOperationEnum('pending_operation'),
+    pendingOperationTransactionId: uuid('pending_operation_transaction_id').references(() => transactions.id),
+    pendingOperationLegCount: integer('pending_operation_leg_count'),
     activatedAt: timestamp('activated_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
