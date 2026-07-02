@@ -121,6 +121,14 @@ export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
 export type UpdateRefundProfileInput = z.infer<typeof updateRefundProfileSchema>;
 
+// Response types — the wire contract, safe for apps/web to import directly.
+export type RegisterResponse = z.infer<typeof registerResponseSchema>;
+export type AuthTokensResponse = z.infer<typeof authTokensSchema>;
+export type LoginResponse = z.infer<typeof loginResponseSchema>;
+export type RefreshTokenResponse = z.infer<typeof refreshTokenResponseSchema>;
+export type MessageResponse = z.infer<typeof messageResponseSchema>;
+export type RefundProfileResponse = z.infer<typeof refundProfileResponseSchema>;
+
 export const { schemas: authSchemas, $ref } = buildJsonSchemas({
   registerSchema,
   registerResponseSchema,

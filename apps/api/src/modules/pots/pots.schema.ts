@@ -257,6 +257,18 @@ export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
 export type ContributeInput = z.infer<typeof contributeSchema>;
 
+// Response types — the wire contract, safe for apps/web to import
+// directly. Money/date fields are string here (JSON has no bigint/Date);
+// see packages/db's $inferSelect types for the corresponding domain
+// shapes used internally by services (bigint/Date).
+export type PotResponse = z.infer<typeof potResponseSchema>;
+export type PotListResponse = z.infer<typeof potListResponseSchema>;
+export type MemberResponse = z.infer<typeof memberResponseSchema>;
+export type MemberListResponse = z.infer<typeof memberListResponseSchema>;
+export type TransactionResponse = z.infer<typeof transactionResponseSchema>;
+export type RefundResponse = z.infer<typeof refundResponseSchema>;
+export type ContributionResponse = z.infer<typeof contributionResponseSchema>;
+
 export const { schemas: potSchemas, $ref } = buildJsonSchemas(
   {
     createPotSchema,
