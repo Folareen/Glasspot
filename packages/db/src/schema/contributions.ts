@@ -20,6 +20,12 @@ import { transactions } from './transactions';
  *              ledger transaction posted (see system-rules.md's "no silent
  *              failures" — this must surface, not silently drop).
  *   failed   - virtual account expired or was otherwise abandoned unfunded.
+ *   reversed - was 'funded' (ledger transaction posted), then Nomba sent a
+ *              payment_reversal for it — the credited funds were clawed
+ *              back out. transactionId still points at the ORIGINAL
+ *              contribution transaction; the reversing entry is a
+ *              separate transaction (see LedgerService.reverseTransaction —
+ *              ledger entries are never edited, only reversed forward).
  *
  * virtualAccountRef is OUR accountRef sent to Nomba (the idempotency key
  * for the createVirtualAccount call and what a retry re-derives).
@@ -43,6 +49,7 @@ export const contributionStatusEnum = pgEnum('contribution_status', [
   'funded',
   'underpaid',
   'failed',
+  'reversed',
 ]);
 
 export const contributions = pgTable('contributions', {

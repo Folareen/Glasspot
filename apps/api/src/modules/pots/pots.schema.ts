@@ -231,7 +231,7 @@ const contributionResponseSchema = z.object({
   virtualAccountRef: z.string(),
   virtualAccountNumber: z.string().nullable(),
   expectedAmountKobo: z.string(),
-  status: z.enum(["pending", "funded", "underpaid", "failed"]),
+  status: z.enum(["pending", "funded", "underpaid", "failed", "reversed"]),
   anonymous: z.boolean(),
   refundAccountNumber: z.string().nullable(),
   refundAccountName: z.string().nullable(),

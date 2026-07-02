@@ -461,11 +461,12 @@ export const PotsService = {
 
   /**
    * Resolves a payout/refund transaction left 'processing' after a
-   * PENDING_BILLING transfer call, once Nomba's transfer.success or
-   * transfer.failed webhook reports the outcome — see nomba-webhooks
-   * module, the only caller. Matched by merchantTxRef == transactions.reference,
-   * which carries potId in its metadata (see postDisbursement). A no-op if
-   * the transaction is already resolved (idempotent — see
+   * PENDING_BILLING transfer call, once Nomba's payout_success or
+   * payout_failed/payout_refund webhook reports the outcome — see
+   * nomba-webhooks module, the only caller. Matched by
+   * transaction.merchantTxRef == transactions.reference, which carries
+   * potId in its metadata (see postDisbursement). A no-op if the
+   * transaction is already resolved (idempotent — see
    * docs/system-rules.md's at-least-once delivery requirement) or unknown.
    */
   async resolvePendingTransfer(transactionReference: string, outcome: "success" | "failed"): Promise<void> {
@@ -505,8 +506,8 @@ export const PotsService = {
  * On SUCCESS, resolves immediately: transaction -> completed,
  * pendingOperation cleared. On PENDING_BILLING, leaves both the
  * transaction and pendingOperation as-is — resolution happens later via
- * the transfer.success/transfer.failed webhook (see nomba-webhooks
- * module), never by blind-retrying (system-rules.md). On any failure
+ * the payout_success/payout_failed/payout_refund webhook (see
+ * nomba-webhooks module), never by blind-retrying (system-rules.md). On any failure
  * (destination lookup, insufficient balance, or the transfer call itself
  * rejected outright), releases the lock — reversing the internal ledger
  * leg too if it was already posted, since we know for certain the
@@ -582,8 +583,8 @@ async function postDisbursement(
         .where(eq(pots.id, pot.id));
     }
     // PENDING_BILLING: transaction stays 'processing', pendingOperation
-    // stays set — resolved later by the transfer.success/transfer.failed
-    // webhook (see nomba-webhooks module). Never blind-retried.
+    // stays set — resolved later by the payout_success/payout_failed/
+    // payout_refund webhook (see nomba-webhooks module). Never blind-retried.
 
     return transaction;
   } catch (err) {

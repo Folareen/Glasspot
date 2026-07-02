@@ -5,7 +5,7 @@ import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
 import { NombaClient } from "@/integrations/nomba/nomba.client";
-import { VirtualAccountPaymentData } from "@/integrations/nomba/nomba.types";
+import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
@@ -15,7 +15,7 @@ import { ContributeInput } from "./pots.schema";
  * spec-mvp.md). create() only reserves the intent — it never posts a
  * ledger transaction, since we never trust a client-supplied amount for
  * execution (see docs/system-rules.md). The ledger only gets touched once
- * Nomba's virtual_account.funded webhook confirms real money landed — see
+ * Nomba's payment_success webhook confirms real money landed — see
  * confirmFunding() below, called from the webhook route.
  */
 export const ContributionsService = {
@@ -118,7 +118,14 @@ export const ContributionsService = {
    * silently dropping it. Safe to call twice for the same contribution —
    * a contribution already out of 'pending' is a no-op.
    */
-  async confirmFunding(payment: VirtualAccountPaymentData): Promise<void> {
+  async confirmFunding(payment: WebhookTransactionData): Promise<void> {
+    if (!payment.transaction.aliasAccountNumber) {
+      // Not actually a virtual-account funding payload (aliasAccountNumber
+      // is only populated on payment_* events — see WebhookTransactionData's
+      // doc comment). Nothing to match against.
+      return;
+    }
+
     const [contribution] = await db
       .select()
       .from(contributions)
@@ -177,5 +184,32 @@ export const ContributionsService = {
     if (verdict === "overpaid") {
       await nomba.refundOverpayment(payment, Number(contribution.expectedAmountKobo) / 100);
     }
+  },
+
+  /**
+   * Called from the Nomba webhook route on a payment_reversal event —
+   * money already credited to a pot (a 'funded' contribution) was clawed
+   * back out. Reverses the original ledger transaction and marks the
+   * contribution 'reversed'. A no-op if the contribution isn't 'funded'
+   * (nothing to reverse yet, or already reversed by a redelivered event —
+   * see docs/system-rules.md's at-least-once delivery requirement).
+   */
+  async reverseFunding(payment: WebhookTransactionData): Promise<void> {
+    if (!payment.transaction.aliasAccountNumber) {
+      return;
+    }
+
+    const [contribution] = await db
+      .select()
+      .from(contributions)
+      .where(eq(contributions.virtualAccountNumber, payment.transaction.aliasAccountNumber));
+
+    if (!contribution || contribution.status !== "funded" || !contribution.transactionId) {
+      return;
+    }
+
+    await LedgerService.reverseTransaction(contribution.transactionId, `contribution_${contribution.id}_reversal`);
+
+    await db.update(contributions).set({ status: "reversed" }).where(eq(contributions.id, contribution.id));
   },
 };

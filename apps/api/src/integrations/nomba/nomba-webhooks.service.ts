@@ -2,19 +2,7 @@ import { eq } from "drizzle-orm";
 import db, { providerEvents } from "@glasspot/db";
 import { ContributionsService } from "@/modules/pots/contributions.service";
 import { PotsService } from "@/modules/pots/pots.service";
-import { WebhookEvent, VirtualAccountPaymentData } from "@/integrations/nomba/nomba.types";
-
-/**
- * Funding events have shipped under two different event_type strings in
- * this codebase's own reference material ("virtual_account.funded" per
- * nomba.client.ts's top-of-file doc, "payment_success" per its usage
- * example lower in the same file) — accept either rather than guess which
- * one Nomba actually sends, so a real webhook isn't silently dropped over
- * a naming mismatch that hasn't been confirmed against Nomba's live docs.
- */
-const FUNDING_EVENT_TYPES = new Set(["virtual_account.funded", "payment_success"]);
-const TRANSFER_SUCCESS_EVENT = "transfer.success";
-const TRANSFER_FAILED_EVENT = "transfer.failed";
+import { WebhookEvent, WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 
 /**
  * Business-logic dispatch for a verified, deduped Nomba webhook event —
@@ -23,11 +11,13 @@ const TRANSFER_FAILED_EVENT = "transfer.failed";
  * webhooks.ts). Persists to provider_events first (our OWN durable dedupe
  * + audit trail, independent of NombaClient's in-memory/Redis requestId
  * store — see provider-events.ts schema comment: insert first, then
- * process), then routes to the matching handler by event_type.
+ * process), then routes to the matching handler by event_type. All six
+ * event_types (see NOMBA_WEBHOOK_EVENT_TYPES) share one payload envelope —
+ * confirmed against developer.nomba.com/docs/api-basics/webhook.
  */
 export const NombaWebhooksService = {
-  /** Records the event and dispatches it to the matching handler; unrecognized event_types are recorded but otherwise ignored. */
-  async handle(event: WebhookEvent, signatureValid: boolean): Promise<void> {
+  /** Records the event and dispatches it to the matching handler. */
+  async handle(event: WebhookEvent<WebhookTransactionData>, signatureValid: boolean): Promise<void> {
     const [existing] = await db.select().from(providerEvents).where(eq(providerEvents.eventId, event.requestId));
     if (existing?.processed) {
       return;
@@ -48,15 +38,34 @@ export const NombaWebhooksService = {
           .returning()
       )[0];
 
-    if (FUNDING_EVENT_TYPES.has(event.event_type)) {
-      await ContributionsService.confirmFunding(event.data as VirtualAccountPaymentData);
-    } else if (event.event_type === TRANSFER_SUCCESS_EVENT) {
-      await resolveTransfer(event, "success");
-    } else if (event.event_type === TRANSFER_FAILED_EVENT) {
-      await resolveTransfer(event, "failed");
+    switch (event.event_type) {
+      case "payment_success":
+        await ContributionsService.confirmFunding(event.data);
+        break;
+      case "payment_failed":
+        // Funding attempt failed — the contribution simply stays 'pending'
+        // (it can still be paid into again, or expires on its own). No
+        // local state to change; recorded above for audit/visibility.
+        break;
+      case "payment_reversal":
+        // Money we'd already credited to a pot got reversed back out —
+        // unlike payment_failed, this can happen AFTER we've posted a
+        // 'funded' contribution's ledger transaction, so it needs an
+        // actual reversal, not a no-op.
+        await ContributionsService.reverseFunding(event.data);
+        break;
+      case "payout_success":
+        await resolveTransfer(event.data, "success");
+        break;
+      case "payout_failed":
+      case "payout_refund":
+        // payout_refund is the terminal state of a failed transfer once
+        // Nomba auto-refunds it back to our account (see
+        // transferToBankAccount's doc comment) — same local handling as
+        // payout_failed: the transfer never reached its destination.
+        await resolveTransfer(event.data, "failed");
+        break;
     }
-    // Any other event_type: recorded above for audit purposes, no
-    // business-logic side effect defined for it in this build.
 
     await db
       .update(providerEvents)
@@ -65,10 +74,9 @@ export const NombaWebhooksService = {
   },
 };
 
-/** Extracts the merchantTxRef our own transfer call set (== transactions.reference) from a transfer webhook's payload and resolves the matching payout/refund. */
-async function resolveTransfer(event: WebhookEvent, outcome: "success" | "failed") {
-  const data = event.data as { merchantTxRef?: string; transaction?: { merchantTxRef?: string } };
-  const merchantTxRef = data.merchantTxRef ?? data.transaction?.merchantTxRef;
+/** Resolves the payout/refund matching this transfer webhook's merchantTxRef (our own reference, echoed back — see WebhookTransactionData's doc comment). A no-op if merchantTxRef is missing, which should not happen for a payout event per Nomba's documented payload. */
+async function resolveTransfer(data: WebhookTransactionData, outcome: "success" | "failed") {
+  const merchantTxRef = data.transaction.merchantTxRef;
   if (!merchantTxRef) {
     return;
   }
