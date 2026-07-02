@@ -25,6 +25,18 @@ import { transactions } from './transactions';
  * for the createVirtualAccount call and what a retry re-derives).
  * virtualAccountNumber is Nomba's returned NUBAN, used to match the
  * incoming webhook back to this row.
+ *
+ * refundAccountNumber/refundAccountName/refundBank: only meaningful (and
+ * only collected) for a pot with refundType='contributors' — the account
+ * THIS contributor gets their own money back to, if the pot's refund ever
+ * fires (see pots.ts refundTypeEnum). Structured, not free text, because
+ * this is a real transfer destination: refundAccountName is the holder
+ * name Nomba's own lookupBankAccount() resolved for refundAccountNumber +
+ * refundBank, confirmed at contribution time rather than trusted from
+ * client input (see docs/system-rules.md — same validate-before-storing
+ * pattern used for every other payout/refund destination in this
+ * codebase). Null for refundType='admin' pots, where the admin's own
+ * profile destination is used instead (see users.ts).
  */
 export const contributionStatusEnum = pgEnum('contribution_status', [
   'pending',
@@ -46,7 +58,9 @@ export const contributions = pgTable('contributions', {
   expectedAmountKobo: bigint('expected_amount_kobo', { mode: 'bigint' }).notNull(),
   status: contributionStatusEnum('status').notNull().default('pending'),
   anonymous: boolean('anonymous').notNull().default(false),
-  refundDestination: text('refund_destination'),
+  refundAccountNumber: text('refund_account_number'),
+  refundAccountName: text('refund_account_name'),
+  refundBank: text('refund_bank'),
   transactionId: uuid('transaction_id').references(() => transactions.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   fundedAt: timestamp('funded_at', { withTimezone: true }),

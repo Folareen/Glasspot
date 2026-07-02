@@ -19,7 +19,12 @@ import { ContributeInput } from "./pots.schema";
  * confirmFunding() below, called from the webhook route.
  */
 export const ContributionsService = {
-  /** Validates the requested amount against the pot's min/max and open status, then issues a dedicated Nomba virtual account for the contributor to pay into. Returns the pending contribution row. */
+  /**
+   * Validates the requested amount against the pot's min/max and open
+   * status, resolves+validates a refund destination if the pot requires
+   * one, then issues a dedicated Nomba virtual account for the contributor
+   * to pay into. Returns the pending contribution row.
+   */
   async create(potId: string, userId: string, input: ContributeInput): Promise<Contribution> {
     const pot = await getViewablePotOrThrow(potId, userId);
 
@@ -33,6 +38,29 @@ export const ContributionsService = {
     }
     if (pot.maxContributionKobo !== null && amountKobo > pot.maxContributionKobo) {
       throw new PotError(`Contribution must not exceed ${pot.maxContributionKobo} kobo`, 400);
+    }
+
+    // A per-contributor refund account only means anything for a pot that
+    // actually refunds each contributor individually (see contributions.ts
+    // schema comment) — required there, and rejected outright everywhere
+    // else so we never silently store data that can't ever be used.
+    let refundAccountNumber: string | undefined;
+    let refundAccountName: string | undefined;
+    let refundBank: string | undefined;
+
+    if (pot.refundType === "contributors") {
+      if (!input.refundAccountNumber || !input.refundBankCode) {
+        throw new PotError(
+          "refundAccountNumber and refundBankCode are required for a pot with refundType='contributors'",
+          400
+        );
+      }
+      const resolved = await nomba.lookupBankAccount(input.refundAccountNumber, input.refundBankCode);
+      refundAccountNumber = input.refundAccountNumber;
+      refundAccountName = resolved.accountName;
+      refundBank = input.refundBankCode;
+    } else if (input.refundAccountNumber || input.refundBankCode) {
+      throw new PotError("This pot does not use per-contributor refunds — omit refundAccountNumber/refundBankCode", 400);
     }
 
     const [contributor] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -71,7 +99,9 @@ export const ContributionsService = {
         virtualAccountNumber: virtualAccount.bankAccountNumber,
         expectedAmountKobo: amountKobo,
         anonymous: input.anonymous ?? false,
-        refundDestination: input.refundDestination,
+        refundAccountNumber,
+        refundAccountName,
+        refundBank,
       })
       .returning();
 
@@ -133,7 +163,9 @@ export const ContributionsService = {
         potId: contribution.potId,
         contributorUserId: contribution.contributorUserId,
         anonymous: contribution.anonymous,
-        refundDestination: contribution.refundDestination,
+        refundAccountNumber: contribution.refundAccountNumber,
+        refundAccountName: contribution.refundAccountName,
+        refundBank: contribution.refundBank,
       },
     });
 

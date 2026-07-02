@@ -197,13 +197,17 @@ const messageResponseSchema = z.object({
   message: z.string(),
 });
 
-// refundDestination has no {account, bank} shape enforcement here (unlike
-// destinationSchema above) — it's free-form contact/account text at this
-// stage since no refund-execution code consumes it yet in this build.
+// Same {accountNumber, bankCode} shape as destinationSchema — only
+// meaningful for a refundType='contributors' pot (see contributions.ts
+// schema comment). ContributionsService.create enforces it's
+// required/rejected based on the target pot's actual refundType, since
+// that can't be expressed in this wire schema alone (would need the pot
+// loaded first).
 const contributeSchema = z.object({
   amountKobo: koboAmount,
   anonymous: z.boolean().optional(),
-  refundDestination: z.string().optional(),
+  refundAccountNumber: z.string().min(1).optional(),
+  refundBankCode: z.string().min(1).optional(),
   idempotencyKey: z.string().optional(),
 });
 
@@ -229,7 +233,9 @@ const contributionResponseSchema = z.object({
   expectedAmountKobo: z.string(),
   status: z.enum(["pending", "funded", "underpaid", "failed"]),
   anonymous: z.boolean(),
-  refundDestination: z.string().nullable(),
+  refundAccountNumber: z.string().nullable(),
+  refundAccountName: z.string().nullable(),
+  refundBank: z.string().nullable(),
   transactionId: z.string().uuid().nullable(),
   createdAt: z.string(),
   fundedAt: z.string().nullable(),
