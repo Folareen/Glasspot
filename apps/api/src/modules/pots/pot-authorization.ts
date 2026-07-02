@@ -32,6 +32,7 @@ export async function getPotOrThrow(potId: string): Promise<Pot> {
   return pot;
 }
 
+/** Returns whether userId belongs to potId, regardless of role. */
 export async function isMember(potId: string, userId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: potMembers.id })
@@ -41,6 +42,7 @@ export async function isMember(potId: string, userId: string): Promise<boolean> 
   return !!row;
 }
 
+/** Returns userId's role on potId ('admin' | 'member'), or null if they aren't a member. */
 export async function getMemberRole(potId: string, userId: string): Promise<"admin" | "member" | null> {
   const [row] = await db
     .select({ role: potMembers.role })
@@ -65,6 +67,7 @@ export async function assertIsAdmin(potId: string, userId: string | undefined): 
   }
 }
 
+/** Returns the number of members holding the 'admin' role on potId. */
 export async function countAdmins(potId: string): Promise<number> {
   const rows = await db
     .select({ id: potMembers.id })

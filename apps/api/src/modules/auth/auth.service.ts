@@ -17,10 +17,12 @@ const OTP_TTL_MINUTES = 10;
 const OTP_RESEND_COOLDOWN_SECONDS = 60;
 const OTP_MAX_PER_HOUR = 5;
 
+/** Returns the expiry timestamp for a freshly issued OTP, OTP_TTL_MINUTES from now. */
 function otpExpiry() {
   return new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000);
 }
 
+/** Throws a RateLimitError if this user+purpose has requested a code within the resend cooldown, or exceeded the hourly cap. */
 async function assertOtpNotRateLimited(userId: string, purpose: OtpPurposeValue) {
   const [latest] = await db
     .select()
@@ -56,6 +58,7 @@ async function assertOtpNotRateLimited(userId: string, purpose: OtpPurposeValue)
   }
 }
 
+/** Generates a code, stores its hash, and returns the raw code for delivery — only the hash is ever persisted. */
 async function createOtp(userId: string, purpose: OtpPurposeValue) {
   await assertOtpNotRateLimited(userId, purpose);
 
@@ -76,6 +79,7 @@ async function createOtp(userId: string, purpose: OtpPurposeValue) {
   return code;
 }
 
+/** Validates `code` against the newest unconsumed OTP for this user+purpose, marking it consumed on success or bumping its attempt count and throwing on failure. */
 async function verifyOtp(userId: string, purpose: OtpPurposeValue, code: string) {
   const [otp] = await db
     .select()
@@ -115,6 +119,7 @@ async function verifyOtp(userId: string, purpose: OtpPurposeValue, code: string)
   await db.update(otpCodes).set({ consumedAt: new Date() }).where(eq(otpCodes.id, otp.id));
 }
 
+/** Projects a full user row down to the safe subset of fields returned in API responses, stripping passwordHash/refreshTokenHash and other internal columns. */
 function toPublicUser(user: typeof users.$inferSelect) {
   return {
     id: user.id,
@@ -124,6 +129,7 @@ function toPublicUser(user: typeof users.$inferSelect) {
   };
 }
 
+/** Issues a fresh access+refresh token pair for userId, persisting hash(jti) as the new refreshTokenHash so any previously issued refresh token is invalidated. */
 async function issueTokenPair(userId: string, sign: SignFn) {
   const { token: refreshToken, jti, expiresAt } = signRefreshToken(userId);
 
@@ -141,6 +147,7 @@ async function issueTokenPair(userId: string, sign: SignFn) {
 }
 
 export const AuthService = {
+  /** Creates a new user (rejecting a duplicate email or username), sends a signup-verification OTP, and returns the new userId + email. */
   async register(input: RegisterInput) {
     const existing = await db.query.users.findFirst({
       where: (u, { or, eq: eqOp }) => or(eqOp(u.email, input.email), eqOp(u.username, input.username)),
@@ -167,6 +174,7 @@ export const AuthService = {
     return { userId: user.id, email: user.email };
   },
 
+  /** Issues a new OTP for the given email + purpose; resolves silently (no error) if the email doesn't match a user, so callers can't use this to enumerate accounts. */
   async resendOtp(email: string, purpose: OtpPurposeValue) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -180,6 +188,7 @@ export const AuthService = {
     await createOtp(user.id, purpose);
   },
 
+  /** Confirms the signup-verification code, marks the email verified, and immediately issues a token pair — verification doubles as login. */
   async verifyEmail(email: string, code: string, sign: SignFn) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -197,6 +206,7 @@ export const AuthService = {
     return { ...tokens, user: toPublicUser(user) };
   },
 
+  /** Verifies email/password and, on success, sends a login OTP — does not itself issue tokens; that only happens after verifyLoginOtp. */
   async login(email: string, password: string) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -217,6 +227,7 @@ export const AuthService = {
     return { userId: user.id };
   },
 
+  /** Confirms the login OTP for this email and, on success, issues a fresh token pair, completing the two-step login flow. */
   async verifyLoginOtp(email: string, code: string, sign: SignFn) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -229,6 +240,7 @@ export const AuthService = {
     return { ...tokens, user: toPublicUser(user) };
   },
 
+  /** Exchanges a valid, still-current refresh token for a new token pair; revokes the session outright if the presented token doesn't match the one on file (reuse of an already-rotated token). */
   async refresh(presentedToken: string, sign: SignFn) {
     let payload;
     try {
@@ -263,6 +275,7 @@ export const AuthService = {
     return issueTokenPair(user.id, sign);
   },
 
+  /** Clears the stored refresh token hash, immediately invalidating the current session's refresh token. */
   async logout(userId: string) {
     await db
       .update(users)

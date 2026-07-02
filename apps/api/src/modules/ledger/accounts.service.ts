@@ -10,6 +10,7 @@ const NORMAL_BALANCE_BY_OWNER_TYPE: Record<Account["ownerType"], Account["normal
   suspense: "debit",
 };
 
+/** Returns the existing account for (ownerType, ownerId), creating it on first use; falls back to a re-select if a concurrent caller wins the insert race. */
 async function getOrCreateAccount(ownerType: Account["ownerType"], ownerId: string | null): Promise<Account> {
   const whereOwnerId = ownerId === null ? isNull(accounts.ownerId) : eq(accounts.ownerId, ownerId);
   const [existing] = await db.select().from(accounts).where(and(eq(accounts.ownerType, ownerType), whereOwnerId));

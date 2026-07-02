@@ -6,6 +6,7 @@
  */
 
 export class NombaApiError extends Error {
+  /** Builds a normalized error from a failed Nomba API call, carrying the HTTP status (0 for network failures), Nomba's own error code if available, and the raw response body. */
   constructor(message: string, public status: number, public code?: string, public body?: unknown) {
     super(message);
     this.name = "NombaApiError";

@@ -15,6 +15,7 @@ import { ContributeInput } from "./pots.schema";
  * real Nomba funding wiring lands. No user_wallet leg exists in this flow.
  */
 export const ContributionsService = {
+  /** Validates the contribution amount against the pot's min/max and open status, then posts it as a ledger transaction (platform_float -> pot account) keyed by input.idempotencyKey. */
   async create(potId: string, userId: string, input: ContributeInput) {
     const pot = await getViewablePotOrThrow(potId, userId);
 

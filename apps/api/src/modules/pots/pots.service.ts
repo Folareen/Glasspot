@@ -43,6 +43,7 @@ type PayoutModeConfigPair =
   | { payoutMode: "recurring"; payoutConfig: z.infer<typeof recurringPayoutConfigSchema> }
   | { payoutMode: "rotation"; payoutConfig: z.infer<typeof rotationPayoutConfigSchema> };
 
+/** Generates a random URL-safe slug for a pot's share link. */
 function generateShareSlug(): string {
   return randomBytes(8).toString("base64url");
 }
@@ -204,6 +205,7 @@ async function deleteExistingPayoutConfig(potId: string, payoutMode: Pot["payout
 }
 
 export const PotsService = {
+  /** Creates a pot in 'draft' status, inserts its mode-specific payout config, and adds creatorId as its first admin member. */
   async create(creatorId: string, input: CreatePotInput) {
     const [pot] = await db
       .insert(pots)
@@ -235,6 +237,7 @@ export const PotsService = {
     return pot;
   },
 
+  /** Returns all public pots plus, if userId is given, the private pots that user belongs to. */
   async list(userId: string | undefined) {
     // Public pots are visible to everyone. Private pots only show up for
     // an authenticated member — filtered in application code rather than

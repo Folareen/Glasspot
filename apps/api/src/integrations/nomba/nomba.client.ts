@@ -78,6 +78,7 @@ export class NombaClient {
     null;
 
 
+  /** Builds a NombaClient for the configured environment, defaulting webhookIdStore to an in-memory store if none is provided (see webhooks.ts for the Redis-backed alternative). */
   constructor(private config: NombaClientConfig) {
     this.baseUrl = BASE_URLS[config.environment ?? "production"];
     this.webhookIdStore = config.webhookIdStore ?? new InMemoryWebhookIdStore();
@@ -108,6 +109,7 @@ export class NombaClient {
     return token.accessToken;
   }
  
+  /** Obtains a fresh access token: refreshes the cached refresh_token if one exists, falling back to a full client_credentials login if the refresh itself fails. */
   private async fetchNewToken() {
     let data: { access_token: string; refresh_token: string; expiresAt: string };
  
@@ -151,7 +153,7 @@ export class NombaClient {
   // Banks / lookup / transfer
   // ---------------------------------------------------------------
 
-  /** GET /v1/transfers/banks - cache this; bank codes rarely change. */
+  /** GET /v1/transfers/banks — fetches all bank codes/names, caching the result in memory since bank codes rarely change. */
   async fetchBankCodes(): Promise<Bank[]> {
     // stored in a Map for fast lookup by code in lookupBankAccount(); return as an array.
     if (this.banks.size > 0) {
@@ -164,7 +166,7 @@ export class NombaClient {
     return data.results;
   }
 
-  /** POST /v1/transfers/bank/lookup - always call before transferToBankAccount(). */
+  /** POST /v1/transfers/bank/lookup — resolves an account number + bank code to the account holder's name; always call before transferToBankAccount() to confirm the destination. */
   async lookupBankAccount(accountNumber: string, bankCode: string): Promise<BankAccountLookupResult> {
     return this.post("/v1/transfers/bank/lookup", { accountNumber, bankCode });
   }
@@ -222,7 +224,7 @@ export class NombaClient {
   // Virtual accounts
   // ---------------------------------------------------------------
 
-  /** POST /v1/accounts/virtual - issue a dedicated NUBAN for a customer or invoice. */
+  /** POST /v1/accounts/virtual — issues a dedicated NUBAN for a customer or invoice, after validating accountRef/accountName length against Nomba's constraints. */
   async createVirtualAccount(params: CreateVirtualAccountParams): Promise<VirtualAccount> {
     if (params.accountRef.length < 16 || params.accountRef.length > 64) {
       throw new RangeError("accountRef must be 16-64 characters");
@@ -237,7 +239,7 @@ export class NombaClient {
   // Transactions / reconciliation
   // ---------------------------------------------------------------
 
-  /** GET /v1/transactions/accounts */
+  /** GET /v1/transactions/accounts — fetches one page of transactions in a date range (optionally filtered by status), for use in reconciliation. */
   async fetchTransactions(params: {
     dateFrom: string;
     dateTo: string;
@@ -327,6 +329,7 @@ export class NombaClient {
     return this.buildReport(params.dateFrom, params.dateTo, lineItems);
   }
 
+  /** Classifies a single Nomba transaction against its (possibly missing) local record as one of: orphan, matched, overpaid, or underpaid. */
   private buildLineItem(ref: string, tx: Transaction, local: LocalPaymentRecord | null): ReconciliationLineItem {
     if (!local) {
       return { status: "orphan", merchantTxRef: ref, nombaAmount: tx.amount, nombaTransaction: tx };
@@ -482,14 +485,17 @@ export class NombaClient {
   // HTTP helpers
   // ---------------------------------------------------------------
 
+  /** Thin GET wrapper around request(). */
   private async get(path: string) {
     return this.request("GET", path);
   }
 
+  /** Thin POST wrapper around request(). */
   private async post(path: string, body: unknown) {
     return this.request("POST", path, body);
   }
- 
+
+  /** Sends an authenticated HTTP request to the Nomba API and returns the unwrapped `data` payload, normalizing any failure (non-2xx response or network error) into a NombaApiError. */
   private async request(method: "GET" | "POST", path: string, body?: unknown) {
     try {
       // /v1/auth/* endpoints don't need a bearer token; everything else does.
@@ -535,6 +541,7 @@ export class NombaClient {
   }
 }
 
+/** Compares two strings for equality in constant time, used to check a webhook signature without leaking timing information. */
 function safeEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
