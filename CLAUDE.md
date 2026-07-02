@@ -13,7 +13,9 @@ Backend (apps/api, packages/db):
 - [docs/backend-rules.md](docs/backend-rules.md) — backend coding style (Fastify, Drizzle, OOP/SOLID, naming, when to ask vs assume). Read this before writing or reviewing any backend code.
 
 Frontend (apps/web):
-- [docs/frontend-rules.md](docs/frontend-rules.md) — not written yet, coming later.
+- [docs/design-system.md](docs/design-system.md) — locked, implementation-ready visual design system (colors, type, radius, motion, PWA). Read this before building any UI.
+- [docs/design-inspiration.md](docs/design-inspiration.md) — research/rationale behind the design system (Nigerian fintech UI patterns, do/don't). Reference for *why*, not for implementation.
+- [docs/frontend-rules.md](docs/frontend-rules.md) — frontend coding style (Next.js App Router, shared component library, Tailwind conventions, dependency discipline). Read this before writing or reviewing any frontend code.
 
 Process:
 - [docs/git-workflow.md](docs/git-workflow.md) — branch naming, commit message format, PR conventions. Follow this for every branch, commit, and PR.
