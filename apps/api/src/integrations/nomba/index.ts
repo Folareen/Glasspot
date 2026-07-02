@@ -6,10 +6,10 @@
  */
 
 
-import { NombaClient } from "./nomba.client.js";
-import env from "../../config/env.js";
-import { RedisWebhookIdStore } from "./webhooks.js";
-import redis from "../../config/redis.js";
+import { NombaClient } from "@/integrations/nomba/nomba.client";
+import env from "@/config/env";
+import { RedisWebhookIdStore } from "@/integrations/nomba/webhooks";
+import redis from "@/config/redis";
 
 export const nomba = new NombaClient({
   clientId: env.NOMBA_CLIENT_ID,
