@@ -222,6 +222,12 @@ const transactionResponseSchema = z.object({
   createdAt: z.string(),
 });
 
+// POST /pots/:id/refund always returns an array — one element for
+// refundType='admin', one per contributor for refundType='contributors'
+// (see PotsService.triggerRefund) — so the wire contract doesn't change
+// shape depending on the pot's refund mode.
+const refundResponseSchema = z.array(transactionResponseSchema);
+
 // Returned by POST /pots/:id/contributions — a pending funding intent, not
 // yet a ledger transaction (see contributions.service.ts: the ledger is
 // only touched once Nomba's funding webhook confirms real money moved).
@@ -266,6 +272,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     messageResponseSchema,
     contributeSchema,
     transactionResponseSchema,
+    refundResponseSchema,
     contributionResponseSchema,
   },
   { $id: "pots" }

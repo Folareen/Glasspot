@@ -1,0 +1,1 @@
+ALTER TABLE "pots" ADD COLUMN "pending_operation_leg_count" integer;
