@@ -3,8 +3,9 @@ import db, { otpCodes, users } from "@glasspot/db";
 import { hashPassword, verifyPassword } from "@/lib/hash";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
 import { hashToken, signRefreshToken, verifyRefreshTokenSignature } from "@/lib/tokens";
+import { nomba } from "@/integrations/nomba";
 import { AuthError, RateLimitError } from "./auth.errors";
-import { RegisterInput } from "./auth.schema";
+import { RegisterInput, UpdateRefundProfileInput } from "./auth.schema";
 
 type OtpPurposeValue = "signup_verification" | "login" | "password_reset";
 
@@ -281,5 +282,26 @@ export const AuthService = {
       .update(users)
       .set({ refreshTokenHash: null, refreshTokenExpiresAt: null })
       .where(eq(users.id, userId));
+  },
+
+  /**
+   * Sets userId's default refund destination — the account a
+   * refundType='admin' pot's real Nomba transfer pays out to when this
+   * user triggers the refund (see users.ts schema comment). Confirms the
+   * account via nomba.lookupBankAccount() first, the same
+   * validate-before-storing-a-destination pattern used everywhere else
+   * money can be sent in this codebase, and stores the resolved account
+   * holder name's bank as destinationBank alongside the account number.
+   */
+  async updateRefundProfile(userId: string, input: UpdateRefundProfileInput) {
+    await nomba.lookupBankAccount(input.accountNumber, input.bankCode);
+
+    const [user] = await db
+      .update(users)
+      .set({ defaultRefundAccount: input.accountNumber, defaultRefundBank: input.bankCode, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+
+    return { defaultRefundAccount: user.defaultRefundAccount, defaultRefundBank: user.defaultRefundBank };
   },
 };

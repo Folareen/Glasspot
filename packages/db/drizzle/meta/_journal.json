@@ -22,6 +22,20 @@
       "when": 1783004231515,
       "tag": "0002_condemned_salo",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783007704793,
+      "tag": "0003_brown_captain_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783007992445,
+      "tag": "0004_thick_corsair",
+      "breakpoints": true
     }
   ]
 }

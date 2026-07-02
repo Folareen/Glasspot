@@ -156,15 +156,15 @@ export async function triggerRefundHandler(
   }
 }
 
-/** Records a contribution from the authenticated requester into the pot and responds 201 with the resulting transaction. */
+/** Issues a virtual account for the authenticated requester to fund and responds 201 with the pending contribution. */
 export async function contributeHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: ContributeInput }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
-    const transaction = await ContributionsService.create(request.params.id, userId, request.body);
-    return reply.code(201).send(transaction);
+    const contribution = await ContributionsService.create(request.params.id, userId, request.body);
+    return reply.code(201).send(contribution);
   } catch (e) {
     return handlePotError(e, reply);
   }

@@ -1,20 +1,24 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import db, {
   pots,
   potMembers,
+  users,
+  transactions,
   targetBasedPayoutConfigs,
   manualPayoutConfigs,
   recurringPayoutConfigs,
   rotationPayoutConfigs,
   rotationPayoutLegs,
   type Pot,
+  type Transaction,
 } from "@glasspot/db";
 import { PotError } from "./pots.errors";
 import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
+import { nomba } from "@/integrations/nomba";
 import {
   CreatePotInput,
   UpdatePotInput,
@@ -361,13 +365,10 @@ export const PotsService = {
 
   /**
    * Manual payout trigger. Validates authorization + pot/mode eligibility,
-   * then posts the INTERNAL leg only: debit pot_account, credit
-   * platform_float, for the pot's full current balance — this locks the
-   * money on our side instantly (see reference material's "Money out"
-   * pattern). The actual Nomba disbursement call to the destination
-   * account is NOT wired up yet (a following pass) — this transaction's
-   * status stays 'completed' for the internal leg regardless, since from
-   * the pot's perspective the funds have left.
+   * then posts the internal leg (debit pot_account, credit
+   * platform_float) and calls Nomba to disburse to the mode's configured
+   * destination — see postDisbursement() for the full in-flight-lock +
+   * transfer-call shape.
    */
   async triggerPayout(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
@@ -389,7 +390,10 @@ export const PotsService = {
       if (config.fired) {
         throw new PotError("Payout has already fired for this pot", 409);
       }
-      const transaction = await postPayoutTransaction(potId);
+      const transaction = await postDisbursement(pot, "payout", {
+        destinationAccount: config.destinationAccount,
+        destinationBank: config.destinationBank,
+      });
       await db
         .update(targetBasedPayoutConfigs)
         .set({ fired: true, firedAt: new Date() })
@@ -400,7 +404,18 @@ export const PotsService = {
     if (pot.payoutMode === "manual") {
       // manual mode has no fired/firedAt — it can fire repeatedly over the
       // pot's lifetime (see manual-payout-configs.ts).
-      return postPayoutTransaction(potId);
+      const [config] = await db
+        .select()
+        .from(manualPayoutConfigs)
+        .where(eq(manualPayoutConfigs.potId, potId))
+        .limit(1);
+      if (!config) {
+        throw new PotError("Pot has no manual payout config", 409);
+      }
+      return postDisbursement(pot, "payout", {
+        destinationAccount: config.destinationAccount,
+        destinationBank: config.destinationBank,
+      });
     }
 
     throw new PotError(
@@ -410,15 +425,13 @@ export const PotsService = {
   },
 
   /**
-   * Manual refund trigger. Posts the INTERNAL leg only, same shape for
-   * both refundType values: debit pot_account, credit platform_float, for
-   * the pot's full current balance, draining it to zero so it can close
-   * (see spec.md). refundType='admin' vs 'contributors' only affects WHO
-   * the actual Nomba payout(s) go to once disbursement is wired up — that
-   * is a downstream destination question, not a ledger-correctness one,
-   * so both are structurally identical single-entry drains here. Real
-   * per-contributor refund amounts (for refundType='contributors') are a
-   * follow-up, not implemented in this pass.
+   * Manual refund trigger. Posts the internal leg and calls Nomba to
+   * disburse the pot's full balance to a single destination — for
+   * refundType='admin' that destination is the triggering admin's own
+   * defaultRefundAccount/defaultRefundBank on file (spec-mvp.md: refunds
+   * "to whoever triggers it"), set via PATCH /auth/me/refund-profile.
+   * refundType='contributors' (per-contributor fan-out refund) is a
+   * follow-up, not implemented in this pass — see pots.errors.ts message.
    */
   async triggerRefund(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
@@ -428,48 +441,159 @@ export const PotsService = {
       throw new PotError("Pot must be open to trigger a refund", 409);
     }
 
-    return postRefundTransaction(potId);
+    if (pot.refundType === "contributors") {
+      throw new PotError("refundType 'contributors' is not implemented in this build", 400);
+    }
+
+    const [triggeringAdmin] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (!triggeringAdmin?.defaultRefundAccount || !triggeringAdmin.defaultRefundBank) {
+      throw new PotError(
+        "Set a default refund bank account (PATCH /auth/me/refund-profile) before triggering an admin refund",
+        409
+      );
+    }
+
+    return postDisbursement(pot, "refund", {
+      destinationAccount: triggeringAdmin.defaultRefundAccount,
+      destinationBank: triggeringAdmin.defaultRefundBank,
+    });
+  },
+
+  /**
+   * Resolves a payout/refund transaction left 'processing' after a
+   * PENDING_BILLING transfer call, once Nomba's transfer.success or
+   * transfer.failed webhook reports the outcome — see nomba-webhooks
+   * module, the only caller. Matched by merchantTxRef == transactions.reference,
+   * which carries potId in its metadata (see postDisbursement). A no-op if
+   * the transaction is already resolved (idempotent — see
+   * docs/system-rules.md's at-least-once delivery requirement) or unknown.
+   */
+  async resolvePendingTransfer(transactionReference: string, outcome: "success" | "failed"): Promise<void> {
+    const [transaction] = await db.select().from(transactions).where(eq(transactions.reference, transactionReference));
+
+    if (!transaction || transaction.status !== "processing") {
+      return;
+    }
+
+    const potId = (transaction.metadata as { potId?: string } | null)?.potId;
+    if (!potId) {
+      return;
+    }
+
+    if (outcome === "success") {
+      await LedgerService.markCompleted(transaction.id);
+    } else {
+      await LedgerService.reverseTransaction(transaction.id, `${transaction.reference}_reversal`);
+    }
+
+    await db
+      .update(pots)
+      .set({ pendingOperation: null, pendingOperationTransactionId: null })
+      .where(eq(pots.id, potId));
   },
 };
 
-/** Drains potId's full current balance into platform_float as a 'payout' transaction — the internal leg of a disbursement. */
-async function postPayoutTransaction(potId: string) {
-  const potAccount = await AccountsService.getOrCreatePotAccount(potId);
-  const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
-  const balance = await LedgerService.getBalance(potAccount.id);
+/**
+ * Shared disbursement path for both payout and refund. Claims
+ * pots.pendingOperation atomically first (locking out a second concurrent
+ * trigger — see docs/system-rules.md's "two members approving in the same
+ * instant must not both trigger the payout call"), then: looks up the
+ * destination, posts the internal ledger leg (debit pot_account, credit
+ * platform_float) for the pot's full current balance, and calls Nomba's
+ * transfer API.
+ *
+ * On SUCCESS, resolves immediately: transaction -> completed,
+ * pendingOperation cleared. On PENDING_BILLING, leaves both the
+ * transaction and pendingOperation as-is — resolution happens later via
+ * the transfer.success/transfer.failed webhook (see nomba-webhooks
+ * module), never by blind-retrying (system-rules.md). On any failure
+ * (destination lookup, insufficient balance, or the transfer call itself
+ * rejected outright), releases the lock — reversing the internal ledger
+ * leg too if it was already posted, since we know for certain the
+ * transfer never started.
+ */
+async function postDisbursement(
+  pot: Pot,
+  kind: "payout" | "refund",
+  destination: { destinationAccount: string; destinationBank: string }
+): Promise<Transaction> {
+  // UPDATE ... WHERE pending_operation IS NULL is atomic in Postgres — of
+  // two concurrent triggers only one can ever match this row; the other's
+  // returning() comes back empty and is rejected before touching the
+  // ledger at all.
+  const reference = `${kind}_${pot.id}_${randomUUID()}`;
+  const claimed = await db
+    .update(pots)
+    .set({ pendingOperation: kind })
+    .where(and(eq(pots.id, pot.id), isNull(pots.pendingOperation)))
+    .returning({ id: pots.id });
 
-  if (balance <= 0n) {
-    throw new PotError("Pot has no balance to pay out", 409);
+  if (claimed.length === 0) {
+    throw new PotError(
+      "A payout or refund is already in flight for this pot — wait for it to resolve before triggering another",
+      409
+    );
   }
 
-  return LedgerService.postTransaction({
-    type: "payout",
-    reference: `payout_${potId}_${randomUUID()}`,
-    entries: [
-      { accountId: potAccount.id, direction: "debit", amountKobo: balance },
-      { accountId: platformFloat.id, direction: "credit", amountKobo: balance },
-    ],
-    metadata: { potId },
-  });
-}
+  let transaction: Transaction | undefined;
 
-/** Drains potId's full current balance into platform_float as a 'refund' transaction — the internal leg of returning funds. */
-async function postRefundTransaction(potId: string) {
-  const potAccount = await AccountsService.getOrCreatePotAccount(potId);
-  const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
-  const balance = await LedgerService.getBalance(potAccount.id);
+  try {
+    const resolved = await nomba.lookupBankAccount(destination.destinationAccount, destination.destinationBank);
 
-  if (balance <= 0n) {
-    throw new PotError("Pot has no balance to refund", 409);
+    const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+    const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
+    const balance = await LedgerService.getBalance(potAccount.id);
+
+    if (balance <= 0n) {
+      throw new PotError(`Pot has no balance to ${kind}`, 409);
+    }
+
+    transaction = await LedgerService.postTransaction({
+      type: kind,
+      reference,
+      status: "processing",
+      entries: [
+        { accountId: potAccount.id, direction: "debit", amountKobo: balance },
+        { accountId: platformFloat.id, direction: "credit", amountKobo: balance },
+      ],
+      metadata: { potId: pot.id },
+    });
+
+    await db
+      .update(pots)
+      .set({ pendingOperationTransactionId: transaction.id })
+      .where(eq(pots.id, pot.id));
+
+    const transfer = await nomba.transferToBankAccount({
+      amount: Number(balance) / 100,
+      accountNumber: destination.destinationAccount,
+      accountName: resolved.accountName,
+      bankCode: destination.destinationBank,
+      merchantTxRef: reference,
+      senderName: "Glasspot",
+      narration: `Glasspot ${kind} for pot ${pot.id}`,
+    });
+
+    if (transfer.status === "SUCCESS") {
+      await LedgerService.markCompleted(transaction.id);
+      await db
+        .update(pots)
+        .set({ pendingOperation: null, pendingOperationTransactionId: null })
+        .where(eq(pots.id, pot.id));
+    }
+    // PENDING_BILLING: transaction stays 'processing', pendingOperation
+    // stays set — resolved later by the transfer.success/transfer.failed
+    // webhook (see nomba-webhooks module). Never blind-retried.
+
+    return transaction;
+  } catch (err) {
+    if (transaction) {
+      await LedgerService.reverseTransaction(transaction.id, `${reference}_reversal`);
+    }
+    await db
+      .update(pots)
+      .set({ pendingOperation: null, pendingOperationTransactionId: null })
+      .where(eq(pots.id, pot.id));
+    throw err;
   }
-
-  return LedgerService.postTransaction({
-    type: "refund",
-    reference: `refund_${potId}_${randomUUID()}`,
-    entries: [
-      { accountId: potAccount.id, direction: "debit", amountKobo: balance },
-      { accountId: platformFloat.id, direction: "credit", amountKobo: balance },
-    ],
-    metadata: { potId },
-  });
 }

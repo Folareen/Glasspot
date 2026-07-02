@@ -217,6 +217,24 @@ const transactionResponseSchema = z.object({
   createdAt: z.string(),
 });
 
+// Returned by POST /pots/:id/contributions — a pending funding intent, not
+// yet a ledger transaction (see contributions.service.ts: the ledger is
+// only touched once Nomba's funding webhook confirms real money moved).
+const contributionResponseSchema = z.object({
+  id: z.string().uuid(),
+  potId: z.string().uuid(),
+  contributorUserId: z.string().uuid(),
+  virtualAccountRef: z.string(),
+  virtualAccountNumber: z.string().nullable(),
+  expectedAmountKobo: z.string(),
+  status: z.enum(["pending", "funded", "underpaid", "failed"]),
+  anonymous: z.boolean(),
+  refundDestination: z.string().nullable(),
+  transactionId: z.string().uuid().nullable(),
+  createdAt: z.string(),
+  fundedAt: z.string().nullable(),
+});
+
 export type CreatePotInput = z.infer<typeof createPotSchema>;
 export type UpdatePotInput = z.infer<typeof updatePotSchema>;
 export type PotIdParams = z.infer<typeof potIdParamsSchema>;
@@ -240,6 +258,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     messageResponseSchema,
     contributeSchema,
     transactionResponseSchema,
+    contributionResponseSchema,
   },
   { $id: "pots" }
 );

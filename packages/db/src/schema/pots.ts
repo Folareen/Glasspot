@@ -1,6 +1,7 @@
 import { pgTable, uuid, text, bigint, timestamp, pgEnum, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { users } from './users';
+import { transactions } from './transactions';
 
 /**
  * The core object of the product — a group savings pool. Stores what it's
@@ -22,6 +23,10 @@ import { users } from './users';
  * draft, manage members, trigger a manual payout) is derived at query
  * time from potMembers.role = 'admin'. creatorId below is historical
  * record only and carries no special authority — see pot-members.ts.
+ *
+ * pendingOperation/pendingOperationTransactionId: see potPendingOperationEnum
+ * comment below — tracks an in-flight payout/refund disbursement without
+ * introducing a new pot.status value.
  */
 export const potTypeEnum = pgEnum('pot_type', ['public', 'private']);
 export const potStatusEnum = pgEnum('pot_status', ['draft', 'open', 'closed']);
@@ -33,6 +38,16 @@ export const payoutModeEnum = pgEnum('payout_mode', [
   'scheduled',
 ]);
 export const refundTypeEnum = pgEnum('refund_type', ['admin', 'contributors']);
+/**
+ * Set while a payout/refund's outbound Nomba transfer is in flight (internal
+ * ledger leg already posted, disbursement call made or PENDING_BILLING) —
+ * blocks a second payout/refund trigger from touching the same funds until
+ * the transfer webhook resolves it (see docs/system-rules.md's "money in
+ * flight is tagged" rule). Pot stays status='open' throughout; this is
+ * deliberately NOT a pot.status value — see pots.ts status semantics above,
+ * which this does not change.
+ */
+export const potPendingOperationEnum = pgEnum('pot_pending_operation', ['payout', 'refund']);
 
 export const pots = pgTable(
   'pots',
@@ -50,6 +65,8 @@ export const pots = pgTable(
       .notNull()
       .default(sql`10000`),
     maxContributionKobo: bigint('max_contribution_kobo', { mode: 'bigint' }),
+    pendingOperation: potPendingOperationEnum('pending_operation'),
+    pendingOperationTransactionId: uuid('pending_operation_transaction_id').references(() => transactions.id),
     activatedAt: timestamp('activated_at', { withTimezone: true }),
     closedAt: timestamp('closed_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

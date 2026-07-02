@@ -1,17 +1,19 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { AuthService } from "./auth.service";
 import { AuthError, RateLimitError } from "./auth.errors";
+import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import {
   LoginInput,
   LogoutInput,
   RefreshTokenInput,
   RegisterInput,
   ResendOtpInput,
+  UpdateRefundProfileInput,
   VerifyEmailInput,
   VerifyLoginOtpInput,
 } from "./auth.schema";
 
-/** Maps a thrown error to the right HTTP response: 429 with Retry-After for rate limits, the error's own statusCode for other AuthErrors, or a generic 500. */
+/** Maps a thrown error to the right HTTP response: 429 with Retry-After for rate limits, the error's own statusCode for other AuthErrors, a failed Nomba bank lookup as 400, or a generic 500. */
 function handleAuthError(e: unknown, reply: FastifyReply) {
   if (e instanceof RateLimitError) {
     return reply
@@ -21,6 +23,9 @@ function handleAuthError(e: unknown, reply: FastifyReply) {
   }
   if (e instanceof AuthError) {
     return reply.code(e.statusCode).send({ message: e.message });
+  }
+  if (e instanceof NombaApiError) {
+    return reply.code(400).send({ message: `Could not verify bank account: ${e.message}` });
   }
   console.log(e);
   return reply.code(500).send({ message: "Something went wrong" });
@@ -128,6 +133,20 @@ export async function logoutHandler(
     const userId = request.user.sub;
     await AuthService.logout(userId);
     return reply.code(200).send({ message: "Logged out" });
+  } catch (e) {
+    return handleAuthError(e, reply);
+  }
+}
+
+/** Sets the caller's default refund destination bank account (validated against Nomba's bank-lookup API) and responds 200 with the stored profile. */
+export async function updateRefundProfileHandler(
+  request: FastifyRequest<{ Body: UpdateRefundProfileInput }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = request.user.sub;
+    const profile = await AuthService.updateRefundProfile(userId, request.body);
+    return reply.code(200).send(profile);
   } catch (e) {
     return handleAuthError(e, reply);
   }

@@ -24,13 +24,18 @@ export const users = pgTable('users', {
   refreshTokenHash: text('refresh_token_hash'),
   refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
 
+  // Destination for a refundType='admin' pot's real Nomba transfer when
+  // this user triggers the refund (spec-mvp.md: refunds "to whoever
+  // triggers it"). Nullable — only required at the moment of triggering an
+  // admin refund, not at signup; PotsService.triggerRefund throws if unset.
+  defaultRefundAccount: text('default_refund_account'),
+  defaultRefundBank: text('default_refund_bank'),
+
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 
   // FOR FUTURE REFERENCE (not needed today):
   // avatarUrl: text('avatar_url'),
-  // defaultRefundAccount: text('default_refund_account'),
-  // defaultRefundBank: text('default_refund_bank'),
 });
 
 export type User = typeof users.$inferSelect;

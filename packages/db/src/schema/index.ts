@@ -2,6 +2,7 @@ export * from './users';
 export * from './otp-codes';
 export * from './pots';
 export * from './pot-members';
+export * from './contributions';
 export * from './target-based-payout-configs';
 export * from './manual-payout-configs';
 export * from './recurring-payout-configs';
