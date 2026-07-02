@@ -9,10 +9,12 @@ export function generateOtpCode(): string {
   return n.toString().padStart(OTP_LENGTH, "0");
 }
 
+/** Hashes an OTP code with SHA-256 for storage — only the hash is ever persisted. */
 export function hashOtpCode(code: string): string {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
 
+/** Checks a candidate code against a stored hash using a constant-time comparison. */
 export function verifyOtpCode(code: string, hash: string): boolean {
   const candidateHash = hashOtpCode(code);
   const a = Buffer.from(candidateHash);

@@ -12,9 +12,11 @@ export interface WebhookIdStore {
  
 export class InMemoryWebhookIdStore implements WebhookIdStore {
   private seen = new Set<string>();
+  /** Returns whether requestId has already been recorded as processed. */
   async has(requestId: string) {
     return this.seen.has(requestId);
   }
+  /** Records requestId as processed for the lifetime of this process. */
   async add(requestId: string) {
     this.seen.add(requestId);
   }
@@ -34,6 +36,7 @@ export class InMemoryWebhookIdStore implements WebhookIdStore {
  * window, short enough not to grow Redis unbounded.
  */
 export class RedisWebhookIdStore implements WebhookIdStore {
+  /** Builds a store backed by the given Redis-like client, with a configurable key TTL and prefix. */
   constructor(
     private redis: {
       exists: (key: string) => Promise<number>;
@@ -42,11 +45,13 @@ export class RedisWebhookIdStore implements WebhookIdStore {
     private ttlSeconds = 60 * 60 * 24 * 30,
     private keyPrefix = "nomba:webhook:"
   ) {}
- 
+
+  /** Returns whether requestId has already been recorded as processed, across all instances sharing this Redis. */
   async has(requestId: string): Promise<boolean> {
     return (await this.redis.exists(this.keyPrefix + requestId)) === 1;
   }
- 
+
+  /** Records requestId as processed, expiring the key after ttlSeconds. */
   async add(requestId: string): Promise<void> {
     await this.redis.set(this.keyPrefix + requestId, "1", "EX", this.ttlSeconds);
   }

@@ -9,6 +9,7 @@ import { authSchemas } from "@/modules/auth/auth.schema";
 import potsRoutes from "@/modules/pots/pots.route";
 import { potSchemas } from "@/modules/pots/pots.schema";
 
+/** Builds and configures the Fastify app: registers shared schemas, the JWT/rate-limit/CORS plugins, and all route modules. */
 export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: true });
 

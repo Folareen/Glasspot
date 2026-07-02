@@ -5,6 +5,7 @@ import { countAdmins, getMemberRole } from "./pot-authorization";
 import { AddMemberInput, UpdateMemberRoleInput } from "./pots.schema";
 
 export const PotMembersService = {
+  /** Returns every member row for potId; callers are responsible for checking pot visibility first (see getViewablePotOrThrow). */
   async list(potId: string) {
     return db.select().from(potMembers).where(eq(potMembers.potId, potId));
   },

@@ -45,6 +45,7 @@ export function verifyRefreshTokenSignature(token: string): RefreshTokenPayload 
   return jwt.verify(token, REFRESH_TOKEN_SECRET) as RefreshTokenPayload;
 }
 
+/** Hashes a token/jti with SHA-256 for storage as the user's refreshTokenHash. */
 export function hashToken(token: string): string {
   return crypto.createHash("sha256").update(token).digest("hex");
 }

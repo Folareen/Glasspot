@@ -19,6 +19,7 @@ import {
 // ContributionsService) — both shapes carry the same
 // { name, message, statusCode } contract, so a structural check here
 // avoids importing every module's error class into this file.
+/** Maps a thrown PotError (or any error exposing a numeric statusCode, e.g. from LedgerService) to its corresponding HTTP response, or a generic 500 otherwise. */
 function handlePotError(e: unknown, reply: FastifyReply) {
   if (e instanceof PotError || (e instanceof Error && "statusCode" in e && typeof e.statusCode === "number")) {
     const statusCode = e instanceof PotError ? e.statusCode : (e as { statusCode: number }).statusCode;
@@ -34,10 +35,12 @@ function handlePotError(e: unknown, reply: FastifyReply) {
 // leave it genuinely undefined at runtime for an anonymous caller — the
 // `?.` below is load-bearing, not defensive noise, despite what the type
 // implies.
+/** Returns the requester's userId if authenticated, or undefined for an anonymous caller. */
 function currentUserId(request: FastifyRequest): string | undefined {
   return request.user?.sub;
 }
 
+/** Returns the requester's userId, or throws a 401 PotError if the request is unauthenticated. */
 function requireUserId(request: FastifyRequest): string {
   const userId = currentUserId(request);
   if (!userId) {
@@ -46,6 +49,7 @@ function requireUserId(request: FastifyRequest): string {
   return userId;
 }
 
+/** Creates a new pot owned by the authenticated requester and responds 201 with the created pot. */
 export async function createPotHandler(
   request: FastifyRequest<{ Body: CreatePotInput }>,
   reply: FastifyReply
@@ -59,6 +63,7 @@ export async function createPotHandler(
   }
 }
 
+/** Lists public pots plus, if the caller is authenticated, their private pots too. */
 export async function listPotsHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const pots = await PotsService.list(currentUserId(request));
@@ -68,6 +73,7 @@ export async function listPotsHandler(request: FastifyRequest, reply: FastifyRep
   }
 }
 
+/** Returns a single pot by id, or 404 if it doesn't exist or is a private pot the caller can't view. */
 export async function getPotHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -80,6 +86,7 @@ export async function getPotHandler(
   }
 }
 
+/** Applies a partial update to a draft pot (admin-only) and responds with the updated pot. */
 export async function updatePotHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: UpdatePotInput }>,
   reply: FastifyReply
@@ -93,6 +100,7 @@ export async function updatePotHandler(
   }
 }
 
+/** Transitions a draft pot to 'open' (admin-only) and responds with the updated pot. */
 export async function activatePotHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -106,6 +114,7 @@ export async function activatePotHandler(
   }
 }
 
+/** Transitions an open pot to 'closed' (admin-only, requires a zero ledger balance) and responds with the updated pot. */
 export async function closePotHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -119,6 +128,7 @@ export async function closePotHandler(
   }
 }
 
+/** Manually triggers a payout for an eligible pot (admin-only) and responds with the resulting transaction. */
 export async function triggerPayoutHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -132,6 +142,7 @@ export async function triggerPayoutHandler(
   }
 }
 
+/** Manually triggers a refund, draining the pot's full balance (admin-only), and responds with the resulting transaction. */
 export async function triggerRefundHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -145,6 +156,7 @@ export async function triggerRefundHandler(
   }
 }
 
+/** Records a contribution from the authenticated requester into the pot and responds 201 with the resulting transaction. */
 export async function contributeHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: ContributeInput }>,
   reply: FastifyReply
@@ -158,6 +170,7 @@ export async function contributeHandler(
   }
 }
 
+/** Lists a pot's members, after checking the pot is viewable by the requester (404 for a private pot they can't see). */
 export async function listMembersHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -173,6 +186,7 @@ export async function listMembersHandler(
   }
 }
 
+/** Adds a new member to a pot (admin-only invite) and responds 201 with the created membership row. */
 export async function addMemberHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: AddMemberInput }>,
   reply: FastifyReply
@@ -187,6 +201,7 @@ export async function addMemberHandler(
   }
 }
 
+/** Changes a member's role (admin-only), refusing to demote the pot's last remaining admin, and responds with the updated membership row. */
 export async function updateMemberRoleHandler(
   request: FastifyRequest<{ Params: MemberParams; Body: UpdateMemberRoleInput }>,
   reply: FastifyReply
@@ -205,6 +220,7 @@ export async function updateMemberRoleHandler(
   }
 }
 
+/** Removes a member from a pot (admin-only), refusing to remove the pot's last remaining admin, and responds 200. */
 export async function removeMemberHandler(
   request: FastifyRequest<{ Params: MemberParams }>,
   reply: FastifyReply

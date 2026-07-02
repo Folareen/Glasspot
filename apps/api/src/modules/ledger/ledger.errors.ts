@@ -1,5 +1,6 @@
 export class LedgerError extends Error {
   statusCode: number;
+  /** Builds a ledger-related error carrying the HTTP status to respond with (defaults to 400). */
   constructor(message: string, statusCode = 400) {
     super(message);
     this.name = "LedgerError";
