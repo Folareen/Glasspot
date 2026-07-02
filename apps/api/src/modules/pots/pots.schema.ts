@@ -238,6 +238,7 @@ const contributionResponseSchema = z.object({
   refundBank: z.string().nullable(),
   transactionId: z.string().uuid().nullable(),
   createdAt: z.string(),
+  expiresAt: z.string(),
   fundedAt: z.string().nullable(),
 });
 

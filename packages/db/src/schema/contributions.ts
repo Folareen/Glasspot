@@ -13,13 +13,22 @@ import { transactions } from './transactions';
  * ledger, which only knows about contributions that succeeded.
  *
  * status:
- *   pending  - virtual account created, awaiting the funding webhook.
- *   funded   - webhook confirmed payment at/above expectedAmountKobo;
- *              transactionId is set once the ledger post completes.
- *   underpaid - webhook confirmed payment below expectedAmountKobo; no
- *              ledger transaction posted (see system-rules.md's "no silent
- *              failures" — this must surface, not silently drop).
- *   failed   - virtual account expired or was otherwise abandoned unfunded.
+ *   pending  - virtual account created, no funding webhook received yet.
+ *   underpaid - at least one payment received (see contribution-payments.ts),
+ *              but SUM(contribution_payments.amountKobo) is still below
+ *              expectedAmountKobo — a top-up, not a terminal state. The
+ *              virtual account stays open for further transfers until
+ *              either the total reaches expectedAmountKobo (-> funded) or
+ *              expiresAt passes (-> failed, each payment refunded to its
+ *              own sender — see ExpiryService).
+ *   funded   - accumulated payments reached/exceeded expectedAmountKobo;
+ *              ledger transaction posted for exactly expectedAmountKobo
+ *              (never the received total — see system-rules.md); any
+ *              excess on the payment that tipped it over is refunded via
+ *              refundOverpayment(). transactionId set once posted.
+ *   failed   - expiresAt passed while still pending/underpaid; virtual
+ *              account released via Nomba's expire endpoint, any partial
+ *              payments refunded individually to their own senders.
  *   reversed - was 'funded' (ledger transaction posted), then Nomba sent a
  *              payment_reversal for it — the credited funds were clawed
  *              back out. transactionId still points at the ORIGINAL
@@ -30,7 +39,9 @@ import { transactions } from './transactions';
  * virtualAccountRef is OUR accountRef sent to Nomba (the idempotency key
  * for the createVirtualAccount call and what a retry re-derives).
  * virtualAccountNumber is Nomba's returned NUBAN, used to match the
- * incoming webhook back to this row.
+ * incoming webhook back to this row. expiresAt is set at creation
+ * (createdAt + a fixed window) and passed to Nomba as the virtual
+ * account's own expiryDate — see ContributionsService.create.
  *
  * refundAccountNumber/refundAccountName/refundBank: only meaningful (and
  * only collected) for a pot with refundType='contributors' — the account
@@ -70,6 +81,7 @@ export const contributions = pgTable('contributions', {
   refundBank: text('refund_bank'),
   transactionId: uuid('transaction_id').references(() => transactions.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   fundedAt: timestamp('funded_at', { withTimezone: true }),
 });
 

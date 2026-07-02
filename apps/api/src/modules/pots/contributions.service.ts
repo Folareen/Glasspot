@@ -1,22 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
-import db, { contributions, users, type Contribution } from "@glasspot/db";
+import { eq, sql } from "drizzle-orm";
+import db, { contributions, contributionPayments, users, type Contribution } from "@glasspot/db";
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
-import { NombaClient } from "@/integrations/nomba/nomba.client";
 import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
+
+/** How long a virtual account stays open for funding before ExpiryService sweeps it — see contributions.ts's expiresAt comment. */
+export const CONTRIBUTION_EXPIRY_HOURS = 24;
 
 /**
  * A contribution is funded via a one-time Nomba virtual account (see
  * spec-mvp.md). create() only reserves the intent — it never posts a
  * ledger transaction, since we never trust a client-supplied amount for
  * execution (see docs/system-rules.md). The ledger only gets touched once
- * Nomba's payment_success webhook confirms real money landed — see
- * confirmFunding() below, called from the webhook route.
+ * accumulated payments (see contribution-payments.ts) reach
+ * expectedAmountKobo — see confirmFunding() below, called from the
+ * webhook route. A virtual account accepts more than one transfer (a
+ * top-up toward an underpaid contribution) until either fully funded or
+ * expiresAt passes (see ExpiryService).
  */
 export const ContributionsService = {
   /**
@@ -81,13 +86,17 @@ export const ContributionsService = {
       return existing;
     }
 
+    const expiresAt = new Date(Date.now() + CONTRIBUTION_EXPIRY_HOURS * 60 * 60 * 1000);
+
     // Nomba's expectedAmount is in naira, our amounts are kobo (see
     // docs/system-rules.md) — divide down for the API call only, never
-    // for anything stored or posted to the ledger.
+    // for anything stored or posted to the ledger. expiryDate format
+    // confirmed against developer.nomba.com: "YYYY-MM-DD HH:mm:ss".
     const virtualAccount = await nomba.createVirtualAccount({
       accountRef: virtualAccountRef,
       accountName: contributor.fullName,
       expectedAmount: Number(amountKobo) / 100,
+      expiryDate: formatNombaExpiryDate(expiresAt),
     });
 
     const [contribution] = await db
@@ -102,6 +111,7 @@ export const ContributionsService = {
         refundAccountNumber,
         refundAccountName,
         refundBank,
+        expiresAt,
       })
       .returning();
 
@@ -109,14 +119,20 @@ export const ContributionsService = {
   },
 
   /**
-   * Called from the Nomba webhook route once a virtual account is funded.
-   * Compares the amount actually received against expectedAmountKobo:
-   * exact/overpaid posts the ledger transaction for the EXPECTED amount
-   * (never the client/provider-reported amount — system-rules.md) and, on
-   * overpaid, refunds the excess back to the sender. Underpaid posts
-   * nothing and leaves the contribution flagged for follow-up rather than
-   * silently dropping it. Safe to call twice for the same contribution —
-   * a contribution already out of 'pending' is a no-op.
+   * Called from the Nomba webhook route on every payment_success event.
+   * Records this specific transfer as a contribution_payments row (keyed
+   * by Nomba's own transactionId, so a redelivered webhook for the SAME
+   * transfer can't double-count it), then recomputes the accumulated
+   * total across all payments for this contribution:
+   *   - total >= expectedAmountKobo: posts the ledger transaction for
+   *     exactly expectedAmountKobo (never the received total —
+   *     system-rules.md), marks 'funded'. Any excess on THIS payment is
+   *     refunded back to its own sender.
+   *   - total < expectedAmountKobo: marks/keeps 'underpaid' — the virtual
+   *     account stays open for a top-up, not a dead end (see
+   *     ExpiryService for what happens if it never completes).
+   * No-op once the contribution is already funded/failed/reversed — those
+   * are terminal; only 'pending'/'underpaid' accept more payments.
    */
   async confirmFunding(payment: WebhookTransactionData): Promise<void> {
     if (!payment.transaction.aliasAccountNumber) {
@@ -138,20 +154,44 @@ export const ContributionsService = {
       return;
     }
 
-    if (contribution.status !== "pending") {
+    if (contribution.status !== "pending" && contribution.status !== "underpaid") {
       return;
     }
 
-    const verdict = NombaClient.evaluatePayment(
-      payment.transaction.transactionAmount,
-      Number(contribution.expectedAmountKobo) / 100
-    );
+    if (!payment.customer?.accountNumber || !payment.customer.bankCode || !payment.customer.senderName) {
+      // Can't record a payment without knowing who to refund it to if the
+      // contribution ultimately expires unfunded (see ExpiryService) —
+      // reject rather than silently accept an unrefundable payment.
+      throw new Error("payment_success payload missing customer bank details");
+    }
 
-    if (verdict === "underpaid") {
-      await db
-        .update(contributions)
-        .set({ status: "underpaid" })
-        .where(eq(contributions.id, contribution.id));
+    const amountKobo = BigInt(Math.round(payment.transaction.transactionAmount * 100));
+
+    try {
+      await db.insert(contributionPayments).values({
+        contributionId: contribution.id,
+        nombaTransactionId: payment.transaction.transactionId,
+        amountKobo,
+        senderAccountNumber: payment.customer.accountNumber,
+        senderBankCode: payment.customer.bankCode,
+        senderName: payment.customer.senderName,
+      });
+    } catch (err) {
+      // Unique violation on nomba_transaction_id — a redelivered webhook
+      // for a transfer we've already recorded. Already accounted for in
+      // the running total; nothing more to do.
+      if ((err as { code?: string }).code === "23505") return;
+      throw err;
+    }
+
+    const [{ total }] = await db
+      .select({ total: sql<string>`coalesce(sum(${contributionPayments.amountKobo}), 0)` })
+      .from(contributionPayments)
+      .where(eq(contributionPayments.contributionId, contribution.id));
+    const receivedTotalKobo = BigInt(total);
+
+    if (receivedTotalKobo < contribution.expectedAmountKobo) {
+      await db.update(contributions).set({ status: "underpaid" }).where(eq(contributions.id, contribution.id));
       return;
     }
 
@@ -181,8 +221,16 @@ export const ContributionsService = {
       .set({ status: "funded", transactionId: transaction.id, fundedAt: new Date() })
       .where(eq(contributions.id, contribution.id));
 
-    if (verdict === "overpaid") {
-      await nomba.refundOverpayment(payment, Number(contribution.expectedAmountKobo) / 100);
+    const excessKobo = receivedTotalKobo - contribution.expectedAmountKobo;
+    if (excessKobo > 0n) {
+      // refundOverpayment() computes the excess to send back as
+      // transactionAmount - expectedAmount, so pass the portion of THIS
+      // payment that was actually needed to reach expectedAmountKobo —
+      // amountKobo minus however much of the total overshoot came from
+      // this payment (capped at amountKobo itself, since this payment
+      // can't be blamed for more excess than its own size).
+      const thisPaymentNeededKobo = amountKobo - excessKobo > 0n ? amountKobo - excessKobo : 0n;
+      await nomba.refundOverpayment(payment, Number(thisPaymentNeededKobo) / 100);
     }
   },
 
@@ -213,3 +261,12 @@ export const ContributionsService = {
     await db.update(contributions).set({ status: "reversed" }).where(eq(contributions.id, contribution.id));
   },
 };
+
+/** Formats a Date as Nomba's expected "YYYY-MM-DD HH:mm:ss" expiryDate string (UTC), confirmed against developer.nomba.com/nomba-api-reference/virtual-accounts/create-virtual-account. */
+function formatNombaExpiryDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return (
+    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ` +
+    `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`
+  );
+}

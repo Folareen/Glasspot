@@ -244,6 +244,20 @@ export class NombaClient {
     return this.post("/v1/accounts/virtual", params);
   }
 
+  /**
+   * DELETE /v1/accounts/virtual/{accountRef} — releases a virtual account
+   * once we're done with it (past its own expiry window and either fully
+   * funded or abandoned — see ExpiryService). Each user is capped at 2
+   * virtual accounts on Nomba's side, so an account left un-expired
+   * indefinitely blocks that contributor from starting new contributions;
+   * this is how that slot gets freed. `accountRef` is the SAME value
+   * passed as accountRef to createVirtualAccount(), not Nomba's
+   * bankAccountNumber.
+   */
+  async expireVirtualAccount(accountRef: string): Promise<{ expired: boolean }> {
+    return this.del(`/v1/accounts/virtual/${encodeURIComponent(accountRef)}`);
+  }
+
   // ---------------------------------------------------------------
   // Transactions / reconciliation
   // ---------------------------------------------------------------
@@ -522,8 +536,13 @@ export class NombaClient {
     return this.request("POST", path, body);
   }
 
+  /** Thin DELETE wrapper around request(). */
+  private async del(path: string) {
+    return this.request("DELETE", path);
+  }
+
   /** Sends an authenticated HTTP request to the Nomba API and returns the unwrapped `data` payload, normalizing any failure (non-2xx response or network error) into a NombaApiError. */
-  private async request(method: "GET" | "POST", path: string, body?: unknown) {
+  private async request(method: "GET" | "POST" | "DELETE", path: string, body?: unknown) {
     try {
       // /v1/auth/* endpoints don't need a bearer token; everything else does.
       const needsAuth = !path.startsWith("/v1/auth/");
