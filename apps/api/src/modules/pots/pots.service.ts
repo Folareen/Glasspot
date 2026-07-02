@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import db, {
@@ -13,6 +13,8 @@ import db, {
 } from "@glasspot/db";
 import { PotError } from "./pots.errors";
 import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
+import { AccountsService } from "@/modules/ledger/accounts.service";
+import { LedgerService } from "@/modules/ledger/ledger.service";
 import {
   CreatePotInput,
   UpdatePotInput,
@@ -330,20 +332,19 @@ export const PotsService = {
     return updated;
   },
 
-  /**
-   * Admin-only. open -> closed, one-way, terminal.
-   *
-   * GAP: this build has no ledger/contribution/balance tracking yet
-   * (Milestone 2), so there is no real balance to check. Every pot is
-   * treated as balance-zero for this endpoint until the ledger exists —
-   * do not read this as "balance was verified."
-   */
+  /** Admin-only. open -> closed, one-way, terminal. Only reachable once the pot's ledger balance is zero (see pots.ts status semantics). */
   async close(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
     const pot = await getPotOrThrow(potId);
 
     if (pot.status !== "open") {
       throw new PotError("Only an open pot can be closed", 409);
+    }
+
+    const potAccount = await AccountsService.getOrCreatePotAccount(potId);
+    const balance = await LedgerService.getBalance(potAccount.id);
+    if (balance !== 0n) {
+      throw new PotError("Pot balance must be zero before it can be closed", 409);
     }
 
     const [updated] = await db
@@ -356,11 +357,14 @@ export const PotsService = {
   },
 
   /**
-   * Manual payout trigger — record-intent-only per product decision.
-   * Validates authorization + pot/mode eligibility and marks the config
-   * fired, but does not move money: no ledger, no Nomba call exists yet
-   * (Milestone 2). This proves the authorization + eligibility logic end
-   * to end ahead of execution being wired up.
+   * Manual payout trigger. Validates authorization + pot/mode eligibility,
+   * then posts the INTERNAL leg only: debit pot_account, credit
+   * platform_float, for the pot's full current balance — this locks the
+   * money on our side instantly (see reference material's "Money out"
+   * pattern). The actual Nomba disbursement call to the destination
+   * account is NOT wired up yet (a following pass) — this transaction's
+   * status stays 'completed' for the internal leg regardless, since from
+   * the pot's perspective the funds have left.
    */
   async triggerPayout(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
@@ -382,19 +386,18 @@ export const PotsService = {
       if (config.fired) {
         throw new PotError("Payout has already fired for this pot", 409);
       }
+      const transaction = await postPayoutTransaction(potId);
       await db
         .update(targetBasedPayoutConfigs)
         .set({ fired: true, firedAt: new Date() })
         .where(eq(targetBasedPayoutConfigs.potId, potId));
-      return { message: "Payout triggered (recorded — execution not yet implemented)" };
+      return transaction;
     }
 
     if (pot.payoutMode === "manual") {
       // manual mode has no fired/firedAt — it can fire repeatedly over the
-      // pot's lifetime (see manual-payout-configs.ts). Nothing to update
-      // on the config row itself; a real payout execution record
-      // (Milestone 2) is what will track each individual firing.
-      return { message: "Payout triggered (recorded — execution not yet implemented)" };
+      // pot's lifetime (see manual-payout-configs.ts).
+      return postPayoutTransaction(potId);
     }
 
     throw new PotError(
@@ -404,11 +407,15 @@ export const PotsService = {
   },
 
   /**
-   * Manual refund trigger — same record-intent-only shape as
-   * triggerPayout. refundType='admin' means the triggering admin decides
-   * to refund now (e.g. target wasn't met); refundType='contributors'
-   * means each contributor gets their contribution back. Neither actually
-   * moves money yet — no ledger/contribution records exist in this build.
+   * Manual refund trigger. Posts the INTERNAL leg only, same shape for
+   * both refundType values: debit pot_account, credit platform_float, for
+   * the pot's full current balance, draining it to zero so it can close
+   * (see spec.md). refundType='admin' vs 'contributors' only affects WHO
+   * the actual Nomba payout(s) go to once disbursement is wired up — that
+   * is a downstream destination question, not a ledger-correctness one,
+   * so both are structurally identical single-entry drains here. Real
+   * per-contributor refund amounts (for refundType='contributors') are a
+   * follow-up, not implemented in this pass.
    */
   async triggerRefund(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
@@ -418,8 +425,48 @@ export const PotsService = {
       throw new PotError("Pot must be open to trigger a refund", 409);
     }
 
-    return {
-      message: `Refund triggered for refundType='${pot.refundType}' (recorded — execution not yet implemented)`,
-    };
+    return postRefundTransaction(potId);
   },
 };
+
+/** Drains potId's full current balance into platform_float as a 'payout' transaction — the internal leg of a disbursement. */
+async function postPayoutTransaction(potId: string) {
+  const potAccount = await AccountsService.getOrCreatePotAccount(potId);
+  const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
+  const balance = await LedgerService.getBalance(potAccount.id);
+
+  if (balance <= 0n) {
+    throw new PotError("Pot has no balance to pay out", 409);
+  }
+
+  return LedgerService.postTransaction({
+    type: "payout",
+    reference: `payout_${potId}_${randomUUID()}`,
+    entries: [
+      { accountId: potAccount.id, direction: "debit", amountKobo: balance },
+      { accountId: platformFloat.id, direction: "credit", amountKobo: balance },
+    ],
+    metadata: { potId },
+  });
+}
+
+/** Drains potId's full current balance into platform_float as a 'refund' transaction — the internal leg of returning funds. */
+async function postRefundTransaction(potId: string) {
+  const potAccount = await AccountsService.getOrCreatePotAccount(potId);
+  const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
+  const balance = await LedgerService.getBalance(potAccount.id);
+
+  if (balance <= 0n) {
+    throw new PotError("Pot has no balance to refund", 409);
+  }
+
+  return LedgerService.postTransaction({
+    type: "refund",
+    reference: `refund_${potId}_${randomUUID()}`,
+    entries: [
+      { accountId: potAccount.id, direction: "debit", amountKobo: balance },
+      { accountId: platformFloat.id, direction: "credit", amountKobo: balance },
+    ],
+    metadata: { potId },
+  });
+}
