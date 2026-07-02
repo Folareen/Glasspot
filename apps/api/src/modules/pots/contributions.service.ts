@@ -5,6 +5,7 @@ import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
 import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
+import { isUniqueViolation } from "@/lib/db-errors";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
@@ -73,18 +74,12 @@ export const ContributionsService = {
       throw new PotError("Contributor not found", 404);
     }
 
-    // Our own idempotency key: a client retrying the exact same request
-    // (e.g. input.idempotencyKey supplied) resolves to the same virtual
-    // account instead of minting a fresh one each time.
-    const virtualAccountRef = input.idempotencyKey ?? `contribution_${randomUUID()}`;
-
-    const [existing] = await db
-      .select()
-      .from(contributions)
-      .where(eq(contributions.virtualAccountRef, virtualAccountRef));
-    if (existing) {
-      return existing;
-    }
+    // Request-level idempotency is enforced at the HTTP layer (see
+    // pots.controller.ts's withIdempotencyKey wrapping this call) — a
+    // retried request with the same Idempotency-Key never reaches here a
+    // second time, so virtualAccountRef only needs to be unique, not
+    // derived from client input.
+    const virtualAccountRef = `contribution_${randomUUID()}`;
 
     const expiresAt = new Date(Date.now() + CONTRIBUTION_EXPIRY_HOURS * 60 * 60 * 1000);
 
@@ -180,7 +175,7 @@ export const ContributionsService = {
       // Unique violation on nomba_transaction_id — a redelivered webhook
       // for a transfer we've already recorded. Already accounted for in
       // the running total; nothing more to do.
-      if ((err as { code?: string }).code === "23505") return;
+      if (isUniqueViolation(err)) return;
       throw err;
     }
 

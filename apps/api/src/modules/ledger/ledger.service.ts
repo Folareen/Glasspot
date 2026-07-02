@@ -1,4 +1,5 @@
 import { and, eq, inArray } from "drizzle-orm";
+import { isUniqueViolation } from "@/lib/db-errors";
 import db, {
   accounts,
   balances,
@@ -134,8 +135,8 @@ export const LedgerService = {
       } catch (err) {
         // Unique violation on `reference` — a concurrent caller won the
         // race to post the same idempotency key between our existence
-        // check above and this insert. Postgres error code 23505.
-        if ((err as { code?: string }).code === "23505") {
+        // check above and this insert.
+        if (isUniqueViolation(err)) {
           throw new DuplicateTransactionReferenceError(input.reference);
         }
         throw err;

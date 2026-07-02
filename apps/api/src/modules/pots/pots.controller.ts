@@ -4,6 +4,7 @@ import { PotMembersService } from "./pot-members.service";
 import { ContributionsService } from "./contributions.service";
 import { assertIsAdmin, getViewablePotOrThrow } from "./pot-authorization";
 import { PotError } from "./pots.errors";
+import { hashRequest, withIdempotencyKey } from "@/lib/idempotency.service";
 import {
   AddMemberInput,
   ContributeInput,
@@ -47,6 +48,15 @@ function requireUserId(request: FastifyRequest): string {
     throw new PotError("Authentication required", 401);
   }
   return userId;
+}
+
+/** Returns the Idempotency-Key header, or throws a 400 PotError if missing — required on every mutating money endpoint (see docs/system-rules.md). */
+function requireIdempotencyKey(request: FastifyRequest): string {
+  const key = request.headers["idempotency-key"];
+  if (!key || Array.isArray(key)) {
+    throw new PotError("Idempotency-Key header is required", 400);
+  }
+  return key;
 }
 
 /** Creates a new pot owned by the authenticated requester and responds 201 with the created pot. */
@@ -128,43 +138,58 @@ export async function closePotHandler(
   }
 }
 
-/** Manually triggers a payout for an eligible pot (admin-only) and responds with the resulting transaction. */
+/** Manually triggers a payout for an eligible pot (admin-only), idempotent per the Idempotency-Key header, and responds with the resulting transaction. */
 export async function triggerPayoutHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
-    const result = await PotsService.triggerPayout(request.params.id, userId);
-    return reply.code(200).send(result);
+    const key = requireIdempotencyKey(request);
+    const requestHash = hashRequest({ method: "POST", path: request.url, userId });
+    const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
+      const result = await PotsService.triggerPayout(request.params.id, userId);
+      return { statusCode: 200, body: result };
+    });
+    return reply.code(statusCode).send(body);
   } catch (e) {
     return handlePotError(e, reply);
   }
 }
 
-/** Manually triggers a refund, draining the pot's full balance (admin-only), and responds with the resulting transaction. */
+/** Manually triggers a refund, draining the pot's full balance (admin-only), idempotent per the Idempotency-Key header, and responds with the resulting transaction. */
 export async function triggerRefundHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
-    const result = await PotsService.triggerRefund(request.params.id, userId);
-    return reply.code(200).send(result);
+    const key = requireIdempotencyKey(request);
+    const requestHash = hashRequest({ method: "POST", path: request.url, userId });
+    const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
+      const result = await PotsService.triggerRefund(request.params.id, userId);
+      return { statusCode: 200, body: result };
+    });
+    return reply.code(statusCode).send(body);
   } catch (e) {
     return handlePotError(e, reply);
   }
 }
 
-/** Issues a virtual account for the authenticated requester to fund and responds 201 with the pending contribution. */
+/** Issues a virtual account for the authenticated requester to fund, idempotent per the Idempotency-Key header, and responds 201 with the pending contribution. */
 export async function contributeHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: ContributeInput }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
-    const contribution = await ContributionsService.create(request.params.id, userId, request.body);
-    return reply.code(201).send(contribution);
+    const key = requireIdempotencyKey(request);
+    const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
+    const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
+      const contribution = await ContributionsService.create(request.params.id, userId, request.body);
+      return { statusCode: 201, body: contribution };
+    });
+    return reply.code(statusCode).send(body);
   } catch (e) {
     return handlePotError(e, reply);
   }

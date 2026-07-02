@@ -203,12 +203,13 @@ const messageResponseSchema = z.object({
 // required/rejected based on the target pot's actual refundType, since
 // that can't be expressed in this wire schema alone (would need the pot
 // loaded first).
+// Idempotency is enforced via the Idempotency-Key request header (see
+// pots.controller.ts / lib/idempotency.service.ts), not a body field.
 const contributeSchema = z.object({
   amountKobo: koboAmount,
   anonymous: z.boolean().optional(),
   refundAccountNumber: z.string().min(1).optional(),
   refundBankCode: z.string().min(1).optional(),
-  idempotencyKey: z.string().optional(),
 });
 
 const transactionResponseSchema = z.object({
