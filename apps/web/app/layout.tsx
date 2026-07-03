@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
+import { MockStoreProvider } from "@/lib/mock/store";
+import { ToastProvider } from "@/lib/toast";
 import "./globals.css";
 
 const fraunces = Fraunces({
@@ -21,6 +23,11 @@ export const metadata: Metadata = {
   title: "Glasspot: group money, governed by agreement",
   description:
     "Glasspot is a shared pot for group money. The group agrees on the rule before anyone pays, so money only moves when that rule is met, visible to everyone in the pot.",
+  manifest: "/manifest.webmanifest",
+};
+
+export const viewport = {
+  themeColor: "#0f6e5f",
 };
 
 export default function RootLayout({
@@ -33,7 +40,11 @@ export default function RootLayout({
       lang="en"
       className={`${fraunces.variable} ${inter.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <MockStoreProvider>
+          <ToastProvider>{children}</ToastProvider>
+        </MockStoreProvider>
+      </body>
     </html>
   );
 }
