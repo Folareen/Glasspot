@@ -21,6 +21,7 @@ import {
   CreatePotInput,
   MemberParams,
   PotIdParams,
+  TriggerPayoutInput,
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
@@ -110,12 +111,13 @@ async function potsRoutes(server: FastifyInstance) {
     closePotHandler
   );
 
-  server.post<{ Params: PotIdParams }>(
+  server.post<{ Params: PotIdParams; Body: TriggerPayoutInput }>(
     "/:id/payout",
     {
       preHandler: [server.authenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
+        body: $ref("triggerPayoutSchema"),
         response: { 200: $ref("transactionResponseSchema") },
       },
     },

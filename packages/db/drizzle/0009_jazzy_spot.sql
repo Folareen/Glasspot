@@ -1,0 +1,1 @@
+DROP TABLE "manual_payout_configs" CASCADE;

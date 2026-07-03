@@ -28,7 +28,7 @@ Glasspot lets a group agree on the rule before anyone pays. Money only moves whe
 
 ## Payout
 
-Every pot picks exactly one payout mode at creation, to a single destination, except `rotation` and `scheduled` which pay out to multiple destinations.
+Every pot picks exactly one payout mode at creation. Most modes fix their destination at creation too, except `rotation` and `scheduled` which pay out to multiple destinations, and `manual`, whose destination is chosen by the triggering admin at the moment of payout rather than fixed up front.
 
 **Locked in for this MVP (hackathon build): `target_based`, `rotation`, `recurring`, `manual`.** These four are the ones being built and demoed now — chosen for the strongest demo story (automatic rule-based trust + Nigeria-native ajo/esusu + human-authorized-but-transparent trust), not because the others are harder. `scheduled` is coming soon, not in this MVP.
 
@@ -36,7 +36,7 @@ Every pot picks exactly one payout mode at creation, to a single destination, ex
   - target date reached
   - target amount reached
   - admin manual trigger
-- **`manual`**: pays out to one destination whenever any admin triggers it — no condition
+- **`manual`**: pays out whenever any admin triggers it, to whichever account that admin names at the moment of payout — no condition, no destination fixed at creation, and the destination used is always visible on the resulting transaction afterward
 - **`recurring`**: pays out a fixed amount to one destination on a fixed interval, repeating, until the pot closes
 - **`rotation`**: pays out to an ordered sequence of destinations, each with its own amount and date, each firing once — one turn per recipient (ajo/esusu-style)
 - **`scheduled`** (coming soon, not in this MVP): pays out to an unordered set of one-shot entries, each with its own destination, amount, and date (e.g. pay account A ₦50,000 Monday, pay account B ₦30,000 Tuesday). Entries fire independently — no sequence dependency between them — and the same destination can appear more than once

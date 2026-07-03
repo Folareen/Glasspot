@@ -11,6 +11,7 @@ import {
   CreatePotInput,
   MemberParams,
   PotIdParams,
+  TriggerPayoutInput,
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
@@ -138,17 +139,31 @@ export async function closePotHandler(
   }
 }
 
-/** Manually triggers a payout for an eligible pot (admin-only), idempotent per the Idempotency-Key header, and responds with the resulting transaction. */
+/**
+ * Manually triggers a payout for an eligible pot (admin-only), idempotent
+ * per the Idempotency-Key header, and responds with the resulting
+ * transaction. request.body only matters for payoutMode='manual', where
+ * it carries the destination the triggering admin is sending to this
+ * time — see PotsService.triggerPayout and pots.schema.ts's
+ * triggerPayoutSchema. Included in the idempotency hash (unlike
+ * activate/close/refund, which take no body) since two manual-payout
+ * retries with the same key but different destinations must not silently
+ * collapse to whichever one happened to run first.
+ */
 export async function triggerPayoutHandler(
-  request: FastifyRequest<{ Params: PotIdParams }>,
+  request: FastifyRequest<{ Params: PotIdParams; Body: TriggerPayoutInput }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
     const key = requireIdempotencyKey(request);
-    const requestHash = hashRequest({ method: "POST", path: request.url, userId });
+    const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
     const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
-      const result = await PotsService.triggerPayout(request.params.id, userId);
+      const destination =
+        request.body?.destinationAccount && request.body?.destinationBank
+          ? { destinationAccount: request.body.destinationAccount, destinationBank: request.body.destinationBank }
+          : undefined;
+      const result = await PotsService.triggerPayout(request.params.id, userId, destination);
       return { statusCode: 200, body: result };
     });
     return reply.code(statusCode).send(body);
