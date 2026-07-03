@@ -8,7 +8,6 @@ import db, {
   transactions,
   contributions,
   targetBasedPayoutConfigs,
-  manualPayoutConfigs,
   recurringPayoutConfigs,
   rotationPayoutConfigs,
   rotationPayoutLegs,
@@ -93,15 +92,10 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
       });
       return;
     }
-    case "manual": {
-      const c = input.payoutConfig;
-      await db.insert(manualPayoutConfigs).values({
-        potId,
-        destinationAccount: c.destinationAccount,
-        destinationBank: c.destinationBank,
-      });
+    case "manual":
+      // No config row: the destination is picked at trigger time, not
+      // creation time — see PotsService.triggerPayout.
       return;
-    }
     case "recurring": {
       const c = input.payoutConfig;
       await db.insert(recurringPayoutConfigs).values({
@@ -144,10 +138,8 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
  * re-validates payoutConfig against that ONE specific mode's own Zod
  * schema via safeParse — much simpler and more correct than trying to
  * structurally distinguish all 4 shapes from each other, which isn't
- * even fully possible: manualPayoutConfigSchema and a target_based config
- * with no optional fields set are the identical shape
- * ({ destinationAccount, destinationBank }), and are only told apart by
- * which mode was actually requested.
+ * reliable in general (a target_based config with no optional fields set
+ * would otherwise be indistinguishable from another mode's empty shape).
  */
 function validatePayoutModeConfig(
   payoutMode: CreatePotInput["payoutMode"],
@@ -192,7 +184,7 @@ async function deleteExistingPayoutConfig(potId: string, payoutMode: Pot["payout
       await db.delete(targetBasedPayoutConfigs).where(eq(targetBasedPayoutConfigs.potId, potId));
       return;
     case "manual":
-      await db.delete(manualPayoutConfigs).where(eq(manualPayoutConfigs.potId, potId));
+      // No config row to delete — see insertPayoutConfig's manual case.
       return;
     case "recurring":
       await db.delete(recurringPayoutConfigs).where(eq(recurringPayoutConfigs.potId, potId));
@@ -367,11 +359,23 @@ export const PotsService = {
   /**
    * Manual payout trigger. Validates authorization + pot/mode eligibility,
    * then posts the internal leg (debit pot_account, credit
-   * platform_float) and calls Nomba to disburse to the mode's configured
-   * destination — see postDisbursement() for the full in-flight-lock +
-   * transfer-call shape.
+   * platform_float) and calls Nomba to disburse to the destination — see
+   * postDisbursement() for the full in-flight-lock + transfer-call shape.
+   *
+   * destination is only accepted (and required) for payoutMode='manual',
+   * where the group's agreed rule is that any admin can send the balance
+   * to whichever account they choose at the moment they trigger it — see
+   * pots.schema.ts's triggerPayoutSchema comment. Every other mode's
+   * destination is fixed at pot creation and read from its own config
+   * table instead; a destination passed alongside one of those modes is
+   * ignored, not merged in, so there is exactly one source of truth per
+   * mode.
    */
-  async triggerPayout(potId: string, userId: string) {
+  async triggerPayout(
+    potId: string,
+    userId: string,
+    destination?: { destinationAccount: string; destinationBank: string }
+  ) {
     await assertIsAdmin(potId, userId);
     const pot = await getPotOrThrow(potId);
 
@@ -403,20 +407,16 @@ export const PotsService = {
     }
 
     if (pot.payoutMode === "manual") {
-      // manual mode has no fired/firedAt — it can fire repeatedly over the
-      // pot's lifetime (see manual-payout-configs.ts).
-      const [config] = await db
-        .select()
-        .from(manualPayoutConfigs)
-        .where(eq(manualPayoutConfigs.potId, potId))
-        .limit(1);
-      if (!config) {
-        throw new PotError("Pot has no manual payout config", 409);
+      // manual mode fires repeatedly over the pot's lifetime, to whichever
+      // account the triggering admin names each time — see this method's
+      // top comment.
+      if (!destination?.destinationAccount || !destination.destinationBank) {
+        throw new PotError(
+          "destinationAccount and destinationBank are required to trigger a manual payout",
+          400
+        );
       }
-      return postDisbursement(pot, "payout", {
-        destinationAccount: config.destinationAccount,
-        destinationBank: config.destinationBank,
-      });
+      return postDisbursement(pot, "payout", destination);
     }
 
     throw new PotError(

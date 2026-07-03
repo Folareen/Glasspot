@@ -44,7 +44,11 @@ export const targetBasedPayoutConfigSchema = z
     { message: "At least one of targetDate, targetAmountKobo, or adminManualEnabled is required" }
   );
 
-export const manualPayoutConfigSchema = z.object(destinationSchema);
+// Manual mode has no destination and no condition at creation time — the
+// group's agreed rule is that any admin can send the balance to whichever
+// account they choose at the moment they trigger it (see
+// triggerPayoutSchema below, where that destination is actually supplied).
+export const manualPayoutConfigSchema = z.object({});
 
 export const recurringPayoutConfigSchema = z.object({
   ...destinationSchema,
@@ -212,6 +216,18 @@ const contributeSchema = z.object({
   refundBankCode: z.string().min(1).optional(),
 });
 
+// Same {accountNumber, bankCode} shape as destinationSchema — only
+// meaningful (and required) for payoutMode='manual', where the group's
+// agreed rule is that the destination is picked at the moment of payout,
+// not fixed at pot creation. PotsService.triggerPayout enforces it's
+// required/rejected based on the pot's actual payoutMode, since that
+// can't be expressed in this wire schema alone (would need the pot loaded
+// first — same reasoning as contributeSchema's refund fields above).
+const triggerPayoutSchema = z.object({
+  destinationAccount: z.string().min(1).optional(),
+  destinationBank: z.string().min(1).optional(),
+});
+
 const transactionResponseSchema = z.object({
   id: z.string().uuid(),
   type: z.enum(["funding", "contribution", "payout", "refund", "fee", "transfer", "reversal"]),
@@ -256,6 +272,7 @@ export type AddMemberInput = z.infer<typeof addMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
 export type ContributeInput = z.infer<typeof contributeSchema>;
+export type TriggerPayoutInput = z.infer<typeof triggerPayoutSchema>;
 
 // Response types — the wire contract, safe for apps/web to import
 // directly. Money/date fields are string here (JSON has no bigint/Date);
@@ -283,6 +300,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     memberListResponseSchema,
     messageResponseSchema,
     contributeSchema,
+    triggerPayoutSchema,
     transactionResponseSchema,
     refundResponseSchema,
     contributionResponseSchema,

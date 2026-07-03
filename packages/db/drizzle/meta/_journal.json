@@ -64,6 +64,13 @@
       "when": 1783014230579,
       "tag": "0008_gigantic_pride",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783043433528,
+      "tag": "0009_jazzy_spot",
+      "breakpoints": true
     }
   ]
 }
