@@ -1,0 +1,80 @@
+"use client";
+
+import { useState } from "react";
+import { Modal } from "@/components/ui/Modal";
+import { Field } from "@/components/ui/Field";
+import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
+import { Button } from "@/components/ui/Button";
+import { Text } from "@/components/ui/Text";
+import { Spinner } from "@/components/ui/Spinner";
+import { nigerianBanks } from "@/lib/mock/fixtures";
+
+type PayoutDestinationModalProps = {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (destination: { account: string; bank: string }) => void;
+};
+
+export function PayoutDestinationModal({ open, onClose, onConfirm }: PayoutDestinationModalProps) {
+  const [account, setAccount] = useState("");
+  const [bank, setBank] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  function handleClose() {
+    setAccount("");
+    setBank("");
+    onClose();
+  }
+
+  function handleConfirm() {
+    if (!account || !bank) return;
+    setIsSubmitting(true);
+    onConfirm({ account, bank });
+    setIsSubmitting(false);
+    handleClose();
+  }
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Send payout to">
+      <div className="flex flex-col gap-4">
+        <Text size="sm" color="secondary">
+          This pot pays out to any account an admin chooses. Pick where the balance goes this
+          time, everyone in the pot will be able to see it afterward.
+        </Text>
+
+        <Field label="Account number" htmlFor="payout-destination-account" required>
+          <Input
+            id="payout-destination-account"
+            inputMode="numeric"
+            maxLength={10}
+            value={account}
+            onChange={(e) => setAccount(e.target.value)}
+            placeholder="0123456789"
+          />
+        </Field>
+
+        <Field label="Bank" htmlFor="payout-destination-bank" required>
+          <Select id="payout-destination-bank" value={bank} onChange={(e) => setBank(e.target.value)}>
+            <option value="">Select a bank</option>
+            {nigerianBanks.map((b) => (
+              <option key={b.code} value={b.code}>
+                {b.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div className="flex gap-3">
+          <Button variant="secondary" className="flex-1" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button className="flex-1" onClick={handleConfirm} disabled={!account || !bank || isSubmitting}>
+            {isSubmitting && <Spinner size="sm" />}
+            Send payout
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

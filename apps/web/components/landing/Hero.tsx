@@ -4,7 +4,7 @@ import { Text } from "@/components/ui/Text";
 import { Container } from "@/components/ui/Container";
 import { AvatarStack } from "@/components/ui/AvatarStack";
 import { Highlight } from "@/components/ui/Highlight";
-import { ArrowRight, Lock, Users } from "lucide-react";
+import { ArrowRight, Lock } from "lucide-react";
 
 export function Hero() {
   return (
@@ -19,13 +19,12 @@ export function Hero() {
       />
       <Container className="relative flex flex-col items-start gap-8 py-16 sm:py-24">
         <Heading level={1} font="display" as="h1" className="max-w-3xl">
-          Group money, governed by <Highlight>the rule</Highlight> everyone agreed on first.
+          Pooled money, moved only by <Highlight>the rule</Highlight> you agreed on.
         </Heading>
         <Text size="lg" color="secondary" className="max-w-xl">
-          Glasspot is a shared pot for money from more than one person, for weddings, dues, rent,
-          emergencies and more. The group agrees on the rule before anyone contributes. Money
-          only moves when that rule is met, or a trusted member acts, and every move stays
-          visible to everyone in the pot.
+          Glasspot is a transparent, flexible pot for fundraising, community levies, friend
+          group contributions, or ceremony contributions. Set the rule before anyone pays in,
+          and every move stays visible to everyone.
         </Text>
         <div className="sm:flex space-y-3 sm:space-y-0 gap-3 sm:flex-row">
           <Button href="/signup" size="lg" className="w-full sm:w-[unset]">
@@ -43,14 +42,8 @@ export function Hero() {
             even the creator.
           </Text>
         </div>
-        <div className="mt-2 flex flex-col items-start gap-3 sm:flex-row sm:items-start">
+        <div className="mt-2">
           <AvatarStack names={["Ada O", "Tunde B", "Chiamaka N", "Bayo A"]} />
-          <div className="flex items-start gap-1.5 text-text-secondary">
-            <Users className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.5} />
-            <Text size="sm" color="secondary">
-              For every kind of group: family, coworkers, classmates, associations.
-            </Text>
-          </div>
         </div>
       </Container>
     </section>
