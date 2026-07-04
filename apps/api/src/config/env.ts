@@ -25,6 +25,7 @@ const EnvSchema = z.object({
   NOMBA_CLIENT_ID: z.string(),
   NOMBA_CLIENT_SECRET: z.string(),
   NOMBA_ACCOUNT_ID: z.string(),
+  NOMBA_SUBACCOUNT_ID: z.string(),
   NOMBA_WEBHOOK_SECRET: z.string(),
   REDIS_URL: z.string(),
   SMTP_HOST: z.string(),

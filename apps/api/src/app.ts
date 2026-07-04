@@ -26,10 +26,15 @@ export function buildApp(): FastifyInstance {
   app.register(rateLimit, { global: false });
   app.register(cors, { origin: env.WEB_ORIGIN ?? "http://localhost:3000" });
   app.register(bullmqPlugin);
-  app.register(healthRoutes);
-  app.register(authRoutes, { prefix: "/auth" });
-  app.register(potsRoutes, { prefix: "/pots" });
-  app.register(nombaWebhooksRoutes, { prefix: "/webhooks" });
+  app.register(
+    async (api) => {
+      api.register(healthRoutes);
+      api.register(authRoutes, { prefix: "/auth" });
+      api.register(potsRoutes, { prefix: "/pots" });
+      api.register(nombaWebhooksRoutes, { prefix: "/webhooks" });
+    },
+    { prefix: "/api/v1" }
+  );
 
   return app;
 }

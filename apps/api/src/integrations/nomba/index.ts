@@ -15,6 +15,7 @@ export const nomba = new NombaClient({
   clientId: env.NOMBA_CLIENT_ID,
   clientSecret: env.NOMBA_CLIENT_SECRET,
   accountId: env.NOMBA_ACCOUNT_ID,
+  subAccountId: env.NOMBA_SUBACCOUNT_ID,
   webhookSecret: env.NOMBA_WEBHOOK_SECRET,
   environment: env.NOMBA_ENVIRONMENT,
   webhookIdStore: new RedisWebhookIdStore(redis),
