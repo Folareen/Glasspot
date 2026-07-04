@@ -6,8 +6,8 @@
  *   - POST /v1/auth/token/refresh    refresh an expired token
  *   - GET  /v1/transfers/banks       fetch bank codes and names
  *   - POST /v1/transfers/bank/lookup bank account lookup
- *   - POST /v2/transfers/bank        bank transfer from parent account
- *   - POST /v1/accounts/virtual      create virtual account
+ *   - POST /v2/transfers/bank/{subAccountId}   bank transfer, sourced from the configured sub-account (never the parent)
+ *   - POST /v1/accounts/virtual/{subAccountId} create virtual account under the configured sub-account
  *   - GET  /v1/transactions/accounts list transactions (for reconciliation)
  *   - webhook signature verification + a nightly reconciliation helper
  *
@@ -177,7 +177,10 @@ export class NombaClient {
   }
 
   /**
-   * POST /v2/transfers/bank
+   * POST /v2/transfers/bank/{subAccountId}
+   * Sourced from the configured sub-account, never the parent account - the
+   * parent's `accountId` still goes out as a header (Nomba requires both),
+   * but `subAccountId` in the path is what actually gets debited.
    * Returns immediately. `status` may be:
    *   - "SUCCESS"         settled
    *   - "PENDING_BILLING" accepted but not yet settled - rely on the
@@ -189,7 +192,7 @@ export class NombaClient {
    *     a brand-new merchantTxRef in that case
    */
   async transferToBankAccount(params: TransferParams): Promise<TransferResult> {
-    return this.post("/v2/transfers/bank", params);
+    return this.post(`/v2/transfers/bank/${encodeURIComponent(this.config.subAccountId)}`, params);
   }
 
   
@@ -233,7 +236,13 @@ export class NombaClient {
   // Virtual accounts
   // ---------------------------------------------------------------
 
-  /** POST /v1/accounts/virtual — issues a dedicated NUBAN for a customer or invoice, after validating accountRef/accountName length against Nomba's constraints. */
+  /**
+   * POST /v1/accounts/virtual/{subAccountId} — issues a dedicated NUBAN for a
+   * customer or invoice, after validating accountRef/accountName length
+   * against Nomba's constraints. Funds collected on this virtual account
+   * land in the configured sub-account, not the parent (same accountId
+   * header + subAccountId-in-path pattern as transferToBankAccount()).
+   */
   async createVirtualAccount(params: CreateVirtualAccountParams): Promise<VirtualAccount> {
     if (params.accountRef.length < 16 || params.accountRef.length > 64) {
       throw new RangeError("accountRef must be 16-64 characters");
@@ -241,7 +250,7 @@ export class NombaClient {
     if (params.accountName.length < 8 || params.accountName.length > 64) {
       throw new RangeError("accountName must be 8-64 characters");
     }
-    return this.post("/v1/accounts/virtual", params);
+    return this.post(`/v1/accounts/virtual/${encodeURIComponent(this.config.subAccountId)}`, params);
   }
 
   /**

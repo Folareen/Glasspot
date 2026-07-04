@@ -118,6 +118,8 @@ export interface NombaClientConfig {
   clientSecret: string;
   /** parent accountId of the business - sent as the `accountId` header on every call */
   accountId: string;
+  /** the sub-account money actually lives in and transfers out of - see transferToBankAccount() */
+  subAccountId: string;
   environment?: Environment;
   /** required only if you'll verify webhooks */
   webhookSecret?: string;
