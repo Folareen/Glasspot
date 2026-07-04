@@ -27,6 +27,11 @@ const EnvSchema = z.object({
   NOMBA_ACCOUNT_ID: z.string(),
   NOMBA_WEBHOOK_SECRET: z.string(),
   REDIS_URL: z.string(),
+  SMTP_HOST: z.string(),
+  SMTP_PORT: z.coerce.number().default(587),
+  SMTP_USER: z.string(),
+  SMTP_PASSWORD: z.string(),
+  MAIL_FROM: z.string().default("Glasspot <no-reply@glasspot.app>"),
 });
 
 export type EnvSchema = z.infer<typeof EnvSchema>;

@@ -3,6 +3,7 @@ import db, { otpCodes, users } from "@glasspot/db";
 import { hashPassword, verifyPassword } from "@/lib/hash";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
 import { hashToken, signRefreshToken, verifyRefreshTokenSignature } from "@/lib/tokens";
+import { sendMail } from "@/lib/mailer";
 import { nomba } from "@/integrations/nomba";
 import { AuthError, RateLimitError } from "./auth.errors";
 import { RegisterInput, UpdateRefundProfileInput } from "./auth.schema";
@@ -59,8 +60,20 @@ async function assertOtpNotRateLimited(userId: string, purpose: OtpPurposeValue)
   }
 }
 
-/** Generates a code, stores its hash, and returns the raw code for delivery — only the hash is ever persisted. */
-async function createOtp(userId: string, purpose: OtpPurposeValue) {
+/** Human-readable purpose text for the OTP email body. */
+function otpPurposeLabel(purpose: OtpPurposeValue): string {
+  switch (purpose) {
+    case "signup_verification":
+      return "verify your email";
+    case "login":
+      return "log in";
+    case "password_reset":
+      return "reset your password";
+  }
+}
+
+/** Generates a code, stores its hash, emails the raw code to the user, and returns it — only the hash is ever persisted. */
+async function createOtp(userId: string, email: string, purpose: OtpPurposeValue) {
   await assertOtpNotRateLimited(userId, purpose);
 
   const code = generateOtpCode();
@@ -73,9 +86,11 @@ async function createOtp(userId: string, purpose: OtpPurposeValue) {
     expiresAt: otpExpiry(),
   });
 
-  // TODO: swap for real email delivery. Logging keeps the flow testable
-  // end to end without a mail provider wired up yet.
-  console.log(`[otp] ${purpose} code for user ${userId}: ${code}`);
+  await sendMail({
+    to: email,
+    subject: `Your Glasspot code: ${code}`,
+    text: `Use this code to ${otpPurposeLabel(purpose)}: ${code}\n\nThis code expires in ${OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this email.`,
+  });
 
   return code;
 }
@@ -170,7 +185,7 @@ export const AuthService = {
       })
       .returning();
 
-    await createOtp(user.id, "signup_verification");
+    await createOtp(user.id, user.email, "signup_verification");
 
     return { userId: user.id, email: user.email };
   },
@@ -186,7 +201,7 @@ export const AuthService = {
     if (purpose === "signup_verification" && user.emailVerifiedAt) {
       throw new AuthError("Email is already verified", 400);
     }
-    await createOtp(user.id, purpose);
+    await createOtp(user.id, user.email, purpose);
   },
 
   /** Confirms the signup-verification code, marks the email verified, and immediately issues a token pair — verification doubles as login. */
@@ -223,7 +238,7 @@ export const AuthService = {
       throw new AuthError("Please verify your email before logging in", 403);
     }
 
-    await createOtp(user.id, "login");
+    await createOtp(user.id, user.email, "login");
 
     return { userId: user.id };
   },
