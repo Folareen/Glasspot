@@ -735,6 +735,14 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     });
   }
 
+  if (legs.length === 0) {
+    // Every contributor's pro-rata share rounded down to zero (possible
+    // when the remaining balance is small relative to contributor count).
+    // Claiming the lock here with legCount=0 would never have a leg to
+    // decrement it back to zero, stranding pendingOperation permanently.
+    throw new PotError("Remaining pot balance is too small to distribute — every contributor's share rounds to zero", 409);
+  }
+
   const claimed = await db
     .update(pots)
     .set({ pendingOperation: "refund", pendingOperationLegCount: legs.length })
