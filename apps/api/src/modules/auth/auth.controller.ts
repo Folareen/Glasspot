@@ -14,7 +14,7 @@ import {
 } from "./auth.schema";
 
 /** Maps a thrown error to the right HTTP response: 429 with Retry-After for rate limits, the error's own statusCode for other AuthErrors, a failed Nomba bank lookup as 400, or a generic 500. */
-function handleAuthError(e: unknown, reply: FastifyReply) {
+function handleAuthError(e: unknown, request: FastifyRequest, reply: FastifyReply) {
   if (e instanceof RateLimitError) {
     return reply
       .code(429)
@@ -27,7 +27,7 @@ function handleAuthError(e: unknown, reply: FastifyReply) {
   if (e instanceof NombaApiError) {
     return reply.code(400).send({ message: `Could not verify bank account: ${e.message}` });
   }
-  console.log(e);
+  request.log.error({ err: e }, "Unhandled error in auth route");
   return reply.code(500).send({ message: "Something went wrong" });
 }
 
@@ -44,7 +44,7 @@ export async function registerHandler(
       message: "Account created. Check your email for a verification code.",
     });
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -58,7 +58,7 @@ export async function verifyEmailHandler(
     const result = await AuthService.verifyEmail(request.body.email, request.body.code, sign);
     return reply.code(200).send(result);
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -72,7 +72,7 @@ export async function resendOtpHandler(
     // Always the same message, regardless of whether the email exists.
     return reply.code(200).send({ message: "If the account exists, a new code has been sent." });
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -89,7 +89,7 @@ export async function loginHandler(
       message: "Enter the code sent to your email to finish logging in.",
     });
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -103,7 +103,7 @@ export async function verifyLoginOtpHandler(
     const result = await AuthService.verifyLoginOtp(request.body.email, request.body.code, sign);
     return reply.code(200).send(result);
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -117,7 +117,7 @@ export async function refreshHandler(
     const result = await AuthService.refresh(request.body.refreshToken, sign);
     return reply.code(200).send(result);
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -134,7 +134,7 @@ export async function logoutHandler(
     await AuthService.logout(userId);
     return reply.code(200).send({ message: "Logged out" });
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }
 
@@ -148,6 +148,6 @@ export async function updateRefundProfileHandler(
     const profile = await AuthService.updateRefundProfile(userId, request.body);
     return reply.code(200).send(profile);
   } catch (e) {
-    return handleAuthError(e, reply);
+    return handleAuthError(e, request, reply);
   }
 }

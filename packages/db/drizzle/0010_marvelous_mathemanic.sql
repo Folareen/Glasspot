@@ -1,0 +1,1 @@
+ALTER TYPE "public"."idempotency_status" ADD VALUE 'failed_indeterminate';

@@ -332,7 +332,7 @@ export const PotsService = {
     return updated;
   },
 
-  /** Admin-only. open -> closed, one-way, terminal. Only reachable once the pot's ledger balance is zero (see pots.ts status semantics). */
+  /** Admin-only. open -> closed, one-way, terminal. Only reachable once the pot's ledger balance is zero AND no payout/refund is still in flight (see pots.ts status semantics). */
   async close(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
     const pot = await getPotOrThrow(potId);
@@ -341,17 +341,29 @@ export const PotsService = {
       throw new PotError("Only an open pot can be closed", 409);
     }
 
+    if (pot.pendingOperation !== null) {
+      throw new PotError("A payout or refund is still in flight for this pot — wait for it to resolve before closing", 409);
+    }
+
     const potAccount = await AccountsService.getOrCreatePotAccount(potId);
     const balance = await LedgerService.getBalance(potAccount.id);
     if (balance !== 0n) {
       throw new PotError("Pot balance must be zero before it can be closed", 409);
     }
 
+    // pendingOperation IS NULL in the WHERE clause, not just the check
+    // above — a payout/refund can claim the lock between that check and
+    // this UPDATE, and a reversal landing on a closed pot has no recovery
+    // path (see backend-audit.md finding #1).
     const [updated] = await db
       .update(pots)
       .set({ status: "closed", closedAt: new Date(), updatedAt: new Date() })
-      .where(eq(pots.id, potId))
+      .where(and(eq(pots.id, potId), isNull(pots.pendingOperation)))
       .returning();
+
+    if (!updated) {
+      throw new PotError("A payout or refund is still in flight for this pot — wait for it to resolve before closing", 409);
+    }
 
     return updated;
   },
@@ -699,7 +711,7 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
   // contribution time — see contributions.ts) and their pro-rata share
   // BEFORE claiming the lock, so a data problem (missing refund profile)
   // fails loudly before any money moves.
-  const legs: { userId: string; amountKobo: bigint; destinationAccount: string; destinationBank: string; accountName: string }[] = [];
+  const legs: { userId: string; contributedKobo: bigint; amountKobo: bigint; destinationAccount: string; destinationBank: string; accountName: string }[] = [];
   for (const [userId, contributedKobo] of totalsByContributor) {
     const shareKobo = (contributedKobo * balance) / totalContributedKobo;
     if (shareKobo <= 0n) continue;
@@ -716,11 +728,20 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
 
     legs.push({
       userId,
+      contributedKobo,
       amountKobo: shareKobo,
       destinationAccount: contribution.refundAccountNumber,
       destinationBank: contribution.refundBank,
       accountName: contribution.refundAccountName,
     });
+  }
+
+  if (legs.length === 0) {
+    // Every contributor's pro-rata share rounded down to zero (possible
+    // when the remaining balance is small relative to contributor count).
+    // Claiming the lock here with legCount=0 would never have a leg to
+    // decrement it back to zero, stranding pendingOperation permanently.
+    throw new PotError("Remaining pot balance is too small to distribute — every contributor's share rounds to zero", 409);
   }
 
   const claimed = await db
@@ -736,10 +757,29 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     );
   }
 
+  // A contribution can land in the gap between the balance read above and
+  // claiming the lock just now — re-read and rescale each leg's share
+  // against the fresh balance (same contributedKobo/totalContributedKobo
+  // ratios) rather than posting against a stale snapshot, mirroring
+  // postFixedAmountDisbursement's re-read-after-lock pattern.
+  const freshBalance = await LedgerService.getBalance(potAccount.id);
+  if (freshBalance !== balance) {
+    for (const leg of legs) {
+      leg.amountKobo = (leg.contributedKobo * freshBalance) / totalContributedKobo;
+    }
+  }
+
   const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
   const results: Transaction[] = [];
 
   for (const leg of legs) {
+    if (leg.amountKobo <= 0n) {
+      // Rescaling against the fresh balance left this leg with nothing to
+      // send — still release its share of the lock.
+      await decrementPendingOperationLeg(pot.id);
+      continue;
+    }
+
     const reference = `refund_${pot.id}_${leg.userId}_${randomUUID()}`;
 
     const transaction = await LedgerService.postTransaction({

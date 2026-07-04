@@ -558,6 +558,7 @@ export class NombaClient {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
  
       const json = await res.json().catch(() => ({}));

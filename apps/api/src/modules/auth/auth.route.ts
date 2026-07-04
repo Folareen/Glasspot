@@ -17,6 +17,9 @@ async function authRoutes(server: FastifyInstance) {
   server.post(
     "/register",
     {
+      config: {
+        rateLimit: { max: 5, timeWindow: "1 minute" },
+      },
       schema: {
         body: $ref("registerSchema"),
         response: { 201: $ref("registerResponseSchema") },
@@ -84,6 +87,9 @@ async function authRoutes(server: FastifyInstance) {
   server.post(
     "/refresh",
     {
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
       schema: {
         body: $ref("refreshTokenSchema"),
         response: { 200: $ref("refreshTokenResponseSchema") },

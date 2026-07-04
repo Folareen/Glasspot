@@ -9,6 +9,7 @@ const stringBoolean = z.coerce.string().transform((val) => val === "true").defau
 const EnvSchema = z.object({
   DATABASE_URL: z.string(),
   DB_MIGRATING: stringBoolean,
+  NODE_ENV: z.string().default("development"),
 });
 
 // This package has no .env of its own — always defer to the monorepo root .env,

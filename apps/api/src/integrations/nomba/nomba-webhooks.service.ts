@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import db, { providerEvents } from "@glasspot/db";
+import { isUniqueViolation } from "@/lib/db-errors";
 import { ContributionsService } from "@/modules/pots/contributions.service";
 import { PotsService } from "@/modules/pots/pots.service";
 import { WebhookEvent, WebhookTransactionData } from "@/integrations/nomba/nomba.types";
@@ -23,10 +24,12 @@ export const NombaWebhooksService = {
       return;
     }
 
-    const eventRow =
-      existing ??
-      (
-        await db
+    let eventRow: typeof providerEvents.$inferSelect;
+    if (existing) {
+      eventRow = existing;
+    } else {
+      try {
+        [eventRow] = await db
           .insert(providerEvents)
           .values({
             provider: "nomba",
@@ -35,8 +38,21 @@ export const NombaWebhooksService = {
             payload: event as unknown,
             signatureValid,
           })
-          .returning()
-      )[0];
+          .returning();
+      } catch (err) {
+        // A concurrent redelivery of the same event won the race to insert
+        // between our select above and this insert — eventId's unique
+        // constraint is the real dedup guarantee, this select-then-insert
+        // is just the common path. Whichever call lost the race skips
+        // dispatch entirely rather than double-processing; the winner's
+        // insert (or the next redelivery, once processed=true lands) is
+        // what actually runs the handler.
+        if (isUniqueViolation(err)) {
+          return;
+        }
+        throw err;
+      }
+    }
 
     switch (event.event_type) {
       case "payment_success":
