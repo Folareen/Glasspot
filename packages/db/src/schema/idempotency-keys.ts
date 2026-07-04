@@ -13,8 +13,13 @@ import { pgTable, text, jsonb, timestamp, pgEnum } from 'drizzle-orm/pg-core';
  * request" and "we finished handling it" — a concurrent duplicate request
  * arriving in that window should not re-execute the mutation either
  * (checked at the service layer, not enforced by a DB constraint here).
+ * 'failed_indeterminate' is for a failure where an external side effect
+ * (e.g. a Nomba transfer call) may have already gone out before the
+ * failure — the row is deliberately NOT deleted in that case (see
+ * idempotency.service.ts), so a client retry is rejected rather than
+ * silently re-executing a possibly-already-sent external call.
  */
-export const idempotencyStatusEnum = pgEnum('idempotency_status', ['in_progress', 'completed']);
+export const idempotencyStatusEnum = pgEnum('idempotency_status', ['in_progress', 'completed', 'failed_indeterminate']);
 
 export const idempotencyKeys = pgTable('idempotency_keys', {
   key: text('key').primaryKey(),

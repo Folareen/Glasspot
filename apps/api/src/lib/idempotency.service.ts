@@ -23,6 +23,33 @@ export class IdempotencyInProgressError extends Error {
   }
 }
 
+export class IdempotencyIndeterminateError extends Error {
+  statusCode = 409;
+  /** Thrown when a prior request with this key failed after an external call may have already gone out — retrying automatically risks double-executing that call, so this key is permanently rejected pending manual reconciliation. */
+  constructor() {
+    super(
+      "A previous request with this Idempotency-Key failed in an indeterminate state and cannot be safely retried automatically — contact support"
+    );
+    this.name = "IdempotencyIndeterminateError";
+  }
+}
+
+/**
+ * fn() should throw this (wrapping the real cause) instead of a plain
+ * error when it fails AFTER an irreversible external call may have gone
+ * out (e.g. a Nomba transfer request that could have been accepted
+ * server-side even though the response errored) and has no compensating
+ * reversal of its own. Signals withIdempotencyKey to leave the key row in
+ * 'failed_indeterminate' rather than deleting it — deleting would let a
+ * client retry re-execute the external call from scratch.
+ */
+export class IndeterminateFailureError extends Error {
+  constructor(public readonly cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "IndeterminateFailureError";
+  }
+}
+
 /** Hashes the parts of a request that determine whether a repeated key is a legitimate retry (identical inputs) or reuse against a different request. */
 export function hashRequest(parts: unknown): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
@@ -53,13 +80,18 @@ export function hashRequest(parts: unknown): string {
  * re-reads the now-existing row and falls into the in_progress/completed
  * handling above instead of double-executing `fn`.
  *
- * If `fn` throws (a legitimate rejection like "pot has no balance to pay
- * out", not a crash mid-transfer), the key row is DELETED rather than
- * left 'in_progress' forever — nothing was actually committed, so the
- * client must be able to retry the same key. This does mean a request
- * that fails after partially acting (e.g. PotsService.postDisbursement's
- * own internal reversal-on-failure already handles that at the ledger
- * level) is safe to retry from a clean slate.
+ * If `fn` throws a plain error (a legitimate rejection like "pot has no
+ * balance to pay out", or any failure it has already fully compensated
+ * for itself — e.g. PotsService.postDisbursement's own internal
+ * reversal-on-failure), the key row is DELETED rather than left
+ * 'in_progress' forever — nothing outstanding remains, so the client must
+ * be able to retry the same key from a clean slate.
+ *
+ * If `fn` throws an IndeterminateFailureError — a failure where an
+ * external call may have already gone out with no compensating reversal —
+ * the row is instead left 'failed_indeterminate' and a client retry with
+ * the same key is permanently rejected via IdempotencyIndeterminateError,
+ * since silently deleting it would risk re-executing that external call.
  */
 export async function withIdempotencyKey<T extends { statusCode: number; body: unknown }>(
   key: string,
@@ -84,6 +116,9 @@ export async function withIdempotencyKey<T extends { statusCode: number; body: u
     if (existing.status === "in_progress") {
       throw new IdempotencyInProgressError();
     }
+    if (existing.status === "failed_indeterminate") {
+      throw new IdempotencyIndeterminateError();
+    }
     return existing.response as T;
   }
 
@@ -95,6 +130,10 @@ export async function withIdempotencyKey<T extends { statusCode: number; body: u
       .where(eq(idempotencyKeys.key, key));
     return result;
   } catch (err) {
+    if (err instanceof IndeterminateFailureError) {
+      await db.update(idempotencyKeys).set({ status: "failed_indeterminate" }).where(eq(idempotencyKeys.key, key));
+      throw err.cause;
+    }
     await db.delete(idempotencyKeys).where(eq(idempotencyKeys.key, key));
     throw err;
   }
