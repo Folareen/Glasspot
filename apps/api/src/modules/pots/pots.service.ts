@@ -711,7 +711,7 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
   // contribution time — see contributions.ts) and their pro-rata share
   // BEFORE claiming the lock, so a data problem (missing refund profile)
   // fails loudly before any money moves.
-  const legs: { userId: string; amountKobo: bigint; destinationAccount: string; destinationBank: string; accountName: string }[] = [];
+  const legs: { userId: string; contributedKobo: bigint; amountKobo: bigint; destinationAccount: string; destinationBank: string; accountName: string }[] = [];
   for (const [userId, contributedKobo] of totalsByContributor) {
     const shareKobo = (contributedKobo * balance) / totalContributedKobo;
     if (shareKobo <= 0n) continue;
@@ -728,6 +728,7 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
 
     legs.push({
       userId,
+      contributedKobo,
       amountKobo: shareKobo,
       destinationAccount: contribution.refundAccountNumber,
       destinationBank: contribution.refundBank,
@@ -756,10 +757,29 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     );
   }
 
+  // A contribution can land in the gap between the balance read above and
+  // claiming the lock just now — re-read and rescale each leg's share
+  // against the fresh balance (same contributedKobo/totalContributedKobo
+  // ratios) rather than posting against a stale snapshot, mirroring
+  // postFixedAmountDisbursement's re-read-after-lock pattern.
+  const freshBalance = await LedgerService.getBalance(potAccount.id);
+  if (freshBalance !== balance) {
+    for (const leg of legs) {
+      leg.amountKobo = (leg.contributedKobo * freshBalance) / totalContributedKobo;
+    }
+  }
+
   const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
   const results: Transaction[] = [];
 
   for (const leg of legs) {
+    if (leg.amountKobo <= 0n) {
+      // Rescaling against the fresh balance left this leg with nothing to
+      // send — still release its share of the lock.
+      await decrementPendingOperationLeg(pot.id);
+      continue;
+    }
+
     const reference = `refund_${pot.id}_${leg.userId}_${randomUUID()}`;
 
     const transaction = await LedgerService.postTransaction({
