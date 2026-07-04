@@ -332,7 +332,7 @@ export const PotsService = {
     return updated;
   },
 
-  /** Admin-only. open -> closed, one-way, terminal. Only reachable once the pot's ledger balance is zero (see pots.ts status semantics). */
+  /** Admin-only. open -> closed, one-way, terminal. Only reachable once the pot's ledger balance is zero AND no payout/refund is still in flight (see pots.ts status semantics). */
   async close(potId: string, userId: string) {
     await assertIsAdmin(potId, userId);
     const pot = await getPotOrThrow(potId);
@@ -341,17 +341,29 @@ export const PotsService = {
       throw new PotError("Only an open pot can be closed", 409);
     }
 
+    if (pot.pendingOperation !== null) {
+      throw new PotError("A payout or refund is still in flight for this pot — wait for it to resolve before closing", 409);
+    }
+
     const potAccount = await AccountsService.getOrCreatePotAccount(potId);
     const balance = await LedgerService.getBalance(potAccount.id);
     if (balance !== 0n) {
       throw new PotError("Pot balance must be zero before it can be closed", 409);
     }
 
+    // pendingOperation IS NULL in the WHERE clause, not just the check
+    // above — a payout/refund can claim the lock between that check and
+    // this UPDATE, and a reversal landing on a closed pot has no recovery
+    // path (see backend-audit.md finding #1).
     const [updated] = await db
       .update(pots)
       .set({ status: "closed", closedAt: new Date(), updatedAt: new Date() })
-      .where(eq(pots.id, potId))
+      .where(and(eq(pots.id, potId), isNull(pots.pendingOperation)))
       .returning();
+
+    if (!updated) {
+      throw new PotError("A payout or refund is still in flight for this pot — wait for it to resolve before closing", 409);
+    }
 
     return updated;
   },
