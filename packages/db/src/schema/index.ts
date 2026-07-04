@@ -16,3 +16,4 @@ export * from './provider-events';
 export * from './idempotency-keys';
 export * from './settlement-batches';
 export * from './reconciliation-records';
+export * from './failed-jobs';
