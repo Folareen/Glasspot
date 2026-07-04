@@ -97,8 +97,14 @@ export const ReconciliationService = {
       },
     });
 
-    const reportedAmountKobo = BigInt(
-      Math.round(report.byCustomer.reduce((sum, c) => sum + c.receivedTotal, 0) * 100)
+    // Round each line item's naira amount to kobo individually, then sum as
+    // BigInt — summing report.byCustomer[].receivedTotal (a JS float
+    // accumulated across every transaction in the window before rounding)
+    // can drift from the true integer-kobo total by a kobo or more and
+    // produce false "mismatched" statuses.
+    const reportedAmountKobo = report.lineItems.reduce(
+      (sum, item) => sum + (item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
+      0n
     );
     const allMatched =
       report.overpaidCount === 0 &&
