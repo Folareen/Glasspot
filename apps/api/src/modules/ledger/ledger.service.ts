@@ -116,61 +116,72 @@ export const LedgerService = {
 
     const accountIds = [...new Set(input.entries.map((e) => e.accountId))];
 
-    return executor.transaction(async (tx) => {
-      const affectedAccounts = await tx.select().from(accounts).where(inArray(accounts.id, accountIds));
-      const accountsById = new Map(affectedAccounts.map((a) => [a.id, a]));
-      for (const id of accountIds) {
-        if (!accountsById.has(id)) {
-          throw new LedgerError(`Account '${id}' does not exist`);
+    try {
+      return await executor.transaction(async (tx) => {
+        const affectedAccounts = await tx.select().from(accounts).where(inArray(accounts.id, accountIds));
+        const accountsById = new Map(affectedAccounts.map((a) => [a.id, a]));
+        for (const id of accountIds) {
+          if (!accountsById.has(id)) {
+            throw new LedgerError(`Account '${id}' does not exist`);
+          }
         }
-      }
 
-      let created: Transaction;
-      try {
-        [created] = await tx
-          .insert(transactions)
-          .values({
-            type: input.type,
-            status: input.status ?? "completed",
-            reference: input.reference,
-            externalReference: input.externalReference,
-            amountKobo: input.entries.filter((e) => e.direction === "debit").reduce((sum, e) => sum + e.amountKobo, 0n),
-            metadata: input.metadata,
-            completedAt: input.status === undefined || input.status === "completed" ? new Date() : undefined,
-          })
-          .returning();
-      } catch (err) {
-        // Unique violation on `reference` — a concurrent caller won the
-        // race to post the same idempotency key between our existence
-        // check above and this insert.
-        if (isUniqueViolation(err)) {
-          throw new DuplicateTransactionReferenceError(input.reference);
+        let created: Transaction;
+        try {
+          [created] = await tx
+            .insert(transactions)
+            .values({
+              type: input.type,
+              status: input.status ?? "completed",
+              reference: input.reference,
+              externalReference: input.externalReference,
+              amountKobo: input.entries.filter((e) => e.direction === "debit").reduce((sum, e) => sum + e.amountKobo, 0n),
+              metadata: input.metadata,
+              completedAt: input.status === undefined || input.status === "completed" ? new Date() : undefined,
+            })
+            .returning();
+        } catch (err) {
+          // Unique violation on `reference` — a concurrent caller won the
+          // race to post the same idempotency key between our existence
+          // check above and this insert.
+          if (isUniqueViolation(err)) {
+            throw new DuplicateTransactionReferenceError(input.reference);
+          }
+          throw err;
         }
-        throw err;
+
+        // Locks are acquired in this iteration's order, so it must follow the
+        // sorted accountIds order above, not input.entries' caller-supplied
+        // order — see accountIds' comment for why.
+        const sortedEntries = [...input.entries].sort((a, b) => a.accountId.localeCompare(b.accountId));
+
+        const entryRows: NewLedgerEntry[] = [];
+        for (const entry of sortedEntries) {
+          const account = accountsById.get(entry.accountId)!;
+          const balanceAfter = await applyEntryToBalance(tx, account, entry);
+          entryRows.push({
+            transactionId: created.id,
+            accountId: entry.accountId,
+            direction: entry.direction,
+            amountKobo: entry.amountKobo,
+            balanceAfter,
+          });
+        }
+
+        await tx.insert(ledgerEntries).values(entryRows);
+
+        return created;
+      });
+    } catch (err) {
+      // The concurrent-loser path promised by this method's docstring: a
+      // caller that raced another to the same reference and lost gets the
+      // winner's row back, not a thrown error to handle specially.
+      if (err instanceof DuplicateTransactionReferenceError) {
+        const [existing] = await executor.select().from(transactions).where(eq(transactions.reference, input.reference));
+        if (existing) return existing;
       }
-
-      // Locks are acquired in this iteration's order, so it must follow the
-      // sorted accountIds order above, not input.entries' caller-supplied
-      // order — see accountIds' comment for why.
-      const sortedEntries = [...input.entries].sort((a, b) => a.accountId.localeCompare(b.accountId));
-
-      const entryRows: NewLedgerEntry[] = [];
-      for (const entry of sortedEntries) {
-        const account = accountsById.get(entry.accountId)!;
-        const balanceAfter = await applyEntryToBalance(tx, account, entry);
-        entryRows.push({
-          transactionId: created.id,
-          accountId: entry.accountId,
-          direction: entry.direction,
-          amountKobo: entry.amountKobo,
-          balanceAfter,
-        });
-      }
-
-      await tx.insert(ledgerEntries).values(entryRows);
-
-      return created;
-    });
+      throw err;
+    }
   },
 
   /** Current ledgerBalance for an account, or 0n if no balance row exists yet (an account with no postings). */
