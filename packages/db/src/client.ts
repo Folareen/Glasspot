@@ -9,7 +9,10 @@ export const connection = postgres(env.DATABASE_URL, {
 
 export const db = drizzle(connection, {
   schema,
-  logger: true,
+  // Query logging prints bound parameters to stdout, including
+  // passwordHash/codeHash/refreshTokenHash on auth-flow queries — never
+  // enable it in production.
+  logger: env.NODE_ENV !== "production",
 });
 
 export type db = typeof db;
