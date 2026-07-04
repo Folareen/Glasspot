@@ -118,6 +118,19 @@ effects, more precise typography and spacing, and copy that sounds like a person
 clearly. Every design decision from here should be checked against: *does this build clarity/trust,
 or is it decoration?*
 
+## Nomba as a trust reference, not a style reference
+
+Nomba is Glasspot's actual payment rail (transfers, virtual accounts, settlement), not just
+another app in the visual mood board. That changes how it should show up in the UI: not as
+"another fintech look to borrow from," but as an **infrastructure trust signal**, the same way
+a checkout flow name-drops Stripe or Plaid. A quiet "Payments powered by Nomba" mention (footer,
+FAQ, or the contribution step) tells a user their money is moving on real regulated rails, not a
+custom unaudited system built for this app. Keep it small, textual, and low-key, consistent with
+the "restraint builds trust" principle. Don't imitate Nomba's own brand colors/marks beyond a
+simple wordmark/text credit, and don't overuse the mention. It only needs to appear at the moments
+where someone is deciding whether to trust the payment rail (FAQ, footer, virtual account step),
+not sprinkled everywhere.
+
 ## Sources
 
 - [Fintech UI examples to build trust — 15 real apps (Eleken)](https://www.eleken.co/blog-posts/trusted-fintech-ui-examples)
@@ -126,3 +139,4 @@ or is it decoration?*
 - [Dribbble — Kuda tag](https://dribbble.com/tags/kuda)
 - [Dribbble — Cowrywise tag](https://dribbble.com/tags/cowrywise)
 - [Dribbble — Piggyvest tag](https://dribbble.com/tags/piggyvest)
+- [Nomba](https://nomba.com) — the payment infrastructure Glasspot's contributions actually run on

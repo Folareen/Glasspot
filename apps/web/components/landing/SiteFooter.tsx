@@ -13,6 +13,12 @@ export function SiteFooter() {
           <Text size="sm" color="secondary" className="mt-1">
             Group money, governed by agreement.
           </Text>
+          <Text size="xs" color="secondary" className="mt-4">
+            Payments powered by Nomba.
+          </Text>
+          <Text size="xs" color="secondary" className="mt-1">
+            Built for the Nomba 2026 Hackathon.
+          </Text>
         </div>
         <div className="flex gap-16">
           <div className="flex flex-col gap-1">

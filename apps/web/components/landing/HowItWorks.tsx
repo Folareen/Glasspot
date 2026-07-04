@@ -20,7 +20,7 @@ const steps = [
   {
     title: "Everyone contributes",
     description:
-      "Each contributor gets their own virtual account. Pay in, and it's visible to the whole group immediately.",
+      "Each contributor gets their own virtual account, powered by Nomba. Pay in, and it's visible to the whole group immediately.",
   },
   {
     title: "The rule decides, not a person",

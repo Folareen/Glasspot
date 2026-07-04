@@ -2,6 +2,7 @@ import { Container } from "@/components/ui/Container";
 import { Heading } from "@/components/ui/Heading";
 import { Text } from "@/components/ui/Text";
 import { Accordion } from "@/components/ui/Accordion";
+import { ShieldCheck } from "lucide-react";
 
 const faqs = [
   {
@@ -53,6 +54,12 @@ export function FAQSection() {
         </Text>
         <div className="mt-8">
           <Accordion items={faqs} />
+        </div>
+        <div className="mt-8 flex items-center gap-2 text-text-secondary">
+          <ShieldCheck className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+          <Text size="sm" color="secondary">
+            Payments powered by Nomba, a licensed Nigerian payment infrastructure provider.
+          </Text>
         </div>
       </Container>
     </section>
