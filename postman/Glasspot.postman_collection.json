@@ -1,0 +1,1033 @@
+{
+  "info": {
+    "name": "Glasspot API",
+    "description": "Full test collection for the Glasspot pooled-money API (apps/api). Flow: (1) register + verify two users (Primary admin, Member) in Auth, (2) create a pot and activate it, (3) contribute / add members / trigger payout or refund / close, in Pots. Money-moving endpoints require an Idempotency-Key header (auto-filled). Bearer token auth is set at the collection level from {{accessToken}}, which the Auth requests populate automatically via test scripts.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{accessToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "Basic liveness + DB connectivity check. No auth required.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Primary User (creator/admin)",
+          "item": [
+            {
+              "name": "Register (Primary / Admin)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "register"
+                  ]
+                },
+                "description": "Creates the account and emails a 6-digit verification code. Check the API server logs / mailer output (Mailtrap, console transport, etc.) for the code, then paste it into the otpCode variable before running Verify Email.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"username\": \"{{username}}\",\n  \"password\": \"{{password}}\",\n  \"fullName\": \"{{fullName}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const json = pm.response.json();",
+                      "    pm.environment.set(\"userId\", json.userId);",
+                      "    pm.test(\"Register succeeded (201)\", () => pm.response.to.have.status(201));",
+                      "} else {",
+                      "    pm.test(\"Register response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Verify Email (Primary / Admin)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/verify-email",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "verify-email"
+                  ]
+                },
+                "description": "Paste the 6-digit code from the registration email into the otpCode environment variable, then send. Sets accessToken/refreshToken/userId on success.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"code\": \"{{otpCode}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    pm.environment.set(\"accessToken\", json.accessToken);",
+                      "    pm.environment.set(\"refreshToken\", json.refreshToken);",
+                      "    pm.environment.set(\"userId\", json.user.id);",
+                      "    pm.test(\"Verify email succeeded (200)\", () => pm.response.to.have.status(200));",
+                      "} else {",
+                      "    pm.test(\"Verify email response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Member User (invitee)",
+          "item": [
+            {
+              "name": "Register (Member)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/register",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "register"
+                  ]
+                },
+                "description": "Creates the account and emails a 6-digit verification code. Check the API server logs / mailer output (Mailtrap, console transport, etc.) for the code, then paste it into the otpCode variable before running Verify Email.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{memberEmail}}\",\n  \"username\": \"{{memberUsername}}\",\n  \"password\": \"{{memberPassword}}\",\n  \"fullName\": \"{{memberFullName}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const json = pm.response.json();",
+                      "    pm.environment.set(\"memberUserId\", json.userId);",
+                      "    pm.test(\"Register succeeded (201)\", () => pm.response.to.have.status(201));",
+                      "} else {",
+                      "    pm.test(\"Register response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Verify Email (Member)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/verify-email",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "verify-email"
+                  ]
+                },
+                "description": "Paste the 6-digit code from the registration email into the otpCode environment variable, then send. Sets accessToken/refreshToken/userId on success.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{memberEmail}}\",\n  \"code\": \"{{otpCode}}\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    pm.environment.set(\"memberAccessToken\", json.accessToken);",
+                      "    pm.environment.set(\"memberRefreshToken\", json.refreshToken);",
+                      "    pm.environment.set(\"memberUserId\", json.user.id);",
+                      "    pm.test(\"Verify email succeeded (200)\", () => pm.response.to.have.status(200));",
+                      "} else {",
+                      "    pm.test(\"Verify email response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Resend OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/resend-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "resend-otp"
+              ]
+            },
+            "description": "purpose: signup_verification | login | password_reset. Always returns a generic 200 message regardless of whether the email exists.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"purpose\": \"signup_verification\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Login (Primary)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Password check only — never returns tokens directly. Sets userId and unlocks the OTP step. Check email/logs for the login code, paste into otpCode, then run Verify Login OTP.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set(\"userId\", json.userId);",
+                  "    pm.test(\"Login succeeded, OTP required (200)\", () => pm.response.to.have.status(200));",
+                  "} else {",
+                  "    pm.test(\"Login response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Login OTP (Primary)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login",
+                "verify-otp"
+              ]
+            },
+            "description": "Completes login. Sets accessToken/refreshToken/userId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"code\": \"{{otpCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set(\"accessToken\", json.accessToken);",
+                  "    pm.environment.set(\"refreshToken\", json.refreshToken);",
+                  "    pm.environment.set(\"userId\", json.user.id);",
+                  "    pm.test(\"Verify login OTP succeeded (200)\", () => pm.response.to.have.status(200));",
+                  "} else {",
+                  "    pm.test(\"Verify login OTP response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh"
+              ]
+            },
+            "description": "Exchanges the current refresh token for a new pair. No auth header needed — this is how a client recovers from an expired access token.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const json = pm.response.json();",
+                  "    pm.environment.set(\"accessToken\", json.accessToken);",
+                  "    pm.environment.set(\"refreshToken\", json.refreshToken);",
+                  "    pm.test(\"Refresh succeeded (200)\", () => pm.response.to.have.status(200));",
+                  "} else {",
+                  "    pm.test(\"Refresh response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Refund Profile",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me/refund-profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me",
+                "refund-profile"
+              ]
+            },
+            "description": "Sets the caller's default payout destination for refundType='admin' pots. accountNumber/bankCode are validated against Nomba's bank-lookup API — use real sandbox test values.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"{{refundAccountNumber}}\",\n  \"bankCode\": \"{{refundBankCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Revokes the caller's own session (identified via the bearer access token, not the body).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "Register two accounts first (Primary + Member) — the Pots folder needs a second user to invite as a pot member. OTP codes are emailed; there's no way around pasting them in manually unless your dev environment logs OTPs to the console."
+    },
+    {
+      "name": "Pots",
+      "item": [
+        {
+          "name": "Create Pot (one per payout mode)",
+          "item": [
+            {
+              "name": "Create Pot — Target Based",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots"
+                  ]
+                },
+                "description": "payoutMode='target_based': payout fires automatically once targetDate and/or targetAmountKobo is met, or an admin can manually release early if adminManualEnabled=true. Sets potId on success.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Rent Contribution\",\n  \"description\": \"Group pot to cover shared rent\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"maxContributionKobo\": 5000000,\n  \"payoutMode\": \"target_based\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"targetAmountKobo\": 10000000\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    if (json.id) pm.environment.set(\"potId\", json.id);",
+                      "    pm.test(\"Request succeeded\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "} else {",
+                      "    pm.test(\"Request response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create Pot — Manual",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots"
+                  ]
+                },
+                "description": "payoutMode='manual': no destination or condition set at creation — an admin picks the destination at the moment they trigger POST /pots/:id/payout.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Team Lunch Fund\",\n  \"description\": \"Manual payout, admin decides when and where\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContributionKobo\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    if (json.id) pm.environment.set(\"potId\", json.id);",
+                      "    pm.test(\"Request succeeded\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "} else {",
+                      "    pm.test(\"Request response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create Pot — Recurring",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots"
+                  ]
+                },
+                "description": "payoutMode='recurring': fixed amountKobo sent to one destination every intervalDays, starting at nextRunAt.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Monthly Savings Club\",\n  \"description\": \"Recurring payout on a fixed interval\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"payoutMode\": \"recurring\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"amountKobo\": 5000000,\n    \"intervalDays\": 30,\n    \"nextRunAt\": \"2026-08-01T00:00:00.000Z\"\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    if (json.id) pm.environment.set(\"potId\", json.id);",
+                      "    pm.test(\"Request succeeded\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "} else {",
+                      "    pm.test(\"Request response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create Pot — Rotation",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots"
+                  ]
+                },
+                "description": "payoutMode='rotation': each leg pays out a different destination in sequenceOrder on its own scheduledDate — classic Ajo/esusu rotation.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Ajo Rotation Group\",\n  \"description\": \"Each member takes a turn receiving the payout\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"payoutMode\": \"rotation\",\n  \"payoutConfig\": {\n    \"legs\": [\n      {\n        \"destinationAccount\": \"{{destinationAccount}}\",\n        \"destinationBank\": \"{{destinationBank}}\",\n        \"sequenceOrder\": 0,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-08-01T00:00:00.000Z\"\n      },\n      {\n        \"destinationAccount\": \"{{memberDestinationAccount}}\",\n        \"destinationBank\": \"{{memberDestinationBank}}\",\n        \"sequenceOrder\": 1,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-09-01T00:00:00.000Z\"\n      }\n    ]\n  }\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    if (json.id) pm.environment.set(\"potId\", json.id);",
+                      "    pm.test(\"Request succeeded\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "} else {",
+                      "    pm.test(\"Request response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            }
+          ],
+          "description": "Run whichever variant matches what you're testing — each sets {{potId}} on success, which every other request in this folder relies on. scheduled mode is intentionally excluded (locked out of MVP)."
+        },
+        {
+          "name": "List Pots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots"
+              ]
+            },
+            "description": "Public pots always included; private pots only included if the bearer token belongs to a member. Works fully unauthenticated too (public pots only) since this route uses optionalAuthenticate."
+          }
+        },
+        {
+          "name": "Get Pot by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}"
+              ]
+            },
+            "description": "404 if the pot doesn't exist or is private and the caller isn't a member. optionalAuthenticate — works without a token for public pots."
+          }
+        },
+        {
+          "name": "Update Pot (draft only)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}"
+              ]
+            },
+            "description": "Admin-only. Only works while the pot is still status='draft' — activate() locks the config in. Can update title/description/min-maxContributionKobo/payoutMode/payoutConfig together or independently.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Rent Contribution (updated)\",\n  \"minContributionKobo\": 200000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Activate Pot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/activate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "activate"
+              ]
+            },
+            "description": "Admin-only. Transitions draft -> open, after which contributions can be made and the payout config is locked."
+          }
+        },
+        {
+          "name": "Contribute to Pot",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/contributions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "contributions"
+              ]
+            },
+            "description": "Any authenticated caller can contribute to an 'open' pot. Returns a pending virtual-account funding intent — the ledger only updates once Nomba's funding webhook confirms the transfer landed. Requires Idempotency-Key header (auto-filled with {{$guid}}). For refundType='contributors' pots, also pass refundAccountNumber/refundBankCode.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amountKobo\": 500000,\n  \"anonymous\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Trigger Payout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/payout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "payout"
+              ]
+            },
+            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank are ONLY required (and only used) for payoutMode='manual' pots — omit the body entirely for target_based/recurring/rotation pots, whose destination is already fixed in payoutConfig.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Trigger Refund",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/refund",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "refund"
+              ]
+            },
+            "description": "Admin-only, idempotent per Idempotency-Key. Drains the pot's full ledger balance. Returns one transaction for refundType='admin' (to the admin's refund profile account) or one per contributor for refundType='contributors'."
+          }
+        },
+        {
+          "name": "Close Pot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/close",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "close"
+              ]
+            },
+            "description": "Admin-only. Requires the pot's ledger balance to be exactly zero (i.e. fully paid out or refunded first) — otherwise expect a 409/422 from PotError."
+          }
+        },
+        {
+          "name": "Members",
+          "item": [
+            {
+              "name": "List Members",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots/{{potId}}/members",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots",
+                    "{{potId}}",
+                    "members"
+                  ]
+                },
+                "description": "Same visibility rule as GET /pots/:id — 404 for a private pot the caller can't view."
+              }
+            },
+            {
+              "name": "Add Member",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots/{{potId}}/members",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots",
+                    "{{potId}}",
+                    "members"
+                  ]
+                },
+                "description": "Admin-only invite. role: 'admin' | 'member' (defaults to 'member' server-side if omitted). Run the Member User register/verify flow first so {{memberUserId}} is populated.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"userId\": \"{{memberUserId}}\",\n  \"role\": \"member\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201) {",
+                      "    const json = pm.response.json();",
+                      "    pm.test(\"Add member succeeded (201)\", () => pm.response.to.have.status(201));",
+                      "} else {",
+                      "    pm.test(\"Add member response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Update Member Role",
+              "request": {
+                "method": "PATCH",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots/{{potId}}/members/{{memberUserId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots",
+                    "{{potId}}",
+                    "members",
+                    "{{memberUserId}}"
+                  ]
+                },
+                "description": "Admin-only. Refuses to demote the pot's last remaining admin.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"role\": \"admin\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Remove Member",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots/{{potId}}/members/{{memberUserId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots",
+                    "{{potId}}",
+                    "members",
+                    "{{memberUserId}}"
+                  ]
+                },
+                "description": "Admin-only. Refuses to remove the pot's last remaining admin."
+              }
+            }
+          ]
+        }
+      ],
+      "description": "All mutating routes require a Bearer access token (collection-level auth). Money-moving routes (contribute/payout/refund) additionally require an Idempotency-Key header — pre-filled with Postman's {{$guid}} dynamic variable so retries within the same send get a fresh key; re-send the exact same request twice manually if you want to test idempotency (Postman won't reuse the guid across sends)."
+    },
+    {
+      "name": "Webhooks (reference only)",
+      "item": [
+        {
+          "name": "Nomba Webhook (not directly testable via Postman)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "nomba-signature",
+                "value": "<computed-hmac-signature>",
+                "type": "text"
+              },
+              {
+                "key": "nomba-timestamp",
+                "value": "<unix-timestamp>",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/webhooks/nomba",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "webhooks",
+                "nomba"
+              ]
+            },
+            "description": "This endpoint verifies an HMAC signature computed from NOMBA_WEBHOOK_SECRET over specific parsed fields (see NombaClient.handleWebhook) — Postman can't reproduce that without a pre-request script that duplicates Nomba's exact signing algorithm and your real webhook secret. Left here as a placeholder: either (a) trigger it for real via Nomba's sandbox dashboard against a tunnel (ngrok/etc.) to this route, or (b) write a pre-request script using the secret from your .env once you confirm the exact signing scheme in nomba.client.ts. Sending this request as-is will get a 401.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"payment_success\",\n  \"data\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
