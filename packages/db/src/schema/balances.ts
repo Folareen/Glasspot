@@ -14,10 +14,12 @@ import { accounts } from './accounts';
  * availableBalance currently always equals ledgerBalance; kept as a
  * separate column now so adding holds later doesn't require a migration).
  *
- * version is for optimistic locking: ledger.service.ts reads the current
- * version, writes `where version = :read_version`, and retries on
- * conflict — protects against two concurrent postings on the same account
- * racing each other (see system-rules.md's locking requirement).
+ * version is incremented on every write for audit/debugging visibility,
+ * but is NOT itself a lock — ledger.service.ts's real protection against
+ * two concurrent postings on the same account racing each other is the
+ * pessimistic `SELECT ... FOR UPDATE` taken before this row is read
+ * (see system-rules.md's locking requirement). Do not rely on this
+ * column for a lock-free/optimistic-locking code path; none exists.
  */
 export const balances = pgTable('balances', {
   accountId: uuid('account_id')
