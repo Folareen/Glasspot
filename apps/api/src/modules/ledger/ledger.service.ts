@@ -142,8 +142,13 @@ export const LedgerService = {
         throw err;
       }
 
+      // Locks are acquired in this iteration's order, so it must follow the
+      // sorted accountIds order above, not input.entries' caller-supplied
+      // order — see accountIds' comment for why.
+      const sortedEntries = [...input.entries].sort((a, b) => a.accountId.localeCompare(b.accountId));
+
       const entryRows: NewLedgerEntry[] = [];
-      for (const entry of input.entries) {
+      for (const entry of sortedEntries) {
         const account = accountsById.get(entry.accountId)!;
         const balanceAfter = await applyEntryToBalance(tx, account, entry);
         entryRows.push({
