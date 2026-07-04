@@ -59,8 +59,10 @@ function assertBalanced(entries: LedgerEntryInput[]): void {
  * the account's normal direction increases its balance, the opposite
  * direction decreases it (standard double-entry convention).
  */
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 async function applyEntryToBalance(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  tx: DbTransaction,
   account: Account,
   entry: LedgerEntryInput
 ): Promise<bigint> {
@@ -98,18 +100,23 @@ export const LedgerService = {
    * Idempotent by `reference`: if a transaction with this reference
    * already exists, returns it as-is instead of re-posting — safe for a
    * caller to retry the exact same logical operation twice.
+   *
+   * `executor` defaults to `db` but accepts an already-open transaction —
+   * reverseTransaction() passes its own tx so the reversal posting and its
+   * subsequent status update commit atomically together (see that
+   * method's comment).
    */
-  async postTransaction(input: PostTransactionInput): Promise<Transaction> {
+  async postTransaction(input: PostTransactionInput, executor: typeof db | DbTransaction = db): Promise<Transaction> {
     assertBalanced(input.entries);
 
-    const [existing] = await db.select().from(transactions).where(eq(transactions.reference, input.reference));
+    const [existing] = await executor.select().from(transactions).where(eq(transactions.reference, input.reference));
     if (existing) {
       return existing;
     }
 
     const accountIds = [...new Set(input.entries.map((e) => e.accountId))];
 
-    return db.transaction(async (tx) => {
+    return executor.transaction(async (tx) => {
       const affectedAccounts = await tx.select().from(accounts).where(inArray(accounts.id, accountIds));
       const accountsById = new Map(affectedAccounts.map((a) => [a.id, a]));
       for (const id of accountIds) {
@@ -196,16 +203,27 @@ export const LedgerService = {
       amountKobo: e.amountKobo,
     }));
 
-    const transaction = await this.postTransaction({
-      type: "reversal",
-      reference,
-      entries: reversedEntries,
-      metadata: { reversalOf: originalTransactionId },
+    // postTransaction opens its own db.transaction internally; the status
+    // update below must land in the same commit as that internal
+    // transaction, not as a separate statement afterward — otherwise a
+    // crash between the two leaves the reversing entries durably posted
+    // (money correct) but the original transaction's status stuck at
+    // 'completed' instead of 'reversed'.
+    return db.transaction(async (tx) => {
+      const transaction = await this.postTransaction(
+        {
+          type: "reversal",
+          reference,
+          entries: reversedEntries,
+          metadata: { reversalOf: originalTransactionId },
+        },
+        tx
+      );
+
+      await tx.update(transactions).set({ status: "reversed" }).where(eq(transactions.id, originalTransactionId));
+
+      return transaction;
     });
-
-    await db.update(transactions).set({ status: "reversed" }).where(eq(transactions.id, originalTransactionId));
-
-    return transaction;
   },
 
   /**
