@@ -30,6 +30,10 @@ export function ProblemSolution() {
             When money from a group lands in one person&apos;s account first, trust is the only
             thing holding it together. Glasspot just changes what happens first.
           </Text>
+          <Text size="lg" color="secondary" className="mt-4">
+            No complicated dashboards, no crypto wallet learning curve. If you can do a bank
+            transfer, you already know how to use Glasspot.
+          </Text>
         </div>
         <div className="mt-10 grid gap-4 sm:grid-cols-2">
           <Card padding="lg">
