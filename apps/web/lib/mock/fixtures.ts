@@ -1,5 +1,4 @@
 import type {
-  CommentResponse,
   ContributionResponse,
   CurrentUser,
   MemberResponse,
@@ -37,7 +36,6 @@ export const initialPots: PotResponse[] = [
       destinationAccount: "0123456789",
       destinationBank: "058",
       targetAmountKobo: "150000000",
-      adminManualEnabled: true,
     },
     refundType: "contributors",
     shareSlug: "lagos-apartment-deposit",
@@ -201,7 +199,10 @@ export const initialPots: PotResponse[] = [
     potType: "private",
     status: "closed",
     payoutMode: "manual",
-    payoutConfig: {},
+    payoutConfig: {
+      destinationAccount: "0044556677",
+      destinationBank: "058",
+    },
     refundType: "admin",
     shareSlug: "segun-laptop-fund",
     minContributionKobo: "500000",
@@ -267,13 +268,6 @@ export const initialTransactions: TransactionResponse[] = [
   { id: "txn-9", type: "payout", status: "processing", reference: "GLP-REF-0009", externalReference: null, amountKobo: "210000000", createdAt: "2026-07-02T15:00:00.000Z", potId: "pot-6", potTitle: "Community borehole fund" },
   { id: "txn-10", type: "payout", status: "completed", reference: "GLP-REF-0010", externalReference: "NMB-9917050", amountKobo: "18000000", createdAt: "2026-05-15T09:00:00.000Z", potId: "pot-7", potTitle: "Segun's laptop fund", destinationAccount: "0066778899", destinationBank: "221" },
   { id: "txn-11", type: "payout", status: "failed", reference: "GLP-REF-0011", externalReference: "NMB-9917080", amountKobo: "5000000", createdAt: "2026-06-25T09:00:00.000Z", potId: "pot-2", potTitle: "Chidi's send-forth" },
-];
-
-export const initialComments: CommentResponse[] = [
-  { id: "cmt-1", potId: "pot-1", authorUserId: otherUsers.amaka.id, authorName: otherUsers.amaka.fullName, body: "Just sent my own contribution in, excited for this one.", createdAt: "2026-06-03T11:00:00.000Z" },
-  { id: "cmt-2", potId: "pot-1", authorUserId: demoUser.id, authorName: demoUser.fullName, body: "We're about two thirds of the way there. Let's keep going.", createdAt: "2026-06-15T08:00:00.000Z" },
-  { id: "cmt-3", potId: "pot-1", authorUserId: otherUsers.tunde.id, authorName: otherUsers.tunde.fullName, body: "Sent a bit less than planned, will top up the rest this week.", createdAt: "2026-06-10T12:00:00.000Z" },
-  { id: "cmt-4", potId: "pot-6", authorUserId: otherUsers.fatima.id, authorName: otherUsers.fatima.fullName, body: "Thank you everyone for contributing, the borehole contractor has been shortlisted.", createdAt: "2026-06-16T09:00:00.000Z" },
 ];
 
 export const nigerianBanks = [

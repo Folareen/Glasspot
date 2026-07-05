@@ -5,8 +5,15 @@ import { pots } from './pots';
 /**
  * Payout rule for a pot with payoutMode = 'target_based'. Pays out once to
  * a single destination when any configured condition is met (OR, not AND):
- * targetDate reached, targetAmountKobo reached, or an admin manually
- * triggers it. At least one condition must be set — enforced below.
+ * targetDate reached or targetAmountKobo reached. At least one condition
+ * must be set — enforced below.
+ *
+ * No admin-manual-trigger option (deliberately removed) — a fixed
+ * destination with admin-discretion-only release is manual mode's job now
+ * (see manual-payout-configs.ts). target_based is exclusively
+ * date/amount-rule-driven; PotsService.triggerPayout has no branch for
+ * this mode at all, since it only ever fires via
+ * TargetBasedPayoutService's cron sweep.
  *
  * One row per pot (potId unique). Set once while the pot is 'draft' and
  * immutable once the pot is 'open' — see pots.ts status semantics.
@@ -23,7 +30,6 @@ export const targetBasedPayoutConfigs = pgTable(
     destinationBank: text('destination_bank').notNull(),
     targetDate: timestamp('target_date', { withTimezone: true }),
     targetAmountKobo: bigint('target_amount_kobo', { mode: 'bigint' }),
-    adminManualEnabled: boolean('admin_manual_enabled').notNull().default(false),
     fired: boolean('fired').notNull().default(false),
     firedAt: timestamp('fired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -31,7 +37,7 @@ export const targetBasedPayoutConfigs = pgTable(
   (table) => ({
     atLeastOneConditionCheck: check(
       'chk_target_based_at_least_one_condition',
-      sql`${table.targetDate} IS NOT NULL OR ${table.targetAmountKobo} IS NOT NULL OR ${table.adminManualEnabled} = true`
+      sql`${table.targetDate} IS NOT NULL OR ${table.targetAmountKobo} IS NOT NULL`
     ),
   })
 );

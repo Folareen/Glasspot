@@ -46,7 +46,7 @@ async function authRoutes(server: FastifyInstance) {
     "/resend-otp",
     {
       config: {
-        rateLimit: { max: 5, timeWindow: "1 minute" },
+        rateLimit: { max: 2, timeWindow: "1 minute" },
       },
       schema: {
         body: $ref("resendOtpSchema"),

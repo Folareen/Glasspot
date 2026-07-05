@@ -13,6 +13,9 @@ export function describePayoutRule(pot: PotResponse): string {
 
   switch (pot.payoutMode) {
     case "manual": {
+      if ("destinationAccount" in config && config.destinationAccount && config.destinationBank) {
+        return "An admin can trigger a payout at any time, always to the same fixed account, as many times as needed.";
+      }
       return "An admin can send the balance to any account whenever they choose. The destination is picked at the time of payout, and stays visible to everyone afterward.";
     }
     case "target_based": {
@@ -22,9 +25,6 @@ export function describePayoutRule(pot: PotResponse): string {
       }
       if ("targetAmountKobo" in config && config.targetAmountKobo) {
         conditions.push(`the pot reaches ${formatNaira(config.targetAmountKobo)}`);
-      }
-      if ("adminManualEnabled" in config && config.adminManualEnabled) {
-        conditions.push("an admin decides to release it early");
       }
       if (conditions.length === 0) return "This pot pays out once its conditions are set.";
       return `This pot pays out once ${conditions.join(", or ")}.`;
@@ -45,8 +45,8 @@ export function describePayoutRule(pot: PotResponse): string {
   }
 }
 
+// target_based never has an on-demand trigger — it only fires via its own
+// automatic rule (target date/amount reached), never admin discretion.
 export function isPayoutReady(config: PayoutConfig, mode: PotResponse["payoutMode"]): boolean {
-  if (mode === "manual") return true;
-  if (mode === "target_based" && "adminManualEnabled" in config) return Boolean(config.adminManualEnabled);
-  return false;
+  return mode === "manual";
 }

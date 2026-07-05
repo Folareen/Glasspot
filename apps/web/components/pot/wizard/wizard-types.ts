@@ -13,7 +13,9 @@ export type WizardState = {
   targetDestinationBank: string;
   targetDate: string;
   targetAmountNaira: string;
-  adminManualEnabled: boolean;
+
+  manualDestinationAccount: string;
+  manualDestinationBank: string;
 
   recurringDestinationAccount: string;
   recurringDestinationBank: string;
@@ -38,7 +40,9 @@ export const initialWizardState: WizardState = {
   targetDestinationBank: "",
   targetDate: "",
   targetAmountNaira: "",
-  adminManualEnabled: false,
+
+  manualDestinationAccount: "",
+  manualDestinationBank: "",
 
   recurringDestinationAccount: "",
   recurringDestinationBank: "",

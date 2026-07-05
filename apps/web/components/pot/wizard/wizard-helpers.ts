@@ -12,7 +12,12 @@ export function toIsoDate(date: string) {
 export function buildPayoutConfig(state: WizardState): PayoutConfig {
   switch (state.payoutMode) {
     case "manual":
-      return {};
+      return state.manualDestinationAccount && state.manualDestinationBank
+        ? {
+            destinationAccount: state.manualDestinationAccount,
+            destinationBank: state.manualDestinationBank,
+          }
+        : {};
     case "recurring":
       return {
         destinationAccount: state.recurringDestinationAccount,
@@ -37,7 +42,6 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
         destinationBank: state.targetDestinationBank,
         targetDate: state.targetDate ? toIsoDate(state.targetDate) : undefined,
         targetAmountKobo: state.targetAmountNaira ? toKobo(state.targetAmountNaira) : undefined,
-        adminManualEnabled: state.adminManualEnabled || undefined,
       };
   }
 }
@@ -45,7 +49,9 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
 export function isConfigStepValid(state: WizardState) {
   switch (state.payoutMode) {
     case "manual":
-      return true;
+      // Destination is optional, but if either half is filled in, both
+      // must be — mirrors the backend's both-or-neither validation.
+      return Boolean(state.manualDestinationAccount) === Boolean(state.manualDestinationBank);
     case "recurring":
       return Boolean(
         state.recurringDestinationAccount &&
@@ -65,7 +71,7 @@ export function isConfigStepValid(state: WizardState) {
       return Boolean(
         state.targetDestinationAccount &&
           state.targetDestinationBank &&
-          (state.targetDate || state.targetAmountNaira || state.adminManualEnabled)
+          (state.targetDate || state.targetAmountNaira)
       );
     default:
       return false;

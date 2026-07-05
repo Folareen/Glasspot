@@ -100,7 +100,7 @@ export default function NewPotPage() {
           <TargetBasedConfigStep state={state} onChange={patch} />
         )}
         {step === "config" && state.payoutMode === "manual" && (
-          <ManualConfigStep />
+          <ManualConfigStep state={state} onChange={patch} />
         )}
         {step === "config" && state.payoutMode === "recurring" && (
           <RecurringConfigStep state={state} onChange={patch} />
