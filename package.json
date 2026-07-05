@@ -2,7 +2,7 @@
   "name": "glasspot",
   "private": true,
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "pnpm db:up && turbo run dev dev:worker",
     "build": "turbo run build",
     "lint": "turbo run lint",
     "db:up": "docker compose -f apps/backend/docker-compose.yml --env-file apps/backend/.env up -d",
