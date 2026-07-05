@@ -4,12 +4,12 @@
 
 This system runs as two separate Node processes sharing one Redis instance:
 
-1. **API process** (`apps/api/src/server.ts`)
+1. **API process** (`apps/backend/src/server.ts`)
    - Registers cron schedules on boot (via `bullmqPlugin`'s `onReady` hook)
    - Enqueues transfer jobs (via `TransferQueueService`, or `app.queues.*` directly from admin routes)
    - Never processes jobs — it only schedules/enqueues
 
-2. **Worker process** (`apps/api/src/worker.ts`)
+2. **Worker process** (`apps/backend/src/workers/worker.ts`)
    - Runs `start:worker` / `dev:worker` as its own deployable unit (separate container/service in production)
    - Actually executes cron sweeps and transfer calls to Nomba
    - Can be scaled/restarted independently of the API
@@ -190,7 +190,7 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 
 ## Fastify wiring
 
-`apps/api/src/lib/plugins/bullmq.ts` (registered in `app.ts`):
+`apps/backend/src/lib/plugins/bullmq.ts` (registered in `app.ts`):
 
 - Decorates `app.queues.{payoutCron,transfers}` so routes can enqueue jobs (e.g. an admin "trigger payout now" endpoint) without importing the queue singletons directly.
 - `onReady` hook calls `CronSchedulerService.registerAll()` — this is where the midnight schedules actually get registered with Redis on every app boot.
@@ -202,8 +202,8 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 
 ## Monorepo / tooling notes
 
-- `failed_jobs` table lives in `packages/db` (`schema/failed-jobs.ts`), exported from `schema/index.ts` alongside all other tables — imported as `import { db, failedJobs } from '@glasspot/db'` (**named** imports — there is no default export from `@glasspot/db`; a past bug came from using `import failedJobs from '@glasspot/db'` by mistake).
-- `ioredis` is pinned to an **exact** version (`5.10.1`) via root `package.json`'s `pnpm.overrides`, because `bullmq` declares its own `ioredis` dependency separately from `apps/api`'s — without pinning, pnpm can install two physically different copies, and TypeScript then treats their `Redis` classes as structurally incompatible (a real error hit during setup).
+- `failed_jobs` table lives in `apps/backend/db` (`schema/failed-jobs.ts`), exported from `schema/index.ts` alongside all other tables — imported as `import { db, failedJobs } from '@/db'` (**named** imports — there is no default export from `@/db`; a past bug came from using `import failedJobs from '@/db'` by mistake).
+- `ioredis` is pinned to an **exact** version (`5.10.1`) via root `package.json`'s `pnpm.overrides`, because `bullmq` declares its own `ioredis` dependency separately from `apps/backend`'s — without pinning, pnpm can install two physically different copies, and TypeScript then treats their `Redis` classes as structurally incompatible (a real error hit during setup).
 - `createRedisConnection()` sets `maxRetriesPerRequest: null` — required by BullMQ because Workers use blocking Redis commands; ioredis's default retry cap breaks this.
 
 ---

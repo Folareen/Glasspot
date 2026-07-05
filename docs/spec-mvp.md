@@ -28,9 +28,9 @@ Glasspot lets a group agree on the rule before anyone pays. Money only moves whe
 
 ## Payout
 
-Every pot picks exactly one payout mode at creation. Most modes fix their destination at creation too, except `rotation` and `scheduled` which pay out to multiple destinations, and `manual`, whose destination is chosen by the triggering admin at the moment of payout rather than fixed up front.
+Every pot picks exactly one payout mode at creation. Most modes fix their destination at creation too, except `scheduled`, which pays out to multiple destinations, and `manual`, whose destination is chosen by the triggering admin at the moment of payout rather than fixed up front.
 
-**Locked in for this MVP (hackathon build): `target_based`, `rotation`, `recurring`, `manual`.** These four are the ones being built and demoed now — chosen for the strongest demo story (automatic rule-based trust + Nigeria-native ajo/esusu + human-authorized-but-transparent trust), not because the others are harder. `scheduled` is coming soon, not in this MVP.
+**Locked in for this MVP (hackathon build): `target_based`, `scheduled`, `recurring`, `manual`.** These four are the ones being built and demoed now — chosen for the strongest demo story (automatic rule-based trust + Nigeria-native ajo/esusu + human-authorized-but-transparent trust), not because the others are harder.
 
 - **`target_based`**: pays out to one destination when any of the selected conditions is met (multi-select, OR semantics)
   - target date reached
@@ -38,8 +38,7 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
   - admin manual trigger
 - **`manual`**: pays out whenever any admin triggers it, to whichever account that admin names at the moment of payout — no condition, no destination fixed at creation, and the destination used is always visible on the resulting transaction afterward
 - **`recurring`**: pays out a fixed amount to one destination on a fixed interval, repeating, until the pot closes
-- **`rotation`**: pays out to an ordered sequence of destinations, each with its own amount and date, each firing once — one turn per recipient (ajo/esusu-style)
-- **`scheduled`** (coming soon, not in this MVP): pays out to an unordered set of one-shot entries, each with its own destination, amount, and date (e.g. pay account A ₦50,000 Monday, pay account B ₦30,000 Tuesday). Entries fire independently — no sequence dependency between them — and the same destination can appear more than once
+- **`scheduled`**: pays out to a sequence of destinations, each with its own amount and date, each firing once. A pot-level `ordered` flag picks the semantics: ordered fires strictly in turn — one recipient at a time, ajo/esusu-style, even if a later leg's date has also passed; unordered fires each leg independently on its own date, for staged/installment disbursements (the same destination can repeat across legs)
 
 ## Refund
 

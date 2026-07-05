@@ -30,13 +30,15 @@ export function describePayoutRule(pot: PotResponse): string {
       return `This pot pays out once ${conditions.join(", or ")}.`;
     }
     case "recurring": {
-      if (!("amountKobo" in config)) return "This pot pays out on a recurring schedule.";
+      if (!("amountKobo" in config)) return "This pot pays out on a fixed interval, repeating automatically.";
       return `This pot pays out ${formatNaira(config.amountKobo)} every ${config.intervalDays} days, starting ${formatDate(config.nextRunAt)}.`;
     }
-    case "rotation": {
-      if (!("legs" in config)) return "This pot rotates the payout between members in order.";
+    case "scheduled": {
+      if (!("legs" in config)) return "This pot pays out on a set schedule of legs.";
       const remaining = config.legs.filter((leg) => !leg.firedAt).length;
-      return `This pot pays out to each person in turn. ${remaining} of ${config.legs.length} turns still to go.`;
+      return config.ordered
+        ? `This pot pays out to each person in turn. ${remaining} of ${config.legs.length} turns still to go.`
+        : `This pot pays out on a fixed schedule of legs. ${remaining} of ${config.legs.length} still to go.`;
     }
     default:
       return "";

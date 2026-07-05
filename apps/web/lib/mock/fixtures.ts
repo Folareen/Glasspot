@@ -103,8 +103,9 @@ export const initialPots: PotResponse[] = [
     description: "Rotating contribution among the five of us. Each person gets their turn in order.",
     potType: "private",
     status: "open",
-    payoutMode: "rotation",
+    payoutMode: "scheduled",
     payoutConfig: {
+      ordered: true,
       legs: [
         {
           destinationAccount: "0011223344",

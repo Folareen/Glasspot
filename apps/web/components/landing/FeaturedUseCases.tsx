@@ -15,15 +15,15 @@ import {
 const iconForMode: Record<MvpPayoutMode, LucideIcon> = {
   target_based: Target,
   manual: ShieldCheck,
-  recurring: Calendar,
-  rotation: Repeat,
+  recurring: Repeat,
+  scheduled: Calendar,
 };
 
 const badgeToneForMode: Record<MvpPayoutMode, string> = {
   target_based: "bg-amber-soft text-amber",
   manual: "bg-indigo-soft text-indigo",
   recurring: "bg-rose-soft text-rose",
-  rotation: "bg-accent-soft text-accent",
+  scheduled: "bg-accent-soft text-accent",
 };
 
 export function FeaturedUseCases() {

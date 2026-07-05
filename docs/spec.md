@@ -31,7 +31,7 @@ Glasspot lets a group agree on the rule before anyone pays. Money only moves whe
 
 ## Payout
 
-Every pot picks exactly one payout mode at creation. Most modes fix their destination at creation too, except `rotation` and `scheduled` which pay out to multiple destinations, and `manual`, whose destination is chosen by the triggering admin at the moment of payout rather than fixed up front.
+Every pot picks exactly one payout mode at creation. Most modes fix their destination at creation too, except `scheduled`, which pays out to multiple destinations, and `manual`, whose destination is chosen by the triggering admin at the moment of payout rather than fixed up front.
 
 - **`target_based`**: pays out to one destination when any of the selected conditions is met (multi-select, OR semantics)
   - target date reached
@@ -39,8 +39,7 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
   - admin manual trigger
 - **`manual`**: pays out whenever any admin triggers it, to whichever account that admin names at the moment of payout — no condition, no destination fixed at creation, and the destination used is always visible on the resulting transaction afterward
 - **`recurring`**: pays out a fixed amount to one destination on a fixed interval, repeating, until the pot closes — for dues and contributions that repeat on a schedule
-- **`rotation`**: pays out to an ordered sequence of destinations, each with its own amount and date, each firing once, one turn per recipient — for ajo/esusu-style rotating collections
-- **`scheduled`**: pays out to an unordered set of one-shot entries, each with its own destination, amount, and date — e.g. pay account A ₦50,000 Monday, pay account B ₦30,000 Tuesday. Entries fire independently, no sequence dependency, and the same destination can repeat — for staged disbursements to different parties on different dates
+- **`scheduled`**: pays out to a sequence of destinations, each with its own amount and date, each firing once. A pot-level `ordered` flag picks the semantics: ordered fires strictly in turn — one recipient at a time, ajo/esusu-style, even if a later leg's date has also passed — for rotating collections; unordered fires each leg independently on its own date, for staged/installment disbursements (the same destination can repeat across legs)
 
 ## Refund
 
@@ -65,7 +64,7 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
 - Open fundraising: medical bills, disaster relief, school fees, public causes
 - Personal convenience: a one off collection kept separate from a personal account
 - Recurring association and cooperative dues, via recurring payout mode
-- Rotating collections (ajo/esusu), via rotation payout mode
+- Rotating collections (ajo/esusu) and staged/installment disbursements, via scheduled payout mode
 - Diaspora collections, with card payment as the channel that makes this practical
 
 ## Out of scope, not by feature gap but by license or law

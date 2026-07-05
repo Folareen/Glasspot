@@ -13,7 +13,7 @@ import { PayoutModeStep } from "@/components/pot/wizard/PayoutModeStep";
 import { TargetBasedConfigStep } from "@/components/pot/wizard/TargetBasedConfigStep";
 import { ManualConfigStep } from "@/components/pot/wizard/ManualConfigStep";
 import { RecurringConfigStep } from "@/components/pot/wizard/RecurringConfigStep";
-import { RotationConfigStep } from "@/components/pot/wizard/RotationConfigStep";
+import { ScheduledConfigStep } from "@/components/pot/wizard/ScheduledConfigStep";
 import { potToWizardState } from "@/components/pot/wizard/pot-to-wizard-state";
 import { buildPayoutConfig, toKobo } from "@/components/pot/wizard/wizard-helpers";
 import type { WizardState } from "@/components/pot/wizard/wizard-types";
@@ -84,7 +84,7 @@ export default function EditPotPage({ params }: EditPotPageProps) {
           {state.payoutMode === "target_based" && <TargetBasedConfigStep state={state} onChange={patch} />}
           {state.payoutMode === "manual" && <ManualConfigStep />}
           {state.payoutMode === "recurring" && <RecurringConfigStep state={state} onChange={patch} />}
-          {state.payoutMode === "rotation" && <RotationConfigStep state={state} onChange={patch} />}
+          {state.payoutMode === "scheduled" && <ScheduledConfigStep state={state} onChange={patch} />}
         </div>
 
         <Button className="mt-8 w-full" onClick={handleSave} disabled={!state.title.trim() || !state.payoutMode}>

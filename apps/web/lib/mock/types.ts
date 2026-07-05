@@ -1,9 +1,9 @@
-// Mirrors the wire response/input types from apps/api's Zod schemas
-// (apps/api/src/modules/{auth,pots}/*.schema.ts). apps/web has no
-// dependency on apps/api, so these are hand-copied rather than imported —
+// Mirrors the wire response/input types from apps/backend's Zod schemas
+// (apps/backend/src/modules/{auth,pots}/*.schema.ts). apps/web has no
+// dependency on apps/backend, so these are hand-copied rather than imported —
 // keep them in sync by hand if the backend schemas change shape.
 
-export type PayoutMode = "target_based" | "manual" | "recurring" | "rotation";
+export type PayoutMode = "target_based" | "manual" | "recurring" | "scheduled";
 export type PotType = "public" | "private";
 export type PotStatus = "draft" | "open" | "closed";
 export type RefundType = "admin" | "contributors";
@@ -46,22 +46,23 @@ export type RecurringPayoutConfig = Destination & {
   nextRunAt: string;
 };
 
-export type RotationLeg = Destination & {
+export type ScheduledLeg = Destination & {
   sequenceOrder: number;
   amountKobo: string;
   scheduledDate: string;
   firedAt?: string | null;
 };
 
-export type RotationPayoutConfig = {
-  legs: RotationLeg[];
+export type ScheduledPayoutConfig = {
+  ordered: boolean;
+  legs: ScheduledLeg[];
 };
 
 export type PayoutConfig =
   | TargetBasedPayoutConfig
   | ManualPayoutConfig
   | RecurringPayoutConfig
-  | RotationPayoutConfig;
+  | ScheduledPayoutConfig;
 
 export type PotResponse = {
   id: string;

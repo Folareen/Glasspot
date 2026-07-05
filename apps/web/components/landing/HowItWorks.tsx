@@ -15,7 +15,7 @@ const steps = [
   {
     title: "Create a pot, set the rule",
     description:
-      "Pick who it's for, how it pays out (a target, a date, a rotation, or a trusted trigger) and how refunds work if it doesn't.",
+      "Pick who it's for, how it pays out (a target, a date, a set schedule of turns, or a trusted trigger) and how refunds work if it doesn't.",
   },
   {
     title: "Everyone contributes",

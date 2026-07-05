@@ -21,9 +21,10 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
         intervalDays: Number(state.recurringIntervalDays) || 30,
         nextRunAt: toIsoDate(state.recurringNextRunAt),
       };
-    case "rotation":
+    case "scheduled":
       return {
-        legs: state.rotationLegs.map((leg) => ({
+        ordered: state.scheduledOrdered,
+        legs: state.scheduledLegs.map((leg) => ({
           ...leg,
           amountKobo: toKobo(leg.amountKobo),
           scheduledDate: toIsoDate(leg.scheduledDate),
@@ -53,10 +54,10 @@ export function isConfigStepValid(state: WizardState) {
           state.recurringIntervalDays &&
           state.recurringNextRunAt
       );
-    case "rotation":
+    case "scheduled":
       return (
-        state.rotationLegs.length > 0 &&
-        state.rotationLegs.every(
+        state.scheduledLegs.length > 0 &&
+        state.scheduledLegs.every(
           (leg) => leg.destinationAccount && leg.destinationBank && leg.amountKobo && leg.scheduledDate
         )
       );
