@@ -72,19 +72,20 @@ export function ReviewStep({ state }: ReviewStepProps) {
                 <Row label="Target amount" value={<Money kobo={Number(state.targetAmountNaira) * 100} />} />
               </>
             )}
-            {state.adminManualEnabled && (
-              <>
-                <Divider />
-                <Row label="Manual trigger" value="Admins can trigger anytime" />
-              </>
-            )}
           </>
         )}
 
         {state.payoutMode === "manual" && (
           <>
             <Divider />
-            <Row label="Payout account" value="Chosen by the admin when they trigger it" />
+            <Row
+              label="Payout account"
+              value={
+                state.manualDestinationAccount && state.manualDestinationBank
+                  ? `${state.manualDestinationAccount} · ${bankName(state.manualDestinationBank)}`
+                  : "Chosen by the admin when they trigger it"
+              }
+            />
           </>
         )}
 

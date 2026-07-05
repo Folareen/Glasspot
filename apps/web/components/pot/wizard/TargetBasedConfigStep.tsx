@@ -1,7 +1,6 @@
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { Checkbox } from "@/components/ui/Checkbox";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
 import { nigerianBanks } from "@/lib/mock/fixtures";
@@ -13,8 +12,7 @@ type TargetBasedConfigStepProps = {
 };
 
 export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStepProps) {
-  const hasAtLeastOneCondition =
-    Boolean(state.targetDate) || Boolean(state.targetAmountNaira) || state.adminManualEnabled;
+  const hasAtLeastOneCondition = Boolean(state.targetDate) || Boolean(state.targetAmountNaira);
 
   return (
     <div className="flex flex-col gap-5">
@@ -82,26 +80,11 @@ export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStep
             placeholder="1500000"
           />
         </Field>
-
-        <div className="flex items-center gap-3">
-          <div className="h-px flex-1 bg-border" />
-          <Text size="xs" color="secondary">
-            or
-          </Text>
-          <div className="h-px flex-1 bg-border" />
-        </div>
-
-        <Checkbox
-          id="target-admin-manual"
-          checked={state.adminManualEnabled}
-          onChange={(e) => onChange({ adminManualEnabled: e.target.checked })}
-          label="Let an admin trigger the payout manually at any time"
-        />
       </Card>
 
       {!hasAtLeastOneCondition && (
         <Text size="xs" color="error">
-          Set at least a target date, a target amount, or allow admins to trigger it manually.
+          Set at least a target date or a target amount.
         </Text>
       )}
     </div>

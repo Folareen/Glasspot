@@ -24,7 +24,6 @@ import { describePayoutRule } from "@/components/pot/payout-rule-copy";
 import { PayoutModeIcon, payoutModeLabels } from "@/components/pot/PayoutModeIcon";
 import { ContributionRow } from "@/components/pot/ContributionRow";
 import { MemberRow } from "@/components/pot/MemberRow";
-import { CommentThread } from "@/components/pot/CommentThread";
 import { ContributeModal } from "@/components/pot/ContributeModal";
 import { InviteMemberModal } from "@/components/pot/InviteMemberModal";
 import { ConfirmActionModal } from "@/components/pot/ConfirmActionModal";
@@ -43,7 +42,6 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
     getPot,
     getMembersForPot,
     getContributionsForPot,
-    getCommentsForPot,
     activatePot,
     closePot,
     triggerPayout,
@@ -63,7 +61,6 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   const members = getMembersForPot(id);
   const contributions = getContributionsForPot(id);
-  const comments = getCommentsForPot(id);
 
   const isAdmin = members.some((m) => m.userId === currentUser?.id && m.role === "admin");
   const targetAmountKobo =
@@ -74,15 +71,20 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
     ? Math.round((Number(pot.balanceKobo) / Number(targetAmountKobo)) * 100)
     : null;
 
+  // Only manual mode can be triggered on demand — target_based fires
+  // exclusively via its own automatic rule (target date/amount reached),
+  // never by an admin's discretion. See docs's payout mode split.
+  const hasFixedManualDestination =
+    pot.payoutMode === "manual" &&
+    "destinationAccount" in pot.payoutConfig &&
+    Boolean(pot.payoutConfig.destinationAccount) &&
+    Boolean(pot.payoutConfig.destinationBank);
   const canTriggerPayout =
     isAdmin &&
     pot.status === "open" &&
     !pot.pendingOperation &&
     Number(pot.balanceKobo) > 0 &&
-    (pot.payoutMode === "manual" ||
-      (pot.payoutMode === "target_based" &&
-        "adminManualEnabled" in pot.payoutConfig &&
-        pot.payoutConfig.adminManualEnabled));
+    pot.payoutMode === "manual";
 
   const canTriggerRefund =
     isAdmin && pot.status === "open" && !pot.pendingOperation && Number(pot.balanceKobo) > 0;
@@ -181,7 +183,6 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           tabs={[
             { id: "contributions", label: "Contributions" },
             { id: "members", label: "Members" },
-            { id: "comments", label: "Comments" },
           ]}
         >
           {(activeTabId) => (
@@ -243,8 +244,6 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                   )}
                 </div>
               )}
-
-              {activeTabId === "comments" && <CommentThread potId={pot.id} comments={comments} />}
             </>
           )}
         </Tabs>
@@ -265,7 +264,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         confirmLabel="Open pot"
       />
 
-      {pot.payoutMode === "manual" ? (
+      {pot.payoutMode === "manual" && !hasFixedManualDestination ? (
         <PayoutDestinationModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
