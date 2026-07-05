@@ -3,14 +3,12 @@
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
 import {
   demoUser,
-  initialComments,
   initialContributions,
   initialMembers,
   initialPots,
   initialTransactions,
 } from "./fixtures";
 import type {
-  CommentResponse,
   ContributionResponse,
   CurrentUser,
   MemberResponse,
@@ -49,7 +47,6 @@ type MockStoreValue = {
   members: MemberResponse[];
   contributions: ContributionResponse[];
   transactions: TransactionResponse[];
-  comments: CommentResponse[];
 
   login: () => void;
   logout: () => void;
@@ -69,12 +66,9 @@ type MockStoreValue = {
   updateMemberRole: (potId: string, memberId: string, role: PotMemberRole) => void;
   removeMember: (potId: string, memberId: string) => void;
 
-  addComment: (potId: string, body: string) => void;
-
   getPot: (potId: string) => PotResponse | undefined;
   getMembersForPot: (potId: string) => MemberResponse[];
   getContributionsForPot: (potId: string) => ContributionResponse[];
-  getCommentsForPot: (potId: string) => CommentResponse[];
   getTransactionsForPot: (potId: string) => TransactionResponse[];
 };
 
@@ -87,7 +81,6 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
   const [members, setMembers] = useState<MemberResponse[]>(initialMembers);
   const [contributions, setContributions] = useState<ContributionResponse[]>(initialContributions);
   const [transactions, setTransactions] = useState<TransactionResponse[]>(initialTransactions);
-  const [comments, setComments] = useState<CommentResponse[]>(initialComments);
 
   const login = useCallback(() => {
     setCurrentUser(demoUser);
@@ -326,20 +319,6 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
     setMembers((prev) => prev.filter((m) => !(m.id === memberId && m.potId === potId)));
   }, []);
 
-  const addComment = useCallback((potId: string, body: string) => {
-    setComments((prev) => [
-      ...prev,
-      {
-        id: randomId("cmt"),
-        potId,
-        authorUserId: currentUser?.id ?? demoUser.id,
-        authorName: currentUser?.fullName ?? demoUser.fullName,
-        body,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-  }, [currentUser]);
-
   const getPot = useCallback((potId: string) => pots.find((p) => p.id === potId), [pots]);
   const getMembersForPot = useCallback(
     (potId: string) => members.filter((m) => m.potId === potId),
@@ -348,10 +327,6 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
   const getContributionsForPot = useCallback(
     (potId: string) => contributions.filter((c) => c.potId === potId),
     [contributions]
-  );
-  const getCommentsForPot = useCallback(
-    (potId: string) => comments.filter((c) => c.potId === potId),
-    [comments]
   );
   const getTransactionsForPot = useCallback(
     (potId: string) => transactions.filter((t) => t.potId === potId),
@@ -366,7 +341,6 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
       members,
       contributions,
       transactions,
-      comments,
       login,
       logout,
       setRefundProfile,
@@ -380,11 +354,9 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
       addMember,
       updateMemberRole,
       removeMember,
-      addComment,
       getPot,
       getMembersForPot,
       getContributionsForPot,
-      getCommentsForPot,
       getTransactionsForPot,
     }),
     [
@@ -394,7 +366,6 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
       members,
       contributions,
       transactions,
-      comments,
       login,
       logout,
       setRefundProfile,
@@ -408,11 +379,9 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
       addMember,
       updateMemberRole,
       removeMember,
-      addComment,
       getPot,
       getMembersForPot,
       getContributionsForPot,
-      getCommentsForPot,
       getTransactionsForPot,
     ]
   );

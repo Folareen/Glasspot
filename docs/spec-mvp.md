@@ -44,11 +44,6 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
 - **Type**: `admin` (refunds to whoever triggers it) or `contributors` (refunds each contributor their contribution)
 - Refund is the mechanism used to drain a pot's balance to zero so it can be closed, when payout isn't what drains it
 
-## Comments
-
-- Members can comment on a pot, separate from the payment record
-- Visible to whoever can view the pot (public: anyone, private: members only)
-
 ## Stack
 
 Next.js, Tailwind CSS, Fastify, TypeScript, PostgreSQL, Drizzle, Redis, BullMQ, Nomba APIs
