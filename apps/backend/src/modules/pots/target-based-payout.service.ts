@@ -7,9 +7,9 @@ import { postFixedAmountDisbursement } from "./pots.service";
 
 /**
  * Fires due target_based payouts automatically — targetDate reached or
- * targetAmountKobo reached (adminManualEnabled is handled separately, via
- * an admin explicitly calling PotsService.triggerPayout — see that
- * method's target_based branch). Fires the pot's FULL current balance,
+ * targetAmountKobo reached. Purely rule-driven: there is no admin-manual
+ * trigger for this mode (PotsService.triggerPayout has no target_based
+ * branch — see that method's top comment). Fires the pot's FULL current balance,
  * matching target_based's documented "pays out once" semantic (unlike
  * recurring/rotation's fixed amountKobo per occurrence).
  *
@@ -56,10 +56,10 @@ export const TargetBasedPayoutService = {
         );
         fired++;
       } catch (err) {
-        // Enqueue failure, or the pot already has an operation in flight
-        // (e.g. an admin manually triggered it moments earlier via
-        // triggerPayout — the pendingOperation lock in
-        // postFixedAmountDisbursement rejects the second attempt).
+        // Enqueue failure, or the pot already has a payout/refund operation
+        // in flight from some other source (e.g. an admin-triggered refund
+        // moments earlier) — the pendingOperation lock in
+        // postFixedAmountDisbursement rejects the second attempt.
         // config.fired stays false either way — retried next sweep.
         console.error(`Failed to enqueue target-based payout for pot ${pot.id}:`, err);
         skipped++;

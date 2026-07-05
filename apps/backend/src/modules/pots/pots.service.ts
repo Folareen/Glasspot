@@ -8,6 +8,7 @@ import db, {
   transactions,
   contributions,
   targetBasedPayoutConfigs,
+  manualPayoutConfigs,
   recurringPayoutConfigs,
   scheduledPayoutConfigs,
   scheduledPayoutLegs,
@@ -59,9 +60,9 @@ function generateShareSlug(): string {
  * scheduledDate) are typed as `Date` after z.infer, but nothing in this
  * request pipeline actually calls Zod's .parse()/coerce logic — Fastify
  * validates request.body against the compiled JSON Schema via AJV only
- * (see pots.schema.ts's koboAmount/adminManualEnabled comments for the
- * same root cause). A JSON Schema date-time field validates a raw ISO
- * string, so request.body's date fields are still plain strings at
+ * (see pots.schema.ts's koboAmount comment for the same root cause). A
+ * JSON Schema date-time field validates a raw ISO string, so request.body's
+ * date fields are still plain strings at
  * runtime despite what the type claims. Drizzle's timestamp columns need
  * a real Date (they call .toISOString() on the value), so every date
  * field from request.body must be explicitly re-wrapped here before it
@@ -90,14 +91,23 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
         destinationBank: c.destinationBank,
         targetDate: c.targetDate !== undefined ? toDate(c.targetDate) : undefined,
         targetAmountKobo: c.targetAmountKobo !== undefined ? BigInt(c.targetAmountKobo) : undefined,
-        adminManualEnabled: c.adminManualEnabled,
       });
       return;
     }
-    case "manual":
-      // No config row: the destination is picked at trigger time, not
-      // creation time — see PotsService.triggerPayout.
+    case "manual": {
+      const c = input.payoutConfig;
+      if (c.destinationAccount === undefined || c.destinationBank === undefined) {
+        // No destination set: fully open, picked at trigger time each
+        // time — see PotsService.triggerPayout. No config row needed.
+        return;
+      }
+      await db.insert(manualPayoutConfigs).values({
+        potId,
+        destinationAccount: c.destinationAccount,
+        destinationBank: c.destinationBank,
+      });
       return;
+    }
     case "recurring": {
       const c = input.payoutConfig;
       await db.insert(recurringPayoutConfigs).values({
@@ -189,7 +199,9 @@ async function deleteExistingPayoutConfig(potId: string, payoutMode: Pot["payout
       await db.delete(targetBasedPayoutConfigs).where(eq(targetBasedPayoutConfigs.potId, potId));
       return;
     case "manual":
-      // No config row to delete — see insertPayoutConfig's manual case.
+      // A no-op delete if this pot's manual config never had a destination
+      // set (no row was ever inserted) — see insertPayoutConfig's manual case.
+      await db.delete(manualPayoutConfigs).where(eq(manualPayoutConfigs.potId, potId));
       return;
     case "recurring":
       await db.delete(recurringPayoutConfigs).where(eq(recurringPayoutConfigs.potId, potId));
@@ -366,19 +378,22 @@ export const PotsService = {
   },
 
   /**
-   * Manual payout trigger. Validates authorization + pot/mode eligibility,
-   * then posts the internal leg (debit pot_account, credit
-   * platform_float) and calls Nomba to disburse to the destination — see
-   * postDisbursement() for the full in-flight-lock + transfer-call shape.
+   * Manual payout trigger — only applicable to payoutMode='manual'.
+   * target_based/recurring/scheduled pots have no manual trigger at all;
+   * they fire exclusively via their own cron sweeps (see
+   * TargetBasedPayoutService/PayoutSchedulerService) and rejecting them
+   * here (see this method's bottom) is deliberate, not a gap.
    *
-   * destination is only accepted (and required) for payoutMode='manual',
-   * where the group's agreed rule is that any admin can send the balance
-   * to whichever account they choose at the moment they trigger it — see
-   * pots.schema.ts's triggerPayoutSchema comment. Every other mode's
-   * destination is fixed at pot creation and read from its own config
-   * table instead; a destination passed alongside one of those modes is
-   * ignored, not merged in, so there is exactly one source of truth per
-   * mode.
+   * Validates authorization + pot/mode eligibility, then posts the
+   * internal leg (debit pot_account, credit platform_float) and calls
+   * Nomba to disburse to the destination — see postDisbursement() for the
+   * full in-flight-lock + transfer-call shape.
+   *
+   * destination (the parameter) is only read when the pot has no fixed
+   * destination on file (manual_payout_configs) — see the branch below
+   * and pots.schema.ts's triggerPayoutSchema comment. A destination passed
+   * alongside a pot that DOES have one fixed is ignored, not merged in, so
+   * there is exactly one source of truth once a default is set.
    */
   async triggerPayout(
     potId: string,
@@ -392,40 +407,32 @@ export const PotsService = {
       throw new PotError("Pot must be open to trigger a payout", 409);
     }
 
-    if (pot.payoutMode === "target_based") {
+    if (pot.payoutMode === "manual") {
+      // manual mode fires repeatedly over the pot's lifetime. If the pot
+      // was configured with a fixed default destination (manual_payout_configs),
+      // that wins and the caller's destination (if any) is ignored — a
+      // group that pre-agreed on a destination shouldn't have it silently
+      // overridden by whichever admin happens to trigger payout. Only a
+      // pot with no fixed destination requires the caller to supply one,
+      // per-trigger — see this method's top comment.
       const [config] = await db
         .select()
-        .from(targetBasedPayoutConfigs)
-        .where(eq(targetBasedPayoutConfigs.potId, potId))
+        .from(manualPayoutConfigs)
+        .where(eq(manualPayoutConfigs.potId, potId))
         .limit(1);
-      if (!config?.adminManualEnabled) {
-        throw new PotError("This pot's target_based rule does not allow admin manual trigger", 403);
-      }
-      if (config.fired) {
-        throw new PotError("Payout has already fired for this pot", 409);
-      }
-      const transaction = await postDisbursement(pot, "payout", {
-        destinationAccount: config.destinationAccount,
-        destinationBank: config.destinationBank,
-      });
-      await db
-        .update(targetBasedPayoutConfigs)
-        .set({ fired: true, firedAt: new Date() })
-        .where(eq(targetBasedPayoutConfigs.potId, potId));
-      return transaction;
-    }
 
-    if (pot.payoutMode === "manual") {
-      // manual mode fires repeatedly over the pot's lifetime, to whichever
-      // account the triggering admin names each time — see this method's
-      // top comment.
-      if (!destination?.destinationAccount || !destination.destinationBank) {
+      const resolvedDestination =
+        config?.destinationAccount && config.destinationBank
+          ? { destinationAccount: config.destinationAccount, destinationBank: config.destinationBank }
+          : destination;
+
+      if (!resolvedDestination?.destinationAccount || !resolvedDestination.destinationBank) {
         throw new PotError(
-          "destinationAccount and destinationBank are required to trigger a manual payout",
+          "destinationAccount and destinationBank are required to trigger a manual payout for a pot with no fixed destination",
           400
         );
       }
-      return postDisbursement(pot, "payout", destination);
+      return postDisbursement(pot, "payout", resolvedDestination);
     }
 
     throw new PotError(

@@ -7,9 +7,9 @@ import { TargetBasedPayoutService } from '@/modules/pots/target-based-payout.ser
 
 export class PayoutCronHandlers {
 /*
- Logic: targetDate <= now() OR targetAmountKobo <= pot.balance OR adminManualEnabled = true, 
- filtered on fired = false, then mark fired = true, firedAt = now() transactionally with the transfer enqueue 
- (so a crash between "fire" and "enqueue" can't double-pay or silently drop it — write the outbox row and flip fired 
+ Logic: targetDate <= now() OR targetAmountKobo <= pot.balance,
+ filtered on fired = false, then mark fired = true, firedAt = now() transactionally with the transfer enqueue
+ (so a crash between "fire" and "enqueue" can't double-pay or silently drop it — write the outbox row and flip fired
  in the same DB transaction, enqueue after commit).
 */
   async checkTargetBasedPayouts() {

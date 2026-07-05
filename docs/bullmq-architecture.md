@@ -68,7 +68,7 @@ async checkTargetBasedPayouts() {
       eq(targetBasedPayoutConfigs.fired, false),
       or(
         lte(targetBasedPayoutConfigs.targetDate, new Date()),
-        // ...targetAmountKobo / adminManualEnabled conditions
+        // ...targetAmountKobo condition
       )
     ),
   });

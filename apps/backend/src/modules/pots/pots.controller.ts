@@ -147,14 +147,15 @@ export async function closePotHandler(
 
 /**
  * Manually triggers a payout for an eligible pot (admin-only), idempotent
- * per the Idempotency-Key header, and responds with the resulting
- * transaction. request.body only matters for payoutMode='manual', where
- * it carries the destination the triggering admin is sending to this
- * time — see PotsService.triggerPayout and pots.schema.ts's
- * triggerPayoutSchema. Included in the idempotency hash (unlike
- * activate/close/refund, which take no body) since two manual-payout
- * retries with the same key but different destinations must not silently
- * collapse to whichever one happened to run first.
+ * per the Idempotency-Key header, and responds 202 with no body — the
+ * disbursement is only enqueued here, not completed (see
+ * PotsService.triggerPayout/postFixedAmountDisbursement). request.body
+ * only matters for payoutMode='manual', where it carries the destination
+ * the triggering admin is sending to this time — see PotsService.triggerPayout
+ * and pots.schema.ts's triggerPayoutSchema. Included in the idempotency
+ * hash (unlike activate/close/refund, which take no body) since two
+ * manual-payout retries with the same key but different destinations must
+ * not silently collapse to whichever one happened to run first.
  */
 export async function triggerPayoutHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: TriggerPayoutInput }>,
@@ -164,21 +165,21 @@ export async function triggerPayoutHandler(
     const userId = requireUserId(request);
     const key = requireIdempotencyKey(request);
     const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
-    const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
+    const { statusCode } = await withIdempotencyKey(key, requestHash, async () => {
       const destination =
         request.body?.destinationAccount && request.body?.destinationBank
           ? { destinationAccount: request.body.destinationAccount, destinationBank: request.body.destinationBank }
           : undefined;
-      const result = await PotsService.triggerPayout(request.params.id, userId, destination);
-      return { statusCode: 200, body: result };
+      await PotsService.triggerPayout(request.params.id, userId, destination);
+      return { statusCode: 202, body: undefined };
     });
-    return reply.code(statusCode).send(body);
+    return reply.code(statusCode).send();
   } catch (e) {
     return handlePotError(e, reply);
   }
 }
 
-/** Manually triggers a refund, draining the pot's full balance (admin-only), idempotent per the Idempotency-Key header, and responds with the resulting transaction. */
+/** Manually triggers a refund, draining the pot's full balance (admin-only), idempotent per the Idempotency-Key header, and responds 202 with no body — the disbursement(s) are only enqueued here, not completed (see PotsService.triggerRefund). */
 export async function triggerRefundHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -187,11 +188,11 @@ export async function triggerRefundHandler(
     const userId = requireUserId(request);
     const key = requireIdempotencyKey(request);
     const requestHash = hashRequest({ method: "POST", path: request.url, userId });
-    const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
-      const result = await PotsService.triggerRefund(request.params.id, userId);
-      return { statusCode: 200, body: result };
+    const { statusCode } = await withIdempotencyKey(key, requestHash, async () => {
+      await PotsService.triggerRefund(request.params.id, userId);
+      return { statusCode: 202, body: undefined };
     });
-    return reply.code(statusCode).send(body);
+    return reply.code(statusCode).send();
   } catch (e) {
     return handlePotError(e, reply);
   }

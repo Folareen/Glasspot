@@ -23,29 +23,42 @@ const destinationSchema = {
 // safeParse on the update path, where the wire schema (updatePotSchema)
 // can't guarantee payoutConfig matches payoutMode itself — see that
 // schema's comment.
+// No admin-manual-trigger option here (deliberately removed) — a fixed
+// destination with admin-discretion-only release is now manual mode's job
+// (see manualPayoutConfigSchema below and manual-payout-configs.ts).
+// target_based is exclusively date/amount-rule-driven; a group wanting
+// "fixed destination, admin releases whenever" picks manual with a
+// destination set instead.
 export const targetBasedPayoutConfigSchema = z
   .object({
     ...destinationSchema,
     targetDate: z.coerce.date().optional(),
     targetAmountKobo: koboAmount.optional(),
-    // No .default(false): this schema only ever compiles to JSON Schema
-    // for Fastify/AJV wire validation — nothing in this codebase
-    // re-parses request.body through Zod itself (see pots.service.ts) —
-    // so a Zod-side .default() is never actually applied at runtime and
-    // would silently mislead the inferred type. Every reader treats a
-    // missing value the same as `false` explicitly instead.
-    adminManualEnabled: z.boolean().optional(),
   })
   .refine(
-    (c) => c.targetDate !== undefined || c.targetAmountKobo !== undefined || c.adminManualEnabled === true,
-    { message: "At least one of targetDate, targetAmountKobo, or adminManualEnabled is required" }
+    (c) => c.targetDate !== undefined || c.targetAmountKobo !== undefined,
+    { message: "At least one of targetDate or targetAmountKobo is required" }
   );
 
-// Manual mode has no destination and no condition at creation time — the
-// group's agreed rule is that any admin can send the balance to whichever
-// account they choose at the moment they trigger it (see
-// triggerPayoutSchema below, where that destination is actually supplied).
-export const manualPayoutConfigSchema = z.object({});
+// Manual mode's destination is optional at creation time, unlike
+// target_based/recurring. If omitted, the group's agreed rule is that any
+// admin can send the balance to whichever account they choose at the
+// moment they trigger it (see triggerPayoutSchema below, where that
+// destination is actually supplied per-trigger). If set, it acts as a
+// default destination — repeatable indefinitely, unlike target_based's
+// single early-release fire — see manual-payout-configs.ts. Both fields
+// must be present together or both absent; .refine enforces that since
+// the object shape alone can't (destinationSchema's fields are already
+// each independently optional here).
+export const manualPayoutConfigSchema = z
+  .object({
+    destinationAccount: z.string().min(1).optional(),
+    destinationBank: z.string().min(1).optional(),
+  })
+  .refine(
+    (c) => (c.destinationAccount === undefined) === (c.destinationBank === undefined),
+    { message: "destinationAccount and destinationBank must both be set or both be omitted" }
+  );
 
 export const recurringPayoutConfigSchema = z.object({
   ...destinationSchema,
@@ -61,10 +74,13 @@ const scheduledLegSchema = z.object({
   scheduledDate: z.coerce.date(),
 });
 
-// ordered has no .default(true) — same reasoning as adminManualEnabled
-// above: Zod defaults never apply at runtime in this request pipeline.
-// PotsService.insertPayoutConfig must treat a missing value as `true`
-// (ajo/esusu-style strict sequencing) explicitly instead.
+// ordered has no .default(true): this schema only ever compiles to JSON
+// Schema for Fastify/AJV wire validation — nothing in this codebase
+// re-parses request.body through Zod itself (see pots.service.ts) — so a
+// Zod-side .default() is never actually applied at runtime and would
+// silently mislead the inferred type. PotsService.insertPayoutConfig must
+// treat a missing value as `true` (ajo/esusu-style strict sequencing)
+// explicitly instead.
 export const scheduledPayoutConfigSchema = z.object({
   ordered: z.boolean().optional(),
   legs: z.array(scheduledLegSchema).min(1),
@@ -171,9 +187,12 @@ const potIdParamsSchema = z.object({
   id: z.string().uuid(),
 });
 
-// role has no .default("member") — same reasoning as adminManualEnabled
-// above: Zod defaults never apply at runtime in this request pipeline.
-// pot-members.service.ts must treat a missing role as 'member' itself.
+// role has no .default("member"): this schema only ever compiles to JSON
+// Schema for Fastify/AJV wire validation — nothing in this codebase
+// re-parses request.body through Zod itself — so a Zod-side .default()
+// is never actually applied at runtime and would silently mislead the
+// inferred type. pot-members.service.ts must treat a missing role as
+// 'member' itself.
 const addMemberSchema = z.object({
   userId: z.string().uuid(),
   role: z.enum(potMemberRoleValues).optional(),

@@ -82,7 +82,7 @@ export default function EditPotPage({ params }: EditPotPageProps) {
           </div>
 
           {state.payoutMode === "target_based" && <TargetBasedConfigStep state={state} onChange={patch} />}
-          {state.payoutMode === "manual" && <ManualConfigStep />}
+          {state.payoutMode === "manual" && <ManualConfigStep state={state} onChange={patch} />}
           {state.payoutMode === "recurring" && <RecurringConfigStep state={state} onChange={patch} />}
           {state.payoutMode === "scheduled" && <ScheduledConfigStep state={state} onChange={patch} />}
         </div>

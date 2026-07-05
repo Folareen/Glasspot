@@ -1,4 +1,5 @@
 import type {
+  ManualPayoutConfig,
   PotResponse,
   RecurringPayoutConfig,
   ScheduledPayoutConfig,
@@ -34,7 +35,15 @@ export function potToWizardState(pot: PotResponse): WizardState {
       targetDestinationBank: config.destinationBank,
       targetDate: toDateInput(config.targetDate),
       targetAmountNaira: toNaira(config.targetAmountKobo),
-      adminManualEnabled: config.adminManualEnabled ?? false,
+    };
+  }
+
+  if (pot.payoutMode === "manual") {
+    const config = pot.payoutConfig as ManualPayoutConfig;
+    return {
+      ...base,
+      manualDestinationAccount: config.destinationAccount ?? "",
+      manualDestinationBank: config.destinationBank ?? "",
     };
   }
 

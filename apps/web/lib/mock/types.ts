@@ -27,18 +27,23 @@ export type Destination = {
   destinationBank: string;
 };
 
+// No admin-manual-trigger option: target_based is purely rule-driven,
+// fires once via targetDate/targetAmountKobo only. A group wanting
+// "fixed destination, admin releases whenever" should pick manual mode
+// with a destination set instead — see ManualPayoutConfig below.
 export type TargetBasedPayoutConfig = Destination & {
   targetDate?: string;
   targetAmountKobo?: string;
-  adminManualEnabled?: boolean;
 };
 
-// Manual mode carries no pre-set destination: the group's agreed rule is
-// that any admin can send the balance to whichever account they choose
-// at the moment they trigger it. The destination is recorded on the
-// resulting transaction instead, so it stays visible to everyone after
-// the fact even though it wasn't locked in at creation.
-export type ManualPayoutConfig = Record<string, never>;
+// Manual mode's destination is optional. If unset, the group's agreed
+// rule is that any admin can send the balance to whichever account they
+// choose at the moment they trigger it — the destination is recorded on
+// the resulting transaction instead, so it stays visible to everyone
+// after the fact even though it wasn't locked in at creation. If set, it
+// acts as a fixed default destination instead — repeatable indefinitely,
+// unlike target_based's single fire.
+export type ManualPayoutConfig = Partial<Destination>;
 
 export type RecurringPayoutConfig = Destination & {
   amountKobo: string;
@@ -133,15 +138,6 @@ export type ContributionResponse = {
   fundedAt: string | null;
   // Demo-only display fields.
   contributorName: string;
-};
-
-export type CommentResponse = {
-  id: string;
-  potId: string;
-  authorUserId: string;
-  authorName: string;
-  body: string;
-  createdAt: string;
 };
 
 export type CurrentUser = {
