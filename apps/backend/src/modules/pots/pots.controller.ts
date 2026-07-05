@@ -15,6 +15,8 @@ import {
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
+import { TransferQueueService } from "@/modules/scheduler/transfer-queue.service";
+
 
 // Catches PotError as well as errors from collaborating modules this
 // controller now calls into (e.g. LedgerService's LedgerError via
@@ -68,7 +70,11 @@ export async function createPotHandler(
   try {
     const userId = requireUserId(request);
     const pot = await PotsService.create(userId, request.body);
-    return reply.code(201).send(pot);
+    return reply.code(201).send({ 
+      ...pot, 
+      minContributionKobo: pot.minContributionKobo.toString(),
+      maxContributionKobo: pot.maxContributionKobo?.toString() ?? null, 
+    });
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -202,9 +208,12 @@ export async function contributeHandler(
     const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
     const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
       const contribution = await ContributionsService.create(request.params.id, userId, request.body);
-      return { statusCode: 201, body: contribution };
+      return {
+              statusCode: 201,
+              body: { ...contribution, expectedAmountKobo: contribution.expectedAmountKobo.toString() },
+            };
     });
-    return reply.code(statusCode).send(body);
+    return reply.code(statusCode).send({ ...body, expectedAmountKobo: body.expectedAmountKobo.toString() });
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -274,3 +283,26 @@ export async function removeMemberHandler(
     return handlePotError(e, reply);
   }
 }
+
+// export async function adminTriggerPayoutHandler(
+//   request: FastifyRequest<{ Params: PotIdParams }>,
+//   reply: FastifyReply
+// ) {
+//   const { id: potId } = request.params;
+
+//   // Resolve destination/amount/accountName from the pot's payout config —
+//   // mirrors what PayoutCronHandlers does for the scheduled sweeps, just
+//   // triggered manually here instead of by a cron condition.
+//   const payoutDetails = await PotPayoutService.resolvePayoutDetails(potId);
+
+//   const job = await TransferQueueService.enqueuePayout({
+//     potId,
+//     destinationAccount: payoutDetails.destinationAccount,
+//     destinationBank: payoutDetails.destinationBank,
+//     accountName: payoutDetails.accountName,
+//     amountKobo: payoutDetails.amountKobo,
+//     merchantTxRef: `admin-payout-${potId}-${Date.now()}`,
+//   });
+
+//   return reply.code(202).send();
+// }

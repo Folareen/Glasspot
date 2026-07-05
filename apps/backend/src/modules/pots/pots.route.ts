@@ -13,6 +13,8 @@ import {
   triggerRefundHandler,
   updateMemberRoleHandler,
   updatePotHandler,
+  // adminTriggerPayoutHandler, // new
+
 } from "./pots.controller";
 import { $ref } from "./pots.schema";
 import {
@@ -198,6 +200,18 @@ async function potsRoutes(server: FastifyInstance) {
     },
     removeMemberHandler
   );
+
+  // server.post<{ Params: PotIdParams }>(
+  //   "/:id/admin-trigger-payout",
+  //   {
+  //     preHandler: [server.authenticate],
+  //     schema: {
+  //       params: $ref("potIdParamsSchema"),
+  //       response: { 202: {} },
+  //     },
+  //   },
+  //   adminTriggerPayoutHandler
+  // );
 }
 
 export default potsRoutes;

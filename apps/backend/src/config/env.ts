@@ -35,6 +35,7 @@ const EnvSchema = z.object({
   SMTP_USER: z.string(),
   SMTP_PASSWORD: z.string(),
   MAIL_FROM: z.string().default("Glasspot <no-reply@glasspot.app>"),
+  BULL_BOARD_ENABLED: stringBoolean,
 });
 
 export type EnvSchema = z.infer<typeof EnvSchema>;
