@@ -7,7 +7,7 @@
     "dev:worker": "tsx watch --env-file=.env src/workers/worker.ts",
     "start:worker": "node dist/workers/worker.js",
     "dev": "tsx watch --env-file=.env src/server.ts",
-    "build": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "start:prod": "node dist/server.js",
     "start": "tsx --env-file=.env src/server.ts",
     "db:generate": "drizzle-kit generate",
