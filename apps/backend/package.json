@@ -8,6 +8,7 @@
     "start:worker": "node dist/workers/worker.js",
     "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc --noEmit -p tsconfig.json",
+    "start:prod": "node dist/server.js",
     "start": "tsx --env-file=.env src/server.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "cross-env DB_MIGRATING=true tsx --env-file=.env src/db/migrate.ts",
