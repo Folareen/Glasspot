@@ -120,7 +120,7 @@ async function potsRoutes(server: FastifyInstance) {
       schema: {
         params: $ref("potIdParamsSchema"),
         body: $ref("triggerPayoutSchema"),
-        response: { 200: $ref("transactionResponseSchema") },
+        response: { 202: {} },
       },
     },
     triggerPayoutHandler
@@ -132,7 +132,7 @@ async function potsRoutes(server: FastifyInstance) {
       preHandler: [server.authenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
-        response: { 200: $ref("refundResponseSchema") },
+        response: { 202: {} },
       },
     },
     triggerRefundHandler
