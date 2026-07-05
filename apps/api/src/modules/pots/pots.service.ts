@@ -258,7 +258,11 @@ export const PotsService = {
             myPotIds.has(p.id)
           );
 
-    return [...allPublic, ...privatePotsIAmIn];
+    return [...allPublic, ...privatePotsIAmIn].map((pot) => ({
+      ...pot,
+      minContributionKobo: pot.minContributionKobo.toString(),
+      maxContributionKobo: pot.maxContributionKobo?.toString() ?? null,
+    }));
   },
 
   /** Admin-only. Draft-only — payoutMode/refundType/config are immutable once a pot is 'open' (see pots.ts status semantics). */

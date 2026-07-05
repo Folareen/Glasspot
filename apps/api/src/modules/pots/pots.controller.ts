@@ -68,7 +68,11 @@ export async function createPotHandler(
   try {
     const userId = requireUserId(request);
     const pot = await PotsService.create(userId, request.body);
-    return reply.code(201).send(pot);
+    return reply.code(201).send({ 
+      ...pot, 
+      minContributionKobo: pot.minContributionKobo.toString(),
+      maxContributionKobo: pot.maxContributionKobo?.toString() ?? null, 
+    });
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -202,9 +206,12 @@ export async function contributeHandler(
     const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
     const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
       const contribution = await ContributionsService.create(request.params.id, userId, request.body);
-      return { statusCode: 201, body: contribution };
+      return {
+              statusCode: 201,
+              body: { ...contribution, expectedAmountKobo: contribution.expectedAmountKobo.toString() },
+            };
     });
-    return reply.code(statusCode).send(body);
+    return reply.code(statusCode).send({ ...body, expectedAmountKobo: body.expectedAmountKobo.toString() });
   } catch (e) {
     return handlePotError(e, reply);
   }

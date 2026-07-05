@@ -33,7 +33,7 @@ export function buildApp(): FastifyInstance {
       api.register(potsRoutes, { prefix: "/pots" });
       api.register(nombaWebhooksRoutes, { prefix: "/webhooks" });
     },
-    { prefix: "/api/v1" }
+    // { prefix: "/api/v1" }
   );
 
   return app;
