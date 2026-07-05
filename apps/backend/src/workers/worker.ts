@@ -32,7 +32,14 @@ const payoutCronWorker = new Worker(
   async (job) => {
     const fn = cronDispatch[job.name];
     if (!fn) throw new Error(`No handler registered for cron job "${job.name}"`);
-    return fn(job.data);
+
+    const startedAt = new Date().toISOString();
+    console.log(`[cron] ${job.name} (job ${job.id}) started at ${startedAt}`);
+
+    const result = await fn(job.data);
+
+    console.log(`[cron] ${job.name} (job ${job.id}) finished:`, result);
+    return result;
   },
   { connection, concurrency: 1 } // sweeps should not overlap themselves
 );
