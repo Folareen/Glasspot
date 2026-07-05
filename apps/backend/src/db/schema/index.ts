@@ -5,6 +5,7 @@ export * from './pot-members';
 export * from './contributions';
 export * from './contribution-payments';
 export * from './target-based-payout-configs';
+export * from './manual-payout-configs';
 export * from './recurring-payout-configs';
 export * from './scheduled-payout-configs';
 export * from './accounts';

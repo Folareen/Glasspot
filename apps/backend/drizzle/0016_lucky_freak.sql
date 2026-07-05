@@ -1,0 +1,3 @@
+ALTER TABLE "target_based_payout_configs" DROP CONSTRAINT "chk_target_based_at_least_one_condition";--> statement-breakpoint
+ALTER TABLE "target_based_payout_configs" DROP COLUMN "admin_manual_enabled";--> statement-breakpoint
+ALTER TABLE "target_based_payout_configs" ADD CONSTRAINT "chk_target_based_at_least_one_condition" CHECK ("target_based_payout_configs"."target_date" IS NOT NULL OR "target_based_payout_configs"."target_amount_kobo" IS NOT NULL);
