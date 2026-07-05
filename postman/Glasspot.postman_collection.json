@@ -258,33 +258,98 @@
         },
         {
           "name": "Resend OTP",
-          "request": {
-            "method": "POST",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/auth/resend-otp",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "resend-otp"
-              ]
-            },
-            "description": "purpose: signup_verification | login | password_reset. Always returns a generic 200 message regardless of whether the email exists.",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"email\": \"{{email}}\",\n  \"purpose\": \"signup_verification\"\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
+          "item": [
+            {
+              "name": "Resend OTP — Signup Verification",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/resend-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "resend-otp"
+                  ]
+                },
+                "description": "purpose: signup_verification | login | password_reset. Always returns a generic 200 message regardless of whether the email exists. This variant re-sends the signup-verification code — errors if the account is already verified.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"purpose\": \"signup_verification\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
                 }
               }
             },
-            "auth": {
-              "type": "noauth"
+            {
+              "name": "Resend OTP — Login",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/resend-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "resend-otp"
+                  ]
+                },
+                "description": "Re-sends a login OTP without going through POST /auth/login again. Same rate limiting (60s cooldown + 5/hour) as any other purpose, scoped per {userId, purpose}.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"purpose\": \"login\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              }
+            },
+            {
+              "name": "Resend OTP — Password Reset",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/auth/resend-otp",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "auth",
+                    "resend-otp"
+                  ]
+                },
+                "description": "Sends a password_reset code. Note: as of this collection's writing there is no dedicated /auth/reset-password endpoint yet to consume this code with — this purpose exists in the schema/service but the full reset flow isn't wired up end-to-end. Kept here for when that endpoint lands.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"email\": \"{{email}}\",\n  \"purpose\": \"password_reset\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "auth": {
+                  "type": "noauth"
+                }
+              }
             }
-          }
+          ]
         },
         {
           "name": "Login (Primary)",
@@ -509,7 +574,7 @@
                     "pots"
                   ]
                 },
-                "description": "payoutMode='target_based': payout fires automatically once targetDate and/or targetAmountKobo is met, or an admin can manually release early if adminManualEnabled=true. Sets potId on success.",
+                "description": "payoutMode='target_based': payout fires automatically once targetDate and/or targetAmountKobo is met — purely rule-driven, no admin-manual-trigger option (that's manual mode's job instead, optionally with a fixed destination — see 'Create Pot — Manual (Fixed Destination)'). Sets potId on success.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"title\": \"Rent Contribution\",\n  \"description\": \"Group pot to cover shared rent\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"maxContributionKobo\": 5000000,\n  \"payoutMode\": \"target_based\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"targetAmountKobo\": 10000000\n  }\n}",
@@ -552,10 +617,53 @@
                     "pots"
                   ]
                 },
-                "description": "payoutMode='manual': no destination or condition set at creation — an admin picks the destination at the moment they trigger POST /pots/:id/payout.",
+                "description": "payoutMode='manual', no fixed destination: an admin picks the destination at the moment they trigger POST /pots/:id/payout, every time — destinationAccount/destinationBank are then REQUIRED in that request's body. See 'Create Pot — Manual (Fixed Destination)' for the alternative where a default is set here instead.",
                 "body": {
                   "mode": "raw",
                   "raw": "{\n  \"title\": \"Team Lunch Fund\",\n  \"description\": \"Manual payout, admin decides when and where\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContributionKobo\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {}\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "if (pm.response.code === 201 || pm.response.code === 200) {",
+                      "    const json = pm.response.json();",
+                      "    if (json.id) pm.environment.set(\"potId\", json.id);",
+                      "    pm.test(\"Request succeeded\", () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                      "} else {",
+                      "    pm.test(\"Request response\", () => { throw new Error(\"Status \" + pm.response.code + \": \" + pm.response.text()); });",
+                      "}"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "name": "Create Pot — Manual (Fixed Destination)",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots"
+                  ]
+                },
+                "description": "payoutMode='manual' with a fixed default destination set at creation (manual_payout_configs) — the triggering admin can still fire it repeatedly, but the destination is pre-agreed and locked in, not chosen per-trigger. POST /pots/:id/payout can then be called with an empty body; any destinationAccount/destinationBank sent there is ignored in favor of this fixed one.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"title\": \"Team Lunch Fund (fixed destination)\",\n  \"description\": \"Manual payout, but always to the same pre-agreed account\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContributionKobo\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -807,7 +915,7 @@
                 "payout"
               ]
             },
-            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank are ONLY required (and only used) for payoutMode='manual' pots — omit the body entirely for target_based/recurring/scheduled pots, whose destination is already fixed in payoutConfig.",
+            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank in this body are ONLY read for payoutMode='manual' pots that were created WITHOUT a fixed destination (see 'Create Pot — Manual' vs 'Create Pot — Manual (Fixed Destination)') — omit the body entirely for target_based/recurring/scheduled pots, and for a manual pot that already has a fixed destination (this body is ignored in that case, not merged). Responds 202 with no body: the transfer is only ENQUEUED here, not completed — the actual Nomba call and ledger posting happen later in a background worker once the queued job is processed.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\"\n}",
@@ -817,7 +925,18 @@
                 }
               }
             }
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Payout accepted for processing (202)\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Trigger Refund",
@@ -841,8 +960,19 @@
                 "refund"
               ]
             },
-            "description": "Admin-only, idempotent per Idempotency-Key. Drains the pot's full ledger balance. Returns one transaction for refundType='admin' (to the admin's refund profile account) or one per contributor for refundType='contributors'."
-          }
+            "description": "Admin-only, idempotent per Idempotency-Key. Drains the pot's full ledger balance — one leg for refundType='admin' (to the admin's refund profile account) or one per contributor for refundType='contributors'. Responds 202 with no body: every leg is only ENQUEUED here, not completed — the actual Nomba call(s) and ledger posting happen later in a background worker."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Refund accepted for processing (202)\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Close Pot",
