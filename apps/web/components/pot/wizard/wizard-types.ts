@@ -1,4 +1,4 @@
-import type { PayoutMode, PotType, RefundType, RotationLeg } from "@/lib/mock/types";
+import type { PayoutMode, PotType, RefundType, ScheduledLeg } from "@/lib/mock/types";
 
 export type WizardState = {
   title: string;
@@ -21,7 +21,8 @@ export type WizardState = {
   recurringIntervalDays: string;
   recurringNextRunAt: string;
 
-  rotationLegs: RotationLeg[];
+  scheduledOrdered: boolean;
+  scheduledLegs: ScheduledLeg[];
 };
 
 export const initialWizardState: WizardState = {
@@ -45,7 +46,8 @@ export const initialWizardState: WizardState = {
   recurringIntervalDays: "30",
   recurringNextRunAt: "",
 
-  rotationLegs: [],
+  scheduledOrdered: true,
+  scheduledLegs: [],
 };
 
 export const wizardSteps = ["basics", "mode", "config", "review"] as const;

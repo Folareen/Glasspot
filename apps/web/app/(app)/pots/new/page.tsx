@@ -15,7 +15,7 @@ import { PayoutModeStep } from "@/components/pot/wizard/PayoutModeStep";
 import { TargetBasedConfigStep } from "@/components/pot/wizard/TargetBasedConfigStep";
 import { ManualConfigStep } from "@/components/pot/wizard/ManualConfigStep";
 import { RecurringConfigStep } from "@/components/pot/wizard/RecurringConfigStep";
-import { RotationConfigStep } from "@/components/pot/wizard/RotationConfigStep";
+import { ScheduledConfigStep } from "@/components/pot/wizard/ScheduledConfigStep";
 import { ReviewStep } from "@/components/pot/wizard/ReviewStep";
 import { initialWizardState, wizardSteps, type WizardState } from "@/components/pot/wizard/wizard-types";
 import { buildPayoutConfig, isConfigStepValid, toKobo } from "@/components/pot/wizard/wizard-helpers";
@@ -105,8 +105,8 @@ export default function NewPotPage() {
         {step === "config" && state.payoutMode === "recurring" && (
           <RecurringConfigStep state={state} onChange={patch} />
         )}
-        {step === "config" && state.payoutMode === "rotation" && (
-          <RotationConfigStep state={state} onChange={patch} />
+        {step === "config" && state.payoutMode === "scheduled" && (
+          <ScheduledConfigStep state={state} onChange={patch} />
         )}
         {step === "review" && <ReviewStep state={state} />}
 

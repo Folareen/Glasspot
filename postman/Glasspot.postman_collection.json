@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Glasspot API",
-    "description": "Full test collection for the Glasspot pooled-money API (apps/api). Flow: (1) register + verify two users (Primary admin, Member) in Auth, (2) create a pot and activate it, (3) contribute / add members / trigger payout or refund / close, in Pots. Money-moving endpoints require an Idempotency-Key header (auto-filled). Bearer token auth is set at the collection level from {{accessToken}}, which the Auth requests populate automatically via test scripts.",
+    "description": "Full test collection for the Glasspot pooled-money API (apps/backend). Flow: (1) register + verify two users (Primary admin, Member) in Auth, (2) create a pot and activate it, (3) contribute / add members / trigger payout or refund / close, in Pots. Money-moving endpoints require an Idempotency-Key header (auto-filled). Bearer token auth is set at the collection level from {{accessToken}}, which the Auth requests populate automatically via test scripts.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -625,7 +625,7 @@
               ]
             },
             {
-              "name": "Create Pot — Rotation",
+              "name": "Create Pot — Scheduled",
               "request": {
                 "method": "POST",
                 "header": [],
@@ -638,10 +638,10 @@
                     "pots"
                   ]
                 },
-                "description": "payoutMode='rotation': each leg pays out a different destination in sequenceOrder on its own scheduledDate — classic Ajo/esusu rotation.",
+                "description": "payoutMode='scheduled', ordered=true: each leg pays out a different destination in sequenceOrder on its own scheduledDate, strictly in turn — classic Ajo/esusu rotation.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Ajo Rotation Group\",\n  \"description\": \"Each member takes a turn receiving the payout\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"payoutMode\": \"rotation\",\n  \"payoutConfig\": {\n    \"legs\": [\n      {\n        \"destinationAccount\": \"{{destinationAccount}}\",\n        \"destinationBank\": \"{{destinationBank}}\",\n        \"sequenceOrder\": 0,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-08-01T00:00:00.000Z\"\n      },\n      {\n        \"destinationAccount\": \"{{memberDestinationAccount}}\",\n        \"destinationBank\": \"{{memberDestinationBank}}\",\n        \"sequenceOrder\": 1,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-09-01T00:00:00.000Z\"\n      }\n    ]\n  }\n}",
+                  "raw": "{\n  \"title\": \"Ajo Rotation Group\",\n  \"description\": \"Each member takes a turn receiving the payout\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"payoutMode\": \"scheduled\",\n  \"payoutConfig\": {\n    \"ordered\": true,\n    \"legs\": [\n      {\n        \"destinationAccount\": \"{{destinationAccount}}\",\n        \"destinationBank\": \"{{destinationBank}}\",\n        \"sequenceOrder\": 0,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-08-01T00:00:00.000Z\"\n      },\n      {\n        \"destinationAccount\": \"{{memberDestinationAccount}}\",\n        \"destinationBank\": \"{{memberDestinationBank}}\",\n        \"sequenceOrder\": 1,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-09-01T00:00:00.000Z\"\n      }\n    ]\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -668,7 +668,7 @@
               ]
             }
           ],
-          "description": "Run whichever variant matches what you're testing — each sets {{potId}} on success, which every other request in this folder relies on. scheduled mode is intentionally excluded (locked out of MVP)."
+          "description": "Run whichever variant matches what you're testing — each sets {{potId}} on success, which every other request in this folder relies on."
         },
         {
           "name": "List Pots",
@@ -807,7 +807,7 @@
                 "payout"
               ]
             },
-            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank are ONLY required (and only used) for payoutMode='manual' pots — omit the body entirely for target_based/recurring/rotation pots, whose destination is already fixed in payoutConfig.",
+            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank are ONLY required (and only used) for payoutMode='manual' pots — omit the body entirely for target_based/recurring/scheduled pots, whose destination is already fixed in payoutConfig.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\"\n}",

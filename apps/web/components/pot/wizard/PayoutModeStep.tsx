@@ -7,7 +7,7 @@ import {
 } from "@/components/pot/PayoutModeIcon";
 import type { PayoutMode } from "@/lib/mock/types";
 
-const modes: PayoutMode[] = ["target_based", "manual", "recurring", "rotation"];
+const modes: PayoutMode[] = ["target_based", "manual", "recurring", "scheduled"];
 
 type PayoutModeStepProps = {
   value: PayoutMode | null;

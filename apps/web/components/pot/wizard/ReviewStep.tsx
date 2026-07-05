@@ -107,13 +107,15 @@ export function ReviewStep({ state }: ReviewStepProps) {
           </>
         )}
 
-        {state.payoutMode === "rotation" && (
+        {state.payoutMode === "scheduled" && (
           <>
             <Divider />
-            {state.rotationLegs.map((leg, index) => (
+            <Row label="Order" value={state.scheduledOrdered ? "In order (ajo/esusu style)" : "Independent, on each own date"} />
+            <Divider />
+            {state.scheduledLegs.map((leg, index) => (
               <div key={index}>
                 <Row
-                  label={`Turn ${index + 1}`}
+                  label={state.scheduledOrdered ? `Turn ${index + 1}` : `Payout ${index + 1}`}
                   value={
                     <div className="flex flex-col items-end gap-0.5">
                       <span>{leg.destinationAccount || "Not set"} · {bankName(leg.destinationBank)}</span>
@@ -124,7 +126,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
                     </div>
                   }
                 />
-                {index < state.rotationLegs.length - 1 && <Divider />}
+                {index < state.scheduledLegs.length - 1 && <Divider />}
               </div>
             ))}
           </>

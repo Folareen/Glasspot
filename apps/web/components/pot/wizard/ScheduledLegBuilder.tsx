@@ -7,14 +7,15 @@ import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
 import { Divider } from "@/components/ui/Divider";
 import { nigerianBanks } from "@/lib/mock/fixtures";
-import type { RotationLeg } from "@/lib/mock/types";
+import type { ScheduledLeg } from "@/lib/mock/types";
 
-type RotationLegBuilderProps = {
-  legs: RotationLeg[];
-  onChange: (legs: RotationLeg[]) => void;
+type ScheduledLegBuilderProps = {
+  ordered: boolean;
+  legs: ScheduledLeg[];
+  onChange: (legs: ScheduledLeg[]) => void;
 };
 
-function emptyLeg(sequenceOrder: number): RotationLeg {
+function emptyLeg(sequenceOrder: number): ScheduledLeg {
   return {
     destinationAccount: "",
     destinationBank: "",
@@ -25,8 +26,10 @@ function emptyLeg(sequenceOrder: number): RotationLeg {
   };
 }
 
-export function RotationLegBuilder({ legs, onChange }: RotationLegBuilderProps) {
-  function updateLeg(index: number, patch: Partial<RotationLeg>) {
+export function ScheduledLegBuilder({ ordered, legs, onChange }: ScheduledLegBuilderProps) {
+  const legLabel = ordered ? "Turn" : "Payout";
+
+  function updateLeg(index: number, patch: Partial<ScheduledLeg>) {
     onChange(legs.map((leg, i) => (i === index ? { ...leg, ...patch } : leg)));
   }
 
@@ -43,19 +46,20 @@ export function RotationLegBuilder({ legs, onChange }: RotationLegBuilderProps) 
   return (
     <div className="flex flex-col gap-4">
       <Text size="sm" color="secondary">
-        Add each person&apos;s turn in order. Every leg gets its own amount and date, and fires
-        once when its turn comes up.
+        {ordered
+          ? "Add each person's turn in order. Every leg gets its own amount and date, and fires once when its turn comes up."
+          : "Add each payout. Every leg gets its own destination, amount, and date, and fires independently once its date arrives — the same destination can repeat across legs."}
       </Text>
 
       {legs.map((leg, index) => (
         <Card key={index} padding="md">
           <div className="mb-3 flex items-center justify-between">
-            <Text weight="semibold">Turn {index + 1}</Text>
+            <Text weight="semibold">{legLabel} {index + 1}</Text>
             {legs.length > 1 && (
               <button
                 type="button"
                 onClick={() => removeLeg(index)}
-                aria-label={`Remove turn ${index + 1}`}
+                aria-label={`Remove ${legLabel.toLowerCase()} ${index + 1}`}
                 className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-error"
               >
                 <Trash2 className="h-4 w-4" strokeWidth={1.5} />
@@ -116,7 +120,7 @@ export function RotationLegBuilder({ legs, onChange }: RotationLegBuilderProps) 
 
       <Button type="button" variant="secondary" onClick={addLeg}>
         <Plus className="h-4 w-4" strokeWidth={1.5} />
-        Add another turn
+        Add another {legLabel.toLowerCase()}
       </Button>
     </div>
   );

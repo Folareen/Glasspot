@@ -1,7 +1,7 @@
 import type {
   PotResponse,
   RecurringPayoutConfig,
-  RotationPayoutConfig,
+  ScheduledPayoutConfig,
   TargetBasedPayoutConfig,
 } from "@/lib/mock/types";
 import { initialWizardState, type WizardState } from "./wizard-types";
@@ -50,11 +50,12 @@ export function potToWizardState(pot: PotResponse): WizardState {
     };
   }
 
-  if (pot.payoutMode === "rotation") {
-    const config = pot.payoutConfig as RotationPayoutConfig;
+  if (pot.payoutMode === "scheduled") {
+    const config = pot.payoutConfig as ScheduledPayoutConfig;
     return {
       ...base,
-      rotationLegs: config.legs.map((leg) => ({
+      scheduledOrdered: config.ordered,
+      scheduledLegs: config.legs.map((leg) => ({
         ...leg,
         amountKobo: toNaira(leg.amountKobo),
         scheduledDate: toDateInput(leg.scheduledDate),
