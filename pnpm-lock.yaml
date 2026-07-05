@@ -15,7 +15,7 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
-  apps/api:
+  apps/backend:
     dependencies:
       '@fastify/cors':
         specifier: ^11.1.0
@@ -26,9 +26,6 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.1.0
         version: 11.1.0
-      '@glasspot/db':
-        specifier: workspace:*
-        version: link:../../packages/db
       bullmq:
         specifier: ^5.79.2
         version: 5.79.2
@@ -62,6 +59,9 @@ importers:
       nodemailer:
         specifier: ^9.0.3
         version: 9.0.3
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       typed-rpc:
         specifier: ^6.1.2
         version: 6.1.2
@@ -78,6 +78,12 @@ importers:
       '@types/nodemailer':
         specifier: ^8.0.1
         version: 8.0.1
+      cross-env:
+        specifier: ^10.1.0
+        version: 10.1.0
+      drizzle-kit:
+        specifier: ^0.31.10
+        version: 0.31.10
       tsx:
         specifier: ^4.19.4
         version: 4.22.4
@@ -123,37 +129,6 @@ importers:
         version: 4.3.2
       typescript:
         specifier: ^5
-        version: 5.9.3
-
-  packages/db:
-    dependencies:
-      dotenv:
-        specifier: ^17.4.2
-        version: 17.4.2
-      dotenv-expand:
-        specifier: ^13.0.0
-        version: 13.0.0
-      drizzle-orm:
-        specifier: ^0.44.7
-        version: 0.44.7(@types/pg@8.20.0)(pg@8.22.0)(postgres@3.4.9)
-      postgres:
-        specifier: ^3.4.9
-        version: 3.4.9
-      zod:
-        specifier: ^3.25.76
-        version: 3.25.76
-    devDependencies:
-      cross-env:
-        specifier: ^10.1.0
-        version: 10.1.0
-      drizzle-kit:
-        specifier: ^0.31.10
-        version: 0.31.10
-      tsx:
-        specifier: ^4.19.4
-        version: 4.22.4
-      typescript:
-        specifier: ^5.8.3
         version: 5.9.3
 
 packages:

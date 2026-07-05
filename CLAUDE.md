@@ -4,11 +4,11 @@ Pooled-money product: groups agree on a payout rule before contributing, so mone
 
 ## Docs — read the relevant one before acting
 
-Product (applies to both apps/web and apps/api):
+Product (applies to both apps/web and apps/backend):
 - [docs/spec.md](docs/spec.md) — full product spec, all features including not-yet-built ones (recurring pots, card payments, community features). Use for understanding long-term product direction.
 - [docs/spec-mvp.md](docs/spec-mvp.md) — MVP-only subset of the spec. Use this as the source of truth for what to actually build right now; don't implement spec.md features that aren't in spec-mvp.md without confirming first.
 
-Backend (apps/api, packages/db):
+Backend (apps/backend):
 - [docs/system-rules.md](docs/system-rules.md) — money/ledger engineering invariants (double-entry, integer kobo, immutability, idempotency, reconciliation, locking). Read this before touching anything involving contributions, payouts, refunds, or the ledger.
 - [docs/backend-rules.md](docs/backend-rules.md) — backend coding style (Fastify, Drizzle, OOP/SOLID, naming, when to ask vs assume). Read this before writing or reviewing any backend code.
 
