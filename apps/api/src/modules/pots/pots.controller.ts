@@ -15,6 +15,8 @@ import {
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
+import { TransferQueueService } from "@/modules/scheduler/transfer-queue.service";
+
 
 // Catches PotError as well as errors from collaborating modules this
 // controller now calls into (e.g. LedgerService's LedgerError via
@@ -281,3 +283,26 @@ export async function removeMemberHandler(
     return handlePotError(e, reply);
   }
 }
+
+// export async function adminTriggerPayoutHandler(
+//   request: FastifyRequest<{ Params: PotIdParams }>,
+//   reply: FastifyReply
+// ) {
+//   const { id: potId } = request.params;
+
+//   // Resolve destination/amount/accountName from the pot's payout config —
+//   // mirrors what PayoutCronHandlers does for the scheduled sweeps, just
+//   // triggered manually here instead of by a cron condition.
+//   const payoutDetails = await PotPayoutService.resolvePayoutDetails(potId);
+
+//   const job = await TransferQueueService.enqueuePayout({
+//     potId,
+//     destinationAccount: payoutDetails.destinationAccount,
+//     destinationBank: payoutDetails.destinationBank,
+//     accountName: payoutDetails.accountName,
+//     amountKobo: payoutDetails.amountKobo,
+//     merchantTxRef: `admin-payout-${potId}-${Date.now()}`,
+//   });
+
+//   return reply.code(202).send();
+// }

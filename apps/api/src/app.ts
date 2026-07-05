@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { healthRoutes } from "@/routes/health";
 import jwtPlugin from "@/lib/plugins/jwt";
 import bullmqPlugin from "@/lib/plugins/bullmq";
+import bullBoardPlugin from "@/lib/plugins/bull-board";
 import env from "@/config/env";
 import authRoutes from "@/modules/auth/auth.route";
 import { authSchemas } from "@/modules/auth/auth.schema";
@@ -26,6 +27,8 @@ export function buildApp(): FastifyInstance {
   app.register(rateLimit, { global: false });
   app.register(cors, { origin: env.WEB_ORIGIN ?? "http://localhost:3000" });
   app.register(bullmqPlugin);
+  app.register(bullBoardPlugin);
+
   app.register(
     async (api) => {
       api.register(healthRoutes);
