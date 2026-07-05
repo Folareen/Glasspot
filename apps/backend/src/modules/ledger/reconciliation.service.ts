@@ -90,8 +90,16 @@ export const ReconciliationService = {
           settlementBatchId: batch.id,
           transactionId: transaction?.id,
           externalReference: item.merchantTxRef,
+          
+          
+          // both lines below will throw an error cos of bigint, comment below can be used instead
           internalAmountKobo: item.localAmount != null ? BigInt(Math.round(item.localAmount * 100)) : undefined,
           externalAmountKobo: item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
+          // internalAmountKobo: Number.isFinite(item.localAmount) ? BigInt(Math.round(item.localAmount * 100)) : undefined,
+          // externalAmountKobo: Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
+          
+          
+          
           status: toRecordStatus(item.status),
         });
       },
@@ -102,10 +110,21 @@ export const ReconciliationService = {
     // accumulated across every transaction in the window before rounding)
     // can drift from the true integer-kobo total by a kobo or more and
     // produce false "mismatched" statuses.
+    
+    
+    
+    // this will also throw an error cos of big int, comment below can be used instead
     const reportedAmountKobo = report.lineItems.reduce(
       (sum, item) => sum + (item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
       0n
     );
+    // const reportedAmountKobo = report.lineItems.reduce(
+    //   (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
+    //   0n
+    // );
+
+    
+    
     const allMatched =
       report.overpaidCount === 0 &&
       report.underpaidCount === 0 &&

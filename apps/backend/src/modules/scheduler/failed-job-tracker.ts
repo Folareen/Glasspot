@@ -23,7 +23,7 @@ export class FailedJobTracker {
         data: job.data,
         failedReason,
         attemptsMade: job.attemptsMade,
-      });
+      }).onConflictDoNothing({ target: [failedJobs.queueName, failedJobs.jobId] });
     });
 
     return events;

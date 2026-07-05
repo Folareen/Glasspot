@@ -195,12 +195,18 @@ async function applyOnSuccess(onSuccess: DisbursementOnSuccess) {
 const transfersWorker = new Worker(
   QueueName.TRANSFERS,
   async (job) => {
+     const startedAt = new Date().toISOString();
+    console.log(`[transfer] ${job.name} (job ${job.id}) started at ${startedAt}`, job.data);
+
     const data = job.data as DisbursementJobData;
 
-    if (data.kind === 'contribution_refund') {
-      return processContributionRefund(data);
-    }
-    return processLedgerDisbursement(data);
+    const result = data.kind === 'contribution_refund'
+      ? await processContributionRefund(data)
+      : await processLedgerDisbursement(data);
+
+    console.log(`[transfer] ${job.name} (job ${job.id}) finished:`, result);
+
+    return result;
   },
   {
     connection: redisConnection,
@@ -208,6 +214,14 @@ const transfersWorker = new Worker(
     limiter: { max: TRANSFER_RATE_LIMIT_MAX, duration: TRANSFER_RATE_LIMIT_DURATION_MS },
   }
 );
+
+transfersWorker.on('completed', (job) => {
+  console.log(`[transfer] job ${job.id} (${job.name}) completed`);
+});
+
+transfersWorker.on('failed', (job, err) => {
+  console.error(`[transfer] job ${job?.id} (${job?.name}) FAILED:`, err.message);
+});
 
 // --- Failed job tracking for both queues ---
 const cronEvents = FailedJobTracker.attach(QueueName.PAYOUT_CRON, connection);

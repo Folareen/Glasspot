@@ -27,6 +27,8 @@ import {
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
+import { TransferQueueService } from "../scheduler/transfer-queue.service";
+import type { DisbursementJobData } from "@/modules/scheduler/disbursement-job.types";
 
 /**
  * Every route below passes its RouteGenericInterface as an explicit type
@@ -212,6 +214,21 @@ async function potsRoutes(server: FastifyInstance) {
   //   },
   //   adminTriggerPayoutHandler
   // );
+
+  server.post<{ Body: { amountKobo?: string } }>("/transfers/test-payout", async (request, reply) => {
+    const payload = {
+      kind: "payout",
+      potId: "test-pot-id",
+      amountKobo: request.body?.amountKobo ?? "10000",
+      destinationAccount: "1000000001",
+      destinationBank: "000013",
+      reference: `dev-test-payout-${Date.now()}`,
+    };
+
+    // @ts-ignore
+    const job = await TransferQueueService.enqueuePayout(payload);
+    return reply.send({ jobId: job.id });
+  });
 }
 
 export default potsRoutes;
