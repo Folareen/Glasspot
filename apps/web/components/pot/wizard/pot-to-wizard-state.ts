@@ -11,8 +11,14 @@ function toDateInput(iso?: string) {
   return iso ? iso.slice(0, 10) : "";
 }
 
-function toNaira(kobo?: string) {
-  return kobo ? String(Number(kobo) / 100) : "";
+// The wire contract is already naira strings (see pots.schema.ts's
+// nairaAmount) — wizard state holds the same naira string as-is, no
+// conversion needed. Kept as a named function (rather than assigning the
+// field directly) so a missing/optional field still normalizes to "" like
+// every other wizard string field, and so this is the one place to touch
+// if the wire shape ever changes.
+function toWizardAmount(naira?: string) {
+  return naira ?? "";
 }
 
 export function potToWizardState(pot: PotResponse): WizardState {
@@ -22,8 +28,8 @@ export function potToWizardState(pot: PotResponse): WizardState {
     description: pot.description ?? "",
     potType: pot.potType,
     refundType: pot.refundType,
-    minContribution: toNaira(pot.minContribution),
-    maxContribution: toNaira(pot.maxContribution ?? undefined),
+    minContribution: toWizardAmount(pot.minContribution),
+    maxContribution: toWizardAmount(pot.maxContribution ?? undefined),
     payoutMode: pot.payoutMode,
   };
 
@@ -34,7 +40,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       targetDestinationAccount: config.destinationAccount,
       targetDestinationBank: config.destinationBank,
       targetDate: toDateInput(config.targetDate),
-      targetAmountNaira: toNaira(config.targetAmount),
+      targetAmountNaira: toWizardAmount(config.targetAmount),
     };
   }
 
@@ -53,7 +59,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       ...base,
       recurringDestinationAccount: config.destinationAccount,
       recurringDestinationBank: config.destinationBank,
-      recurringAmountNaira: toNaira(config.amount),
+      recurringAmountNaira: toWizardAmount(config.amount),
       recurringIntervalDays: String(config.intervalDays),
       recurringNextRunAt: toDateInput(config.nextRunAt),
     };
@@ -66,7 +72,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       scheduledOrdered: config.ordered,
       scheduledLegs: config.legs.map((leg) => ({
         ...leg,
-        amount: toNaira(leg.amount),
+        amount: toWizardAmount(leg.amount),
         scheduledDate: toDateInput(leg.scheduledDate),
       })),
     };

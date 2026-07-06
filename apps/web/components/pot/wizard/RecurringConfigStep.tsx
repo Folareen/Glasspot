@@ -46,7 +46,7 @@ export function RecurringConfigStep({ state, onChange }: RecurringConfigStepProp
           min={0}
           value={state.recurringAmountNaira}
           onChange={(e) => onChange({ recurringAmountNaira: e.target.value })}
-          placeholder="100000"
+          placeholder="1000"
         />
       </Field>
 

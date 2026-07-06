@@ -100,7 +100,7 @@ export function ScheduledLegBuilder({ ordered, legs, onChange }: ScheduledLegBui
                   min={0}
                   value={leg.amount}
                   onChange={(e) => updateLeg(index, { amount: e.target.value })}
-                  placeholder="250000"
+                  placeholder="2500"
                 />
               </Field>
               <Field label="Date" htmlFor={`leg-date-${index}`} required>

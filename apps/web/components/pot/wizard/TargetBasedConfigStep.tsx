@@ -77,7 +77,7 @@ export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStep
             min={0}
             value={state.targetAmountNaira}
             onChange={(e) => onChange({ targetAmountNaira: e.target.value })}
-            placeholder="1500000"
+            placeholder="15000"
           />
         </Field>
       </Card>

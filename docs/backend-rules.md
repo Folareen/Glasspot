@@ -1,7 +1,7 @@
 Stack: Fastify + TypeScript. No NestJS.
 DB: PostgreSQL via Drizzle ORM. No raw query builders, no other ORMs.
 Style: OOP, SOLID. One responsibility per module. Stateless modules (services with no internal state — auth, pots, pot-members, etc.) are plain objects of functions, not classes. Use a real class only when there's actual state to encapsulate (caches, connections, in-flight request dedup — see NombaClient).
-Money: integers (kobo) only. No floats. No new balance-like columns — the one materialized `balances` table (see system-rules.md) is the only sanctioned exception, and it must stay written in the same transaction as its ledger entries.
+Money: integers (kobo) only everywhere internally — DB, ledger, service layer. No floats. No new balance-like columns — the one materialized `balances` table (see system-rules.md) is the only sanctioned exception, and it must stay written in the same transaction as its ledger entries. The wire boundary is the one exception to "kobo everywhere": every request/response money field is a naira string ("100.50"), converted to/from kobo via `nairaStringToKobo`/`koboToNairaString` (`src/lib/money.ts`) right at that boundary — see system-rules.md's money rule for the full detail. Never add a new money field to a Zod schema without going through `nairaAmount` (`src/modules/pots/pots.schema.ts`), and never convert naira/kobo inline with `Number()`/`Math.round()`/manual division — always the two `lib/money.ts` functions.
 Ledger: append-only. No UPDATE or DELETE on ledger_entries, contributions, payouts, refunds.
 Idempotency: every mutating method must be safe to call twice.
 State: use the defined enums. No new statuses without explicit instruction.

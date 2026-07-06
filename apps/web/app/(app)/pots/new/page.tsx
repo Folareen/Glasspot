@@ -18,7 +18,8 @@ import { RecurringConfigStep } from "@/components/pot/wizard/RecurringConfigStep
 import { ScheduledConfigStep } from "@/components/pot/wizard/ScheduledConfigStep";
 import { ReviewStep } from "@/components/pot/wizard/ReviewStep";
 import { initialWizardState, wizardSteps, type WizardState } from "@/components/pot/wizard/wizard-types";
-import { buildPayoutConfig, isConfigStepValid, toKobo } from "@/components/pot/wizard/wizard-helpers";
+import { buildPayoutConfig, isConfigStepValid } from "@/components/pot/wizard/wizard-helpers";
+import { toNairaAmount } from "@/lib/money";
 
 const stepTitles: Record<(typeof wizardSteps)[number], string> = {
   basics: "Create a pot",
@@ -70,8 +71,8 @@ export default function NewPotPage() {
       description: state.description.trim() || undefined,
       potType: state.potType,
       refundType: state.refundType,
-      minContribution: state.minContribution ? toKobo(state.minContribution) : undefined,
-      maxContribution: state.maxContribution ? toKobo(state.maxContribution) : undefined,
+      minContribution: state.minContribution ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
+      maxContribution: state.maxContribution ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
       payoutMode: state.payoutMode,
       payoutConfig: buildPayoutConfig(state),
     });

@@ -20,6 +20,7 @@ import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
+import { nairaStringToKobo } from "@/lib/money";
 import {
   CreatePotInput,
   UpdatePotInput,
@@ -60,7 +61,7 @@ function generateShareSlug(): string {
  * scheduledDate) are typed as `Date` after z.infer, but nothing in this
  * request pipeline actually calls Zod's .parse()/coerce logic — Fastify
  * validates request.body against the compiled JSON Schema via AJV only
- * (see pots.schema.ts's koboAmount comment for the same root cause). A
+ * (nothing here re-parses through Zod itself). A
  * JSON Schema date-time field validates a raw ISO string, so request.body's
  * date fields are still plain strings at
  * runtime despite what the type claims. Drizzle's timestamp columns need
@@ -98,7 +99,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
         destinationBank: c.destinationBank,
         destinationAccountName: accountName,
         targetDate: c.targetDate !== undefined ? toDate(c.targetDate) : undefined,
-        targetAmount: c.targetAmount !== undefined ? BigInt(c.targetAmount) : undefined,
+        targetAmount: c.targetAmount !== undefined ? nairaStringToKobo(c.targetAmount) : undefined,
       });
       return;
     }
@@ -126,7 +127,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
         destinationAccount: c.destinationAccount,
         destinationBank: c.destinationBank,
         destinationAccountName: accountName,
-        amount: BigInt(c.amount),
+        amount: nairaStringToKobo(c.amount),
         intervalDays: c.intervalDays,
         nextRunAt: toDate(c.nextRunAt),
       });
@@ -151,7 +152,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
           destinationAccount: leg.destinationAccount,
           destinationBank: leg.destinationBank,
           destinationAccountName: leg.accountName,
-          amount: BigInt(leg.amount),
+          amount: nairaStringToKobo(leg.amount),
           scheduledDate: toDate(leg.scheduledDate),
         }))
       );
@@ -253,11 +254,11 @@ export const PotsService = {
         refundType: input.refundType,
         shareSlug: generateShareSlug(),
         minContribution:
-          input.minContribution !== undefined ? BigInt(input.minContribution) : undefined,
+          input.minContribution !== undefined ? nairaStringToKobo(input.minContribution) : undefined,
         maxContribution:
-          input.maxContribution !== undefined ? BigInt(input.maxContribution) : undefined,
+          input.maxContribution !== undefined ? nairaStringToKobo(input.maxContribution) : undefined,
         goalAmount:
-          input.goalAmount !== undefined ? BigInt(input.goalAmount) : undefined,
+          input.goalAmount !== undefined ? nairaStringToKobo(input.goalAmount) : undefined,
       })
       .returning();
 
@@ -338,9 +339,9 @@ export const PotsService = {
         ...(description !== undefined && { description }),
         ...(potType !== undefined && { potType }),
         ...(refundType !== undefined && { refundType }),
-        ...(minContribution !== undefined && { minContribution: BigInt(minContribution) }),
-        ...(maxContribution !== undefined && { maxContribution: BigInt(maxContribution) }),
-        ...(goalAmount !== undefined && { goalAmount: BigInt(goalAmount) }),
+        ...(minContribution !== undefined && { minContribution: nairaStringToKobo(minContribution) }),
+        ...(maxContribution !== undefined && { maxContribution: nairaStringToKobo(maxContribution) }),
+        ...(goalAmount !== undefined && { goalAmount: nairaStringToKobo(goalAmount) }),
         updatedAt: new Date(),
       })
       .where(eq(pots.id, potId))

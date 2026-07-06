@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { useMockStore } from "@/lib/mock/store";
 import { useToast } from "@/lib/toast";
+import { toNairaAmount } from "@/lib/money";
 import type { PotResponse } from "@/lib/mock/types";
 
 type ContributeModalProps = {
@@ -22,13 +23,15 @@ export function ContributeModal({ open, onClose, pot }: ContributeModalProps) {
   const [amount, setAmount] = useState("");
   const [anonymous, setAnonymous] = useState(false);
 
-  const minNaira = Number(pot.minContribution) / 100;
-  const maxNaira = pot.maxContribution ? Number(pot.maxContribution) / 100 : null;
+  const minNaira = Number(pot.minContribution);
+  const maxNaira = pot.maxContribution ? Number(pot.maxContribution) : null;
 
   function handleSubmit() {
     const naira = Number(amount);
     if (!naira || naira < minNaira || (maxNaira !== null && naira > maxNaira)) return;
-    contribute(pot.id, String(Math.round(naira * 100)), anonymous);
+    const wireAmount = toNairaAmount(amount);
+    if (!wireAmount) return;
+    contribute(pot.id, wireAmount, anonymous);
     showToast("Contribution received", "success");
     setAmount("");
     setAnonymous(false);
