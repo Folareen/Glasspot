@@ -51,7 +51,7 @@ All five cron jobs currently run once daily at midnight, staggered by a minute e
 
 > ⚠️ **Known tradeoff:** collapsing these to midnight-only introduces up to a 24h lag between a condition being met (targetDate reached, contribution expired) and it actually firing. Previously polling every 5–15 min. Revisit if this lag becomes a problem for payout-sensitive users.
 
-> ⚠️ **Open item:** `reconciliation-frequent` (`hoursBack: 1`) is now redundant/broken at daily cadence — it only checks the 11pm–midnight window and misses 23 hours. Either delete it or change `hoursBack` to `24` (making it a duplicate of `reconciliation-daily`). Needs a decision — not yet resolved.
+> ⚠️ **Open item:** `reconciliation-frequent` (`hoursBack: 1`) is still redundant/broken at daily cadence — it only checks the 11pm–midnight window and misses 23 hours. Either delete it or change `hoursBack` to `24` (making it a duplicate of `reconciliation-daily`). Needs a decision — not yet resolved.
 
 ---
 
@@ -141,14 +141,15 @@ export class TransferQueueService {
 
   > ⚠️ `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS` are now in `env.ts`'s validated zod schema and `.env.example`, but the values themselves (`10` / `1000`) are still **placeholders**. Need Nomba's actual documented `/transfer` rate limit before going live, set with headroom below their stated ceiling.
 
-The handler builds a `TransferParams` object for `nomba.transferToBankAccount()`:
+The handler resolves the destination account's name via `nomba.lookupBankAccount()` before building the `TransferParams` object for `nomba.transferToBankAccount()`:
 
 ```typescript
+const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
 const response = await nomba.transferToBankAccount({
   accountNumber: destinationAccount,
-  accountName,                    // ⚠ not yet resolved anywhere — see Open Items
+  accountName: resolved.accountName,
   bankCode: destinationBank,
-  amount: Number(amount),     // ⚠ unconfirmed kobo vs. Naira — see Open Items
+  amount: Number(amount) / 100, // Nomba expects Naira, not kobo — confirmed
   merchantTxRef,                  // idempotency key, prevents double-send on retry
   senderName: PLATFORM_SENDER_NAME,
   narration,
@@ -158,9 +159,9 @@ const response = await nomba.transferToBankAccount({
 | Field | Source |
 |---|---|
 | `accountNumber` | `destinationAccount` |
-| `accountName` | **Not yet wired** — must be resolved separately |
+| `accountName` | Resolved via `nomba.lookupBankAccount()` at send time |
 | `bankCode` | `destinationBank` |
-| `amount` | `Number(amount)` — safe cast, JS's safe-integer ceiling (~9×10¹⁵) comfortably covers realistic Naira amounts in kobo |
+| `amount` | `Number(amount) / 100` — ledger amount is kobo, Nomba's `/transfer` expects Naira |
 | `merchantTxRef` | `reference`/idempotency key |
 | `senderName` | Hardcoded `PLATFORM_SENDER_NAME` constant |
 
@@ -182,7 +183,7 @@ const response = await nomba.transferToBankAccount({
 
 A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against double-inserting if a job somehow emits `'failed'` more than once after exhausting attempts.
 
-> ⚠️ **Open item:** `recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry — but the current `transfersWorker` config applies the same 5-attempt exponential backoff to **all** failure causes (Nomba 5xx, network blip, *and* insufficient balance) indistinctly. Needs either `attempts: 1` for recurring-payout transfer jobs specifically, or a custom error type ("insufficient balance, do not retry") that a custom backoff strategy can special-case.
+> ⚠️ **Open item, resolved differently than originally proposed:** `recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry. Rather than adding a distinct "insufficient balance, don't retry" error type, all transfer job types (`payout`, `pot_refund`, `contribution_refund` — see `transfer-queue.service.ts`) were switched to `attempts: 1` across the board (`worker.ts`: `// attempts:1 → straight to failed_jobs, no auto-retry`). This does stop blind-retrying insufficient-balance failures, but it also removes retries for genuinely transient failures (a Nomba 5xx or network blip now goes straight to `failed_jobs` too, same as before requiring a human to hit `FailedJobTracker.retry()`). Revisit if transient-failure volume in `failed_jobs` turns out to be high enough that it's worth distinguishing causes again.
 
 `FailedJobTracker.ignore()` marks a row `ignored` (reviewed, deliberately not retried) with no BullMQ interaction. Both `retry()` and `ignore()` are wired to admin routes at `POST /api/v1/failed-jobs/:id/retry` and `POST /api/v1/failed-jobs/:id/ignore` (plus `GET /api/v1/failed-jobs` to list pending rows) — see `modules/scheduler/failed-jobs.route.ts`. Gated by the same narrow `BANKS_REFRESH_ALLOWED_USER_IDS` allowlist as `POST /banks/refresh`, since there's still no general staff/admin role in this codebase.
 
@@ -198,7 +199,7 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 - `onReady` hook calls `CronSchedulerService.registerAll()` — this is where the midnight schedules actually get registered with Redis on every app boot.
 - `onClose` hook closes both queues gracefully.
 
-> ⚠️ `onClose` only fires if something calls `app.close()` — if the deploy environment sends raw `SIGTERM` without that, Redis connections drop ungracefully. Check `server.ts` has a `SIGTERM`/`SIGINT` handler that calls `app.close()` before exiting.
+> ⚠️ **Still open:** `onClose` only fires if something calls `app.close()`. `server.ts` (the HTTP API process) has no `SIGTERM`/`SIGINT` handling at all today — it just calls `app.listen(...)` and exits ungracefully on a raw signal. The `SIGTERM`/`SIGINT` handling that does exist (`worker.ts`'s `shutdown()`) is in the separate worker process and only closes BullMQ workers/`QueueEvents` — there's no Fastify `app` in that file to close. The API process itself still needs its own signal handler calling `app.close()`.
 
 ---
 
@@ -210,7 +211,7 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 
 ---
 
-## Open items (not yet resolved)
+## Open items
 
 Resolved since this doc was first written:
 

@@ -27,7 +27,7 @@ export const payoutModeLabels: Record<PayoutMode, string> = {
 };
 
 export const payoutModeDescriptions: Record<PayoutMode, string> = {
-  target_based: "Pays out when a date is reached, a target amount is hit, or an admin triggers it.",
+  target_based: "Pays out automatically once a target amount or date is reached.",
   manual: "An admin can release the balance at any time, as many times as needed.",
   recurring: "Pays a fixed amount out on a fixed interval, repeating automatically until the pot closes.",
   scheduled:

@@ -67,6 +67,15 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
 - Rotating collections (ajo/esusu) and staged/installment disbursements, via scheduled payout mode
 - Diaspora collections, with card payment as the channel that makes this practical
 
+## Roadmap, direction not yet speced out
+
+- Chats: conversation attached to a pot, separate from the comments/announcements log above
+- Multi channel reminders growing into a standalone nudge system, not just unpaid-contributor pings
+- An AI assistant, scope not yet defined
+- Broader money management features beyond a single pot's lifecycle
+
+These are confirmed future direction, not yet designed. Don't build against this section without confirming scope first — unlike the rest of this spec and docs/spec-mvp.md, nothing here is implementation-ready.
+
 ## Out of scope, not by feature gap but by license or law
 
 - Pooled investment or lending with repayment, since interest bearing products need a financial license

@@ -28,6 +28,7 @@ import { ContributeModal } from "@/components/pot/ContributeModal";
 import { InviteMemberModal } from "@/components/pot/InviteMemberModal";
 import { ConfirmActionModal } from "@/components/pot/ConfirmActionModal";
 import { PayoutDestinationModal } from "@/components/pot/PayoutDestinationModal";
+import { PayoutAmountModal } from "@/components/pot/PayoutAmountModal";
 
 type PotDetailPageProps = {
   params: Promise<{ id: string }>;
@@ -268,22 +269,21 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         <PayoutDestinationModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
-          onConfirm={(destination) => {
-            triggerPayout(pot.id, destination);
+          balance={pot.balance}
+          onConfirm={(destination, amount) => {
+            triggerPayout(pot.id, destination, amount);
             showToast("Payout triggered", "success");
           }}
         />
       ) : (
-        <ConfirmActionModal
+        <PayoutAmountModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
-          onConfirm={() => {
-            triggerPayout(pot.id);
+          balance={pot.balance}
+          onConfirm={(amount) => {
+            triggerPayout(pot.id, undefined, amount);
             showToast("Payout triggered", "success");
           }}
-          title="Trigger payout?"
-          description="This releases the full balance to the payout account. This cannot be undone."
-          confirmLabel="Trigger payout"
         />
       )}
 

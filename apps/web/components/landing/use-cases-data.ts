@@ -24,7 +24,7 @@ export const payoutModeMeta: Record<MvpPayoutMode, { label: string; description:
   },
   target_based: {
     label: "Hits a target",
-    description: "Pays out to one destination once an amount or date is reached, or an admin triggers it early.",
+    description: "Pays out to one destination automatically once an amount or date is reached.",
   },
   recurring: {
     label: "Repeats automatically",
