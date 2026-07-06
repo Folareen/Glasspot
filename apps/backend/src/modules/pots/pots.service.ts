@@ -21,6 +21,7 @@ import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
+import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import {
   CreatePotInput,
   UpdatePotInput,
@@ -81,15 +82,23 @@ function toDate(value: Date): Date {
  * discriminated union; PotsService.update calls validatePayoutModeConfig
  * first since updatePotSchema does not guarantee it (see that schema's
  * comment for why).
+ *
+ * Every destination account/bank pair is resolved via verifyAccountDetails()
+ * (Nomba name-enquiry) before it's written — never trust a client-supplied
+ * destination without confirming it resolves to a real account (see
+ * docs/system-rules.md). Throws AccountVerificationError (400) if Nomba
+ * can't resolve a destination, before any row is inserted.
  */
 async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
   switch (input.payoutMode) {
     case "target_based": {
       const c = input.payoutConfig;
+      const { accountName } = await verifyAccountDetails(c.destinationAccount, c.destinationBank);
       await db.insert(targetBasedPayoutConfigs).values({
         potId,
         destinationAccount: c.destinationAccount,
         destinationBank: c.destinationBank,
+        destinationAccountName: accountName,
         targetDate: c.targetDate !== undefined ? toDate(c.targetDate) : undefined,
         targetAmount: c.targetAmount !== undefined ? BigInt(c.targetAmount) : undefined,
       });
@@ -102,19 +111,23 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
         // time — see PotsService.triggerPayout. No config row needed.
         return;
       }
+      const { accountName } = await verifyAccountDetails(c.destinationAccount, c.destinationBank);
       await db.insert(manualPayoutConfigs).values({
         potId,
         destinationAccount: c.destinationAccount,
         destinationBank: c.destinationBank,
+        destinationAccountName: accountName,
       });
       return;
     }
     case "recurring": {
       const c = input.payoutConfig;
+      const { accountName } = await verifyAccountDetails(c.destinationAccount, c.destinationBank);
       await db.insert(recurringPayoutConfigs).values({
         potId,
         destinationAccount: c.destinationAccount,
         destinationBank: c.destinationBank,
+        destinationAccountName: accountName,
         amount: BigInt(c.amount),
         intervalDays: c.intervalDays,
         nextRunAt: toDate(c.nextRunAt),
@@ -123,16 +136,23 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
     }
     case "scheduled": {
       const c = input.payoutConfig;
+      const legsWithNames = await Promise.all(
+        c.legs.map(async (leg) => ({
+          ...leg,
+          accountName: (await verifyAccountDetails(leg.destinationAccount, leg.destinationBank)).accountName,
+        }))
+      );
       const [scheduledConfig] = await db
         .insert(scheduledPayoutConfigs)
         .values({ potId, ordered: c.ordered ?? true })
         .returning();
       await db.insert(scheduledPayoutLegs).values(
-        c.legs.map((leg) => ({
+        legsWithNames.map((leg) => ({
           scheduledConfigId: scheduledConfig.id,
           sequenceOrder: leg.sequenceOrder,
           destinationAccount: leg.destinationAccount,
           destinationBank: leg.destinationBank,
+          destinationAccountName: leg.accountName,
           amount: BigInt(leg.amount),
           scheduledDate: toDate(leg.scheduledDate),
         }))
@@ -447,6 +467,15 @@ export const PotsService = {
           "destinationAccount and destinationBank are required to trigger a manual payout for a pot with no fixed destination",
           400
         );
+      }
+
+      // Only the caller-supplied branch needs re-verifying here — a fixed
+      // config destination was already verified via verifyAccountDetails()
+      // at save time (see insertPayoutConfig). Reject immediately rather
+      // than letting a bad account number sit in the transfer queue until
+      // the worker's own lookupBankAccount call fails it later.
+      if (!config?.destinationAccount) {
+        await verifyAccountDetails(resolvedDestination.destinationAccount, resolvedDestination.destinationBank);
       }
 
       if (amount !== undefined) {

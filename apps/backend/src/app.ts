@@ -10,6 +10,8 @@ import authRoutes from "@/modules/auth/auth.route";
 import { authSchemas } from "@/modules/auth/auth.schema";
 import potsRoutes from "@/modules/pots/pots.route";
 import { potSchemas } from "@/modules/pots/pots.schema";
+import banksRoutes from "@/modules/banks/banks.route";
+import { bankSchemas } from "@/modules/banks/banks.schema";
 import nombaWebhooksRoutes from "@/integrations/nomba/nomba-webhooks.route";
 
 /** Builds and configures the Fastify app: registers shared schemas, the JWT/rate-limit/CORS/BullMQ plugins, and all route modules. */
@@ -20,6 +22,9 @@ export function buildApp(): FastifyInstance {
     app.addSchema(schema);
   }
   for (const schema of potSchemas) {
+    app.addSchema(schema);
+  }
+  for (const schema of bankSchemas) {
     app.addSchema(schema);
   }
 
@@ -34,6 +39,7 @@ export function buildApp(): FastifyInstance {
       api.register(healthRoutes);
       api.register(authRoutes, { prefix: "/auth" });
       api.register(potsRoutes, { prefix: "/pots" });
+      api.register(banksRoutes, { prefix: "/banks" });
       api.register(nombaWebhooksRoutes, { prefix: "/webhooks" });
     },
     { prefix: "/api/v1" }

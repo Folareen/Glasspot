@@ -555,6 +555,76 @@
       "description": "Register two accounts first (Primary + Member) — the Pots folder needs a second user to invite as a pot member. OTP codes are emailed; there's no way around pasting them in manually unless your dev environment logs OTPs to the console."
     },
     {
+      "name": "Banks",
+      "item": [
+        {
+          "name": "List Bank Codes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/banks",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "banks"
+              ]
+            },
+            "description": "Returns every bank code/name Nomba supports, served from a cache-forever store (Redis) so this never hits Nomba on a warm cache. Use this to populate a bank picker before Lookup Bank Account. No auth required.",
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Refresh Bank Codes",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/banks/refresh",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "banks",
+                "refresh"
+              ]
+            },
+            "description": "Force-clears the cached bank list and re-fetches from Nomba (e.g. after Nomba adds/renames a bank). Requires auth AND the caller's user id to be in the backend's BANKS_REFRESH_ALLOWED_USER_IDS allowlist env var — there's no general staff/admin role in this codebase yet."
+          }
+        },
+        {
+          "name": "Lookup Bank Account",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/banks/lookup",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "banks",
+                "lookup"
+              ]
+            },
+            "description": "Resolves accountNumber + bankCode to the account holder's name via Nomba, so the frontend can show it for the user to confirm before submitting anywhere account details are entered (payout config, contributor refund account, refund profile, etc). Read-only, no auth required, does not save anything.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"{{destinationAccount}}\",\n  \"bankCode\": \"{{destinationBank}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "Pots",
       "item": [
         {

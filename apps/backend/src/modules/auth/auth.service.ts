@@ -4,7 +4,7 @@ import { hashPassword, verifyPassword } from "@/lib/hash";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
 import { hashToken, signRefreshToken, verifyRefreshTokenSignature } from "@/lib/tokens";
 import { sendMail } from "@/lib/mailer";
-import { nomba } from "@/integrations/nomba";
+import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { AuthError, RateLimitError } from "./auth.errors";
 import { RegisterInput, UpdateRefundProfileInput } from "./auth.schema";
 import { PotInvitesService } from "@/modules/pots/pot-invites.service";
@@ -313,13 +313,14 @@ export const AuthService = {
    * Sets userId's default refund destination — the account a
    * refundType='admin' pot's real Nomba transfer pays out to when this
    * user triggers the refund (see users.ts schema comment). Confirms the
-   * account via nomba.lookupBankAccount() first, the same
+   * account via verifyAccountDetails() first, the same
    * validate-before-storing-a-destination pattern used everywhere else
-   * money can be sent in this codebase, and stores the resolved account
-   * holder name's bank as destinationBank alongside the account number.
+   * money can be sent in this codebase. users.ts has no column for the
+   * resolved account holder name (unlike the payout-config tables) — only
+   * accountNumber/bankCode are persisted here.
    */
   async updateRefundProfile(userId: string, input: UpdateRefundProfileInput) {
-    await nomba.lookupBankAccount(input.accountNumber, input.bankCode);
+    await verifyAccountDetails(input.accountNumber, input.bankCode);
 
     const [user] = await db
       .update(users)

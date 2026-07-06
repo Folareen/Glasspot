@@ -26,6 +26,8 @@ export const manualPayoutConfigs = pgTable(
       .references(() => pots.id, { onDelete: 'cascade' }),
     destinationAccount: text('destination_account'),
     destinationBank: text('destination_bank'),
+    /** account holder name resolved via Nomba's lookup at save time — see verifyAccountDetails(); null iff destinationAccount/destinationBank are also unset */
+    destinationAccountName: text('destination_account_name'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

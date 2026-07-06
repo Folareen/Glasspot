@@ -36,6 +36,11 @@ const EnvSchema = z.object({
   SMTP_PASSWORD: z.string(),
   MAIL_FROM: z.string().default("Glasspot <no-reply@glasspot.app>"),
   BULL_BOARD_ENABLED: stringBoolean,
+  // Comma-separated user ids allowed to force-refresh the cached bank list
+  // (POST /banks/refresh) — there's no general staff/admin role in this
+  // codebase yet (see pot-authorization.ts: "admin" there is per-pot, not
+  // global), so this is a narrow allowlist rather than a new role concept.
+  BANKS_REFRESH_ALLOWED_USER_IDS: z.string().default(""),
 });
 
 export type EnvSchema = z.infer<typeof EnvSchema>;

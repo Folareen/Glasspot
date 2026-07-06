@@ -26,6 +26,8 @@ export const recurringPayoutConfigs = pgTable('recurring_payout_configs', {
     .references(() => pots.id, { onDelete: 'cascade' }),
   destinationAccount: text('destination_account').notNull(),
   destinationBank: text('destination_bank').notNull(),
+  /** account holder name resolved via Nomba's lookup at save time — see verifyAccountDetails() */
+  destinationAccountName: text('destination_account_name').notNull(),
   amount: bigint('amount', { mode: 'bigint' }).notNull(),
   intervalDays: integer('interval_days').notNull(),
   nextRunAt: timestamp('next_run_at', { withTimezone: true }).notNull(),

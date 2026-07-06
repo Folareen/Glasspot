@@ -65,6 +65,7 @@ from "@/integrations/nomba/nomba.types";
 
 import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import { InMemoryWebhookIdStore, WebhookIdStore } from "@/integrations/nomba/webhooks";
+import { BankStore } from "@/integrations/nomba/bank-store";
 
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
@@ -75,18 +76,21 @@ const MAX_RECONCILE_PAGES = 10_000;
 export class NombaClient {
   private baseUrl: string;
   private cachedToken: { accessToken: string; refreshToken: string; refreshAt: number } | null = null;
-  private banks = new Map<string, Bank>(); // cache bank codes for lookupBankAccount()
   private webhookIdStore: WebhookIdStore;
+  private bankStore?: BankStore;
   private requestTimeoutMs: number;
   /** shared in-flight token request so concurrent callers don't each hit the auth endpoint independently */
   private inFlightTokenRequest: Promise<{ accessToken: string; refreshToken: string; refreshAt: number }> | null =
     null;
+  /** shared in-flight bank-list fetch so concurrent cache-miss callers don't each hit Nomba independently */
+  private inFlightBanksRequest: Promise<Bank[]> | null = null;
 
 
-  /** Builds a NombaClient for the configured environment, defaulting webhookIdStore to an in-memory store if none is provided (see webhooks.ts for the Redis-backed alternative). */
+  /** Builds a NombaClient for the configured environment, defaulting webhookIdStore to an in-memory store if none is provided (see webhooks.ts for the Redis-backed alternative). bankStore is optional — without one, fetchBankCodes() just hits Nomba every call uncached. */
   constructor(private config: NombaClientConfig) {
     this.baseUrl = BASE_URLS[config.environment ?? "production"];
     this.webhookIdStore = config.webhookIdStore ?? new InMemoryWebhookIdStore();
+    this.bankStore = config.bankStore;
     this.requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
   }
 
@@ -158,17 +162,37 @@ export class NombaClient {
   // Banks / lookup / transfer
   // ---------------------------------------------------------------
 
-  /** GET /v1/transfers/banks — fetches all bank codes/names, caching the result in memory since bank codes rarely change. */
+  /**
+   * GET /v1/transfers/banks — fetches all bank codes/names. Cached forever
+   * (no TTL) via bankStore since bank codes rarely change; call
+   * refreshBankCodes() to force a re-fetch after Nomba adds/renames a bank.
+   * Concurrent cache-miss callers share one in-flight fetch instead of each
+   * hitting Nomba independently.
+   */
   async fetchBankCodes(): Promise<Bank[]> {
-    // stored in a Map for fast lookup by code in lookupBankAccount(); return as an array.
-    if (this.banks.size > 0) {
-      return Array.from(this.banks.values());
+    const cached = await this.bankStore?.get();
+    if (cached) return cached;
+
+    if (!this.inFlightBanksRequest) {
+      this.inFlightBanksRequest = this.fetchAndCacheBankCodes().finally(() => {
+        this.inFlightBanksRequest = null;
+      });
     }
+    return this.inFlightBanksRequest;
+  }
 
-    const data = await this.get("/v1/transfers/banks");
-    data.results.forEach((bank: Bank) => this.banks.set(bank.code, bank));
+  /** Clears the cached bank list so the next fetchBankCodes() call re-fetches from Nomba. */
+  async refreshBankCodes(): Promise<Bank[]> {
+    await this.bankStore?.clear();
+    return this.fetchBankCodes();
+  }
 
-    return data.results;
+  private async fetchAndCacheBankCodes(): Promise<Bank[]> {
+    // request()'s json.data ?? json already unwraps the envelope - Nomba
+    // returns the bank array directly as `data`, not `{ results: [...] }`.
+    const banks: Bank[] = await this.get("/v1/transfers/banks");
+    await this.bankStore?.set(banks);
+    return banks;
   }
 
   /** POST /v1/transfers/bank/lookup — resolves an account number + bank code to the account holder's name; always call before transferToBankAccount() to confirm the destination. */

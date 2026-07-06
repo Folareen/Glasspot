@@ -1,4 +1,5 @@
 import { WebhookIdStore } from "@/integrations/nomba/webhooks";
+import { BankStore } from "@/integrations/nomba/bank-store";
 
 type Environment = "production" | "sandbox";
 
@@ -126,6 +127,8 @@ export interface NombaClientConfig {
   webhookSignatureHeader?: string; // default: "signature"
   /** defaults to an in-memory store; pass a Redis/DB-backed one in production */
   webhookIdStore?: WebhookIdStore;
+  /** optional cache-forever store for fetchBankCodes(); omit to skip caching entirely */
+  bankStore?: BankStore;
   businessName?: string;
   requestTimeoutMs?: number;
 }

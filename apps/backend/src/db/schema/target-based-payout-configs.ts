@@ -28,6 +28,8 @@ export const targetBasedPayoutConfigs = pgTable(
       .references(() => pots.id, { onDelete: 'cascade' }),
     destinationAccount: text('destination_account').notNull(),
     destinationBank: text('destination_bank').notNull(),
+    /** account holder name resolved via Nomba's lookup at save time — see verifyAccountDetails() */
+    destinationAccountName: text('destination_account_name').notNull(),
     targetDate: timestamp('target_date', { withTimezone: true }),
     targetAmount: bigint('target_amount', { mode: 'bigint' }),
     fired: boolean('fired').notNull().default(false),
