@@ -10,20 +10,15 @@ interface ScheduleDef {
 }
 
 const schedules: ScheduleDef[] = [
-  // --- Production schedule (midnight, staggered) — commented out while
-  // testing the every-minute versions below. Re-enable these and delete
-  // the "-debug" block before shipping.
+  // --- Production schedule: midnight, staggered a minute apart so the
+  // five sweeps run in a predictable sequence rather than colliding.
+  // See docs/bullmq-architecture.md's "Known tradeoff" note on the
+  // resulting up-to-24h lag vs. the previous 5-15min polling cadence.
   { id: 'target-based-sweep', jobName: PayoutCronJob.TARGET_BASED_SWEEP, pattern: '0 0 * * *' },
   { id: 'recurring-sweep', jobName: PayoutCronJob.RECURRING_SWEEP, pattern: '1 0 * * *' },
   { id: 'expiry-sweep', jobName: PayoutCronJob.EXPIRY_SWEEP, pattern: '2 0 * * *' },
   { id: 'reconciliation-frequent', jobName: PayoutCronJob.RECONCILIATION, pattern: '3 0 * * *', data: { hoursBack: 1 } },
   { id: 'reconciliation-daily', jobName: PayoutCronJob.RECONCILIATION, pattern: '4 0 * * *', data: { hoursBack: 24 } },
-
-  // // --- TEMP: every-minute debug schedule, for local testing only ---
-  // { id: 'target-based-sweep-debug', jobName: PayoutCronJob.TARGET_BASED_SWEEP, pattern: '*/1 * * * *' },
-  // { id: 'recurring-sweep-debug', jobName: PayoutCronJob.RECURRING_SWEEP, pattern: '*/1 * * * *' },
-  // { id: 'expiry-sweep-debug', jobName: PayoutCronJob.EXPIRY_SWEEP, pattern: '*/1 * * * *' },
-  // { id: 'reconciliation-debug', jobName: PayoutCronJob.RECONCILIATION, pattern: '*/1 * * * *', data: { hoursBack: 1 } },
 ];
 
 export class CronSchedulerService {

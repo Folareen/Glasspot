@@ -29,7 +29,7 @@ Two BullMQ queues, defined in `queues/names.ts` + `queues/queues.ts`:
 
 Queue instances (`payoutCronQueue`, `transfersQueue`) are created **once** and shared — `Queue` objects are safe to share a single Redis connection.
 
-Worker instances are **not** shared — each `Worker`/`QueueEvents` gets its own Redis connection (a BullMQ requirement, since Workers use blocking Redis commands that would stall each other on a shared connection).
+Worker instances are **not** shared — each `Worker`/`QueueEvents` gets its own Redis connection via `createRedisConnection()` (`config/redis.ts`), a BullMQ requirement since Workers use blocking Redis commands that would stall each other on a shared connection. `worker.ts` creates four dedicated connections (cron worker, transfers worker, cron `QueueEvents`, transfer `QueueEvents`) and closes all of them in `shutdown()`. `FailedJobTracker.attach()` also creates one `Queue` instance per call and reuses it across every `'failed'` event on that queue, rather than constructing a fresh one per event.
 
 ---
 
@@ -139,7 +139,7 @@ export class TransferQueueService {
 - `concurrency: 5`
 - `limiter: { max: TRANSFER_RATE_LIMIT_MAX, duration: ...MS }` — this is the **global** rate limit against Nomba's `/transfer` endpoint, applied across **all** jobs this worker processes (payouts + refunds combined, since they hit the same subaccount/endpoint).
 
-  > ⚠️ `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS` are still **placeholder values**, read raw off `process.env` in `worker.ts` with hardcoded fallbacks (`?? 10` / `?? 1000`) — not even in `env.ts`'s validated schema or `.env.example` yet. Need Nomba's actual documented rate limit before going live, set with headroom below their stated ceiling.
+  > ⚠️ `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS` are now in `env.ts`'s validated zod schema and `.env.example`, but the values themselves (`10` / `1000`) are still **placeholders**. Need Nomba's actual documented `/transfer` rate limit before going live, set with headroom below their stated ceiling.
 
 The handler resolves the destination account's name via `nomba.lookupBankAccount()` before building the `TransferParams` object for `nomba.transferToBankAccount()`:
 
@@ -185,7 +185,9 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 
 > ⚠️ **Open item, resolved differently than originally proposed:** `recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry. Rather than adding a distinct "insufficient balance, don't retry" error type, all transfer job types (`payout`, `pot_refund`, `contribution_refund` — see `transfer-queue.service.ts`) were switched to `attempts: 1` across the board (`worker.ts`: `// attempts:1 → straight to failed_jobs, no auto-retry`). This does stop blind-retrying insufficient-balance failures, but it also removes retries for genuinely transient failures (a Nomba 5xx or network blip now goes straight to `failed_jobs` too, same as before requiring a human to hit `FailedJobTracker.retry()`). Revisit if transient-failure volume in `failed_jobs` turns out to be high enough that it's worth distinguishing causes again.
 
-> ⚠️ There's currently no admin UI/route wired to actually call `FailedJobTracker.retry()` / `.ignore()` — only the service methods exist.
+`FailedJobTracker.ignore()` marks a row `ignored` (reviewed, deliberately not retried) with no BullMQ interaction. Both `retry()` and `ignore()` are wired to admin routes at `POST /api/v1/failed-jobs/:id/retry` and `POST /api/v1/failed-jobs/:id/ignore` (plus `GET /api/v1/failed-jobs` to list pending rows) — see `modules/scheduler/failed-jobs.route.ts`. Gated by the same narrow `BANKS_REFRESH_ALLOWED_USER_IDS` allowlist as `POST /banks/refresh`, since there's still no general staff/admin role in this codebase.
+
+> ⚠️ **Still ambiguous-failure risk in the transfer worker's catch block:** `processLedgerDisbursement` now only reverses the ledger transaction when the thrown error is a `NombaApiError` with a non-zero HTTP status (Nomba actually responded and rejected the call — confirmed not executed). A `status: 0` (network error/timeout/DNS failure — no response at all) leaves the transaction `processing` and the lock held, deferring resolution to the payout webhook or reconciliation instead of guessing. This narrows, but doesn't eliminate, the "was it actually sent" ambiguity — there's still no dedicated "query this transaction's status by reference" call against Nomba's API to resolve it proactively; `fetchTransactions`/`reconcile` are date-range/bulk only.
 
 ---
 
@@ -215,11 +217,16 @@ Resolved since this doc was first written:
 
 - [x] `accountName` for transfer payloads — resolved via `nomba.lookupBankAccount()` at send time (`worker.ts`), and `verifyAccountDetails()` at save time for pot-configured destinations (`pots.service.ts`).
 - [x] Kobo vs. Naira for `TransferParams.amount` — confirmed Naira; `amount` is divided by 100 before sending (`worker.ts`).
+- [x] Shared Redis connection across Workers — `worker.ts` now gives `payoutCronWorker`, `transfersWorker`, and each `QueueEvents` its own connection via `createRedisConnection()`; `FailedJobTracker.attach()` reuses one `Queue` per queue instead of constructing a new one per failure event.
+- [x] `postContributorsRefund` (refundType='contributors') now enqueues one `pot_refund` job per leg onto the shared `transfers` queue instead of calling Nomba/the ledger inline in the request handler — same rate limiting, `failed_jobs` tracking, and worker-side lock resolution as every other disbursement path. A new `isFanOutLeg` flag on the job payload (distinct from `contributorUserId`, which is metadata-only) tells the worker's `releaseLock` to decrement the shared pot-level lock rather than clear it outright — needed because an anonymous contributor's leg has no `contributorUserId` but is still one of N legs.
+- [x] Get Nomba's actual `/transfer` rate limit and replace the placeholder `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `_DURATION_MS` values — partially resolved: both are now in `env.ts`'s validated schema and `.env.example`, but the values themselves are still guessed defaults pending Nomba's documented ceiling.
+- [x] Build admin routes for `FailedJobTracker.retry()` / `.ignore()` — `modules/scheduler/failed-jobs.route.ts` now exposes list/retry/ignore under `/api/v1/failed-jobs`, gated by the same allowlist pattern as `POST /banks/refresh`.
+- [x] Blind-reversal-on-ambiguous-failure — `processLedgerDisbursement`'s catch block now only reverses the ledger transaction on a confirmed-not-executed `NombaApiError` (non-zero HTTP status); a `status: 0` network/timeout error leaves the transaction `processing` and the lock held for the webhook/reconciliation to resolve later, rather than guessing.
 
 Still open:
 
 - [ ] Decide fate of `reconciliation-frequent` now that everything runs daily — still registered with `hoursBack: 1`, still redundant with `reconciliation-daily`. Delete it, or change `hoursBack` to `24`.
-- [ ] Get Nomba's actual `/transfer` rate limit and replace the placeholder `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `_DURATION_MS` values — still hardcoded fallbacks in `worker.ts`, not even in `env.ts`'s validated schema yet.
-- [ ] Build admin routes for `FailedJobTracker.retry()` / `.ignore()` — service methods exist, nothing calls them yet.
+- [ ] Nomba's actual `/transfer` rate limit — still a guessed default (`10`/`1000ms`), now at least validated/documented in `env.ts` and `.env.example`.
 - [ ] Give `server.ts` (the API process) a `SIGTERM`/`SIGINT` handler calling `app.close()` — it currently has none; the worker process's signal handling is separate and doesn't cover the Fastify app.
 - [ ] Revisit blanket `attempts: 1` on all transfer job types — this was the fix applied for "insufficient balance shouldn't blind-retry," but it also removes retries for transient Nomba/network failures, which now go straight to `failed_jobs` same as a real failure. Worth a distinct error type if transient-failure volume becomes noticeable.
+- [ ] No dedicated "get transaction status by reference" call exists against Nomba's API — only bulk/date-range `fetchTransactions`/`reconcile`. Would let the ambiguous-failure path above resolve proactively instead of waiting on the webhook/next reconciliation pass.

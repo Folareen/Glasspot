@@ -14,13 +14,11 @@ import db, {
   scheduledPayoutConfigs,
   scheduledPayoutLegs,
   type Pot,
-  type Transaction,
 } from "@/db";
 import { PotError } from "./pots.errors";
 import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
-import { nomba } from "@/integrations/nomba";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import {
   CreatePotInput,
@@ -614,108 +612,6 @@ async function postDisbursement(
   await postFixedAmountDisbursement(pot, kind, balance, destination, onSuccess);
 }
 
-// /**
-//  * Core single-leg disbursement: claims pots.pendingOperation atomically
-//  * (locking out a second concurrent trigger — see docs/system-rules.md's
-//  * "two members approving in the same instant must not both trigger the
-//  * payout call"), then looks up the destination, posts the internal ledger
-//  * leg (debit pot_account, credit platform_float) for EXACTLY amount
-//  * (not necessarily the pot's full balance — see postDisbursement, which
-//  * passes the full balance for manual/target_based payout and admin
-//  * refund, vs PayoutSchedulerService, which passes a FIXED amount for
-//  * recurring/rotation), and calls Nomba's transfer API.
-//  *
-//  * On SUCCESS, resolves immediately: transaction -> completed,
-//  * pendingOperation cleared. On PENDING_BILLING, leaves both the
-//  * transaction and pendingOperation as-is — resolution happens later via
-//  * the payout_success/payout_failed/payout_refund webhook (see
-//  * nomba-webhooks module), never by blind-retrying (system-rules.md). On
-//  * any failure (destination lookup, insufficient balance, or the transfer
-//  * call itself rejected outright), releases the lock — reversing the
-//  * internal ledger leg too if it was already posted, since we know for
-//  * certain the transfer never started.
-//  */
-// export async function postFixedAmountDisbursement(
-//   pot: Pot,
-//   kind: "payout" | "refund",
-//   amount: bigint,
-//   destination: { destinationAccount: string; destinationBank: string }
-// ): Promise<Transaction> {
-//   // UPDATE ... WHERE pending_operation IS NULL is atomic in Postgres — of
-//   // two concurrent triggers only one can ever match this row; the other's
-//   // returning() comes back empty and is rejected before touching the
-//   // ledger at all.
-//   const reference = `${kind}_${pot.id}_${randomUUID()}`;
-//   const claimed = await db
-//     .update(pots)
-//     .set({ pendingOperation: kind, pendingOperationLegCount: 1 })
-//     .where(and(eq(pots.id, pot.id), isNull(pots.pendingOperation)))
-//     .returning({ id: pots.id });
-
-//   if (claimed.length === 0) {
-//     throw new PotError(
-//       "A payout or refund is already in flight for this pot — wait for it to resolve before triggering another",
-//       409
-//     );
-//   }
-
-//   let transaction: Transaction | undefined;
-
-//   try {
-//     const resolved = await nomba.lookupBankAccount(destination.destinationAccount, destination.destinationBank);
-
-//     const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
-//     const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
-//     const balance = await LedgerService.getBalance(potAccount.id);
-
-//     if (balance < amount) {
-//       throw new PotError(`Pot balance is insufficient to ${kind} ${amount} kobo`, 409);
-//     }
-
-//     transaction = await LedgerService.postTransaction({
-//       type: kind,
-//       reference,
-//       status: "processing",
-//       entries: [
-//         { accountId: potAccount.id, direction: "debit", amount },
-//         { accountId: platformFloat.id, direction: "credit", amount },
-//       ],
-//       metadata: { potId: pot.id },
-//     });
-
-//     await db
-//       .update(pots)
-//       .set({ pendingOperationTransactionId: transaction.id })
-//       .where(eq(pots.id, pot.id));
-
-//     const transfer = await nomba.transferToBankAccount({
-//       amount: Number(amount) / 100,
-//       accountNumber: destination.destinationAccount,
-//       accountName: resolved.accountName,
-//       bankCode: destination.destinationBank,
-//       merchantTxRef: reference,
-//       senderName: "Glasspot",
-//       narration: `Glasspot ${kind} for pot ${pot.id}`,
-//     });
-
-//     if (transfer.status === "SUCCESS") {
-//       await LedgerService.markCompleted(transaction.id);
-//       await clearPendingOperation(pot.id);
-//     }
-//     // PENDING_BILLING: transaction stays 'processing', pendingOperation
-//     // stays set — resolved later by the payout_success/payout_failed/
-//     // payout_refund webhook (see nomba-webhooks module). Never blind-retried.
-
-//     return transaction;
-//   } catch (err) {
-//     if (transaction) {
-//       await LedgerService.reverseTransaction(transaction.id, `${reference}_reversal`);
-//     }
-//     await clearPendingOperation(pot.id);
-//     throw err;
-//   }
-// }
-
 /**
  * Core single-leg disbursement: claims pots.pendingOperation atomically
  * (locking out a second concurrent trigger — see docs/system-rules.md's
@@ -833,14 +729,18 @@ export async function clearPendingOperation(potId: string): Promise<void> {
  * Contributors with multiple funded contributions are refunded once, as
  * their combined total.
  *
- * Unlike postDisbursement, this posts ONE INDEPENDENT ledger transaction
- * + transfer PER CONTRIBUTOR rather than a single shared transaction — if
- * one contributor's transfer fails, only THEIR leg is reversed; the
- * others' successful transfers stand (see docs/system-rules.md — a
- * failed bank transfer to one recipient has no bearing on money already
- * correctly delivered to another). pendingOperationLegCount tracks how
- * many of the N legs are still outstanding; the pot-level lock only
- * clears once every leg resolves (see resolvePendingTransfer).
+ * Unlike postDisbursement, this enqueues ONE INDEPENDENT transfer job
+ * PER CONTRIBUTOR rather than a single shared transaction — if one
+ * contributor's transfer fails, only THEIR leg is reversed (by the
+ * worker); the others' successful transfers stand (see
+ * docs/system-rules.md — a failed bank transfer to one recipient has no
+ * bearing on money already correctly delivered to another).
+ * pendingOperationLegCount tracks how many of the N legs are still
+ * outstanding; the pot-level lock only clears once every leg resolves
+ * (see resolvePendingTransfer and worker.ts's releaseLock). Each leg is
+ * a normal `pot_refund` job on the shared transfers queue — same
+ * rate-limiting and failed_jobs tracking as every other disbursement
+ * path, unlike the old inline-Nomba-call version of this function.
  *
  * Integer-kobo pro-rata division leaves a small remainder (less than the
  * number of contributors) uncollected in the pot — left there
@@ -848,7 +748,7 @@ export async function clearPendingOperation(potId: string): Promise<void> {
  * with one more small manual operation before closing (see pots.ts
  * status semantics: balance must be zero to close).
  */
-async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
+async function postContributorsRefund(pot: Pot): Promise<void> {
   const funded = await db
     .select({
       contributionId: contributions.id,
@@ -910,6 +810,9 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
   // payment's amount over this group's total payments, times this group's
   // amount over the pot's total) doesn't need the group-level fan-out
   // logic repeated at rescale time.
+  // accountName is resolved fresh by the worker's callNomba() immediately
+  // before each transfer (same as every other disbursement path), so it
+  // isn't tracked per-leg here.
   const legs: {
     groupKey: string;
     numerator: bigint;
@@ -917,7 +820,6 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     amount: bigint;
     destinationAccount: string;
     destinationBank: string;
-    accountName: string;
   }[] = [];
   for (const [groupKey, rows] of groups) {
     const contributed = rows.reduce((sum, r) => sum + r.expectedAmount, 0n);
@@ -937,7 +839,6 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
         amount: share,
         destinationAccount: refundAccountNumber,
         destinationBank: refundBank,
-        accountName: refundAccountName,
       });
       continue;
     }
@@ -954,7 +855,6 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
         amount: contributionPayments.amount,
         senderAccountNumber: contributionPayments.senderAccountNumber,
         senderBankCode: contributionPayments.senderBankCode,
-        senderName: contributionPayments.senderName,
       })
       .from(contributionPayments)
       .where(
@@ -984,7 +884,6 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
         amount: paymentShare,
         destinationAccount: payment.senderAccountNumber,
         destinationBank: payment.senderBankCode,
-        accountName: payment.senderName,
       });
     }
   }
@@ -1022,9 +921,6 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     }
   }
 
-  const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
-  const results: Transaction[] = [];
-
   for (const leg of legs) {
     if (leg.amount <= 0n) {
       // Rescaling against the fresh balance left this leg with nothing to
@@ -1035,52 +931,31 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
 
     // groupKey is either a real contributorUserId or a synthetic
     // "anon:<contributionId>" (see the grouping above) — only ever put the
-    // former into metadata.contributorUserId, so that field stays a real
+    // former into the job's contributorUserId, so that field stays a real
     // user id or absent, never a synthetic string a future reader might
     // mistake for one.
     const isAnonymousGroup = leg.groupKey.startsWith("anon:");
     const reference = `refund_${pot.id}_${leg.groupKey.replace(":", "-")}_${randomUUID()}`;
 
-    const transaction = await LedgerService.postTransaction({
-      type: "refund",
+    // Each leg is its own independent transfer job on the shared,
+    // rate-limited transfers queue — the worker posts this leg's ledger
+    // transaction, calls Nomba, and resolves/reverses it exactly like any
+    // other pot_refund, tracked in failed_jobs on exhaustion like every
+    // other disbursement path (see processLedgerDisbursement). isFanOutLeg
+    // tells the worker's releaseLock to decrement the shared lock instead
+    // of clearing it outright, since the other legs may still be pending.
+    const jobData: DisbursementJobData = {
+      kind: "pot_refund",
+      potId: pot.id,
+      amount: leg.amount.toString(),
+      destinationAccount: leg.destinationAccount,
+      destinationBank: leg.destinationBank,
       reference,
-      status: "processing",
-      entries: [
-        { accountId: potAccount.id, direction: "debit", amount: leg.amount },
-        { accountId: platformFloat.id, direction: "credit", amount: leg.amount },
-      ],
-      metadata: isAnonymousGroup
-        ? { potId: pot.id }
-        : { potId: pot.id, contributorUserId: leg.groupKey },
-    });
-    results.push(transaction);
-
-    try {
-      const transfer = await nomba.transferToBankAccount({
-        amount: Number(leg.amount) / 100,
-        accountNumber: leg.destinationAccount,
-        accountName: leg.accountName,
-        bankCode: leg.destinationBank,
-        merchantTxRef: reference,
-        senderName: "Glasspot",
-        narration: `Glasspot refund for pot ${pot.id}`,
-      });
-
-      if (transfer.status === "SUCCESS") {
-        await LedgerService.markCompleted(transaction.id);
-        await decrementPendingOperationLeg(pot.id);
-      }
-      // PENDING_BILLING: this leg stays 'processing' — resolved later by
-      // the payout webhook, same as postDisbursement's single-leg path.
-    } catch (err) {
-      // This leg's transfer was rejected outright — reverse only THIS
-      // leg's ledger entry, the others already posted/succeeded stand.
-      await LedgerService.reverseTransaction(transaction.id, `${reference}_reversal`);
-      await decrementPendingOperationLeg(pot.id);
-    }
+      isFanOutLeg: true,
+      contributorUserId: isAnonymousGroup ? undefined : leg.groupKey,
+    };
+    await TransferQueueService.enqueuePotRefund(jobData as Extract<DisbursementJobData, { kind: "pot_refund" }>);
   }
-
-  return results;
 }
 
 /** Decrements a pot's pendingOperationLegCount by one, clearing the whole pendingOperation lock once it reaches zero — the fan-out-refund counterpart to resolvePendingTransfer's same logic for webhook-driven resolution. */

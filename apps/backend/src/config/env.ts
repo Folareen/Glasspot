@@ -29,6 +29,14 @@ const EnvSchema = z.object({
   NOMBA_ACCOUNT_ID: z.string(),
   NOMBA_SUBACCOUNT_ID: z.string(),
   NOMBA_WEBHOOK_SECRET: z.string(),
+  // Global rate limit against Nomba's /transfer endpoint, applied across
+  // every job the transfers worker processes (payouts + refunds combined
+  // — see worker.ts's transfersWorker limiter). Still placeholder
+  // defaults — replace with Nomba's actual documented /transfer rate
+  // limit (with headroom below their stated ceiling) before going live
+  // (see docs/bullmq-architecture.md's open items).
+  NOMBA_TRANSFER_RATE_LIMIT_MAX: z.coerce.number().default(10),
+  NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS: z.coerce.number().default(1000),
   REDIS_URL: z.string(),
   SMTP_HOST: z.string(),
   SMTP_PORT: z.coerce.number().default(587),
