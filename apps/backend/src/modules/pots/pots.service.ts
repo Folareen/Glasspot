@@ -500,44 +500,6 @@ export const PotsService = {
   },
 
   /**
-   * Manual refund trigger. refundType='admin' posts the internal leg and
-   * disburses the pot's full balance to a single destination — the
-   * triggering admin's own defaultRefundAccount/defaultRefundBank on file
-   * (spec-mvp.md: refunds "to whoever triggers it"), set via PATCH
-   * /auth/me/refund-profile. refundType='contributors' fans out to every
-   * contributor pro-rata instead — see postContributorsRefund(). Always
-   * returns an array (one element for refundType='admin', one per
-   * contributor for refundType='contributors') so the wire contract is
-   * uniform regardless of which refund mode the pot uses.
-   */
-  // async triggerRefund(potId: string, userId: string): Promise<Transaction[]> {
-  //   await assertIsAdmin(potId, userId);
-  //   const pot = await getPotOrThrow(potId);
-
-  //   if (pot.status !== "open") {
-  //     throw new PotError("Pot must be open to trigger a refund", 409);
-  //   }
-
-  //   if (pot.refundType === "contributors") {
-  //     return postContributorsRefund(pot);
-  //   }
-
-  //   const [triggeringAdmin] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-  //   if (!triggeringAdmin?.defaultRefundAccount || !triggeringAdmin.defaultRefundBank) {
-  //     throw new PotError(
-  //       "Set a default refund bank account (PATCH /auth/me/refund-profile) before triggering an admin refund",
-  //       409
-  //     );
-  //   }
-
-  //   const transaction = await postDisbursement(pot, "refund", {
-  //     destinationAccount: triggeringAdmin.defaultRefundAccount,
-  //     destinationBank: triggeringAdmin.defaultRefundBank,
-  //   });
-  //   return [transaction]; // TODO: refactor this function
-  // },
-
-  /**
  * Manual refund trigger. refundType='admin' hands off a single-destination
  * disbursement to the triggering admin's own defaultRefundAccount/
  * defaultRefundBank on file (spec-mvp.md: refunds "to whoever triggers
