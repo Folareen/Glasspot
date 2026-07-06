@@ -98,14 +98,23 @@ export type PotResponse = {
   pendingOperation: "payout" | "refund" | null;
 };
 
+// status/email mirror pot_invites, not pot_members, on the backend —
+// pot_members.userId is NOT NULL there (no pending row possible on that
+// table). This mock layer folds both into one list for display simplicity:
+// status 'pending' + userId "" represents a pot_invites row (invited by
+// email, not yet a Glasspot user); 'active' represents a real pot_members
+// row. See docs comment on apps/backend's pot-invites.ts for the real split.
 export type MemberResponse = {
   id: string;
   potId: string;
   userId: string;
+  email: string;
   role: PotMemberRole;
+  status: "pending" | "active";
   invitedByUserId: string | null;
   joinedAt: string;
-  // Demo-only display fields.
+  // Demo-only display fields. Empty string for a pending invite with no
+  // linked user yet.
   fullName: string;
   username: string;
 };

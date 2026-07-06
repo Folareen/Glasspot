@@ -15,13 +15,27 @@ export const demoUser: CurrentUser = {
   defaultRefundBank: null,
 };
 
+// email lets InviteMemberModal simulate "is this email already a Glasspot
+// user" — inviting one of these emails joins the pot as an active member
+// immediately, any other email creates a pending invite instead.
 const otherUsers = {
-  amaka: { id: "user-amaka", fullName: "Amaka Obi", username: "amaka" },
-  tunde: { id: "user-tunde", fullName: "Tunde Bakare", username: "tunde" },
-  chidi: { id: "user-chidi", fullName: "Chidi Nweke", username: "chidi" },
-  fatima: { id: "user-fatima", fullName: "Fatima Bello", username: "fatima" },
-  segun: { id: "user-segun", fullName: "Segun Adeyemi", username: "segun" },
+  amaka: { id: "user-amaka", fullName: "Amaka Obi", username: "amaka", email: "amaka.obi@example.com" },
+  tunde: { id: "user-tunde", fullName: "Tunde Bakare", username: "tunde", email: "tunde.bakare@example.com" },
+  chidi: { id: "user-chidi", fullName: "Chidi Nweke", username: "chidi", email: "chidi.nweke@example.com" },
+  fatima: { id: "user-fatima", fullName: "Fatima Bello", username: "fatima", email: "fatima.bello@example.com" },
+  segun: { id: "user-segun", fullName: "Segun Adeyemi", username: "segun", email: "segun.adeyemi@example.com" },
 };
+
+// Every "registered" demo user, keyed by lowercased email — the mock
+// stand-in for a real users-by-email lookup. store.tsx's addMember checks
+// this to decide whether an invite joins immediately (status 'active') or
+// waits as a pending invite (status 'pending', no userId yet).
+export const registeredUsersByEmail: Record<
+  string,
+  { id: string; fullName: string; username: string }
+> = Object.fromEntries(
+  [demoUser, ...Object.values(otherUsers)].map((u) => [u.email.toLowerCase(), u])
+);
 
 export const initialPots: PotResponse[] = [
   {
@@ -223,28 +237,41 @@ export const initialPots: PotResponse[] = [
   },
 ];
 
+// email/status derived from each seed user's known identity — every
+// fixture row is a real, already-joined member (status 'active'). A
+// pending (email-only, no userId yet) row only ever appears once a demo
+// invite is sent via InviteMemberModal — see store.tsx's addMember.
+function activeMember(
+  fields: Omit<MemberResponse, "email" | "status" | "fullName" | "username"> & {
+    user: { fullName: string; username: string; email: string };
+  }
+): MemberResponse {
+  const { user, ...rest } = fields;
+  return { ...rest, email: user.email, status: "active", fullName: user.fullName, username: user.username };
+}
+
 export const initialMembers: MemberResponse[] = [
-  { id: "mem-1", potId: "pot-1", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-05-28T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
-  { id: "mem-2", potId: "pot-1", userId: otherUsers.amaka.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-29T09:00:00.000Z", fullName: otherUsers.amaka.fullName, username: otherUsers.amaka.username },
-  { id: "mem-3", potId: "pot-1", userId: otherUsers.tunde.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-30T09:00:00.000Z", fullName: otherUsers.tunde.fullName, username: otherUsers.tunde.username },
+  activeMember({ id: "mem-1", potId: "pot-1", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-05-28T09:00:00.000Z", user: demoUser }),
+  activeMember({ id: "mem-2", potId: "pot-1", userId: otherUsers.amaka.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-29T09:00:00.000Z", user: otherUsers.amaka }),
+  activeMember({ id: "mem-3", potId: "pot-1", userId: otherUsers.tunde.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-30T09:00:00.000Z", user: otherUsers.tunde }),
 
-  { id: "mem-4", potId: "pot-2", userId: otherUsers.amaka.id, role: "admin", invitedByUserId: null, joinedAt: "2026-06-18T12:00:00.000Z", fullName: otherUsers.amaka.fullName, username: otherUsers.amaka.username },
-  { id: "mem-5", potId: "pot-2", userId: demoUser.id, role: "member", invitedByUserId: otherUsers.amaka.id, joinedAt: "2026-06-19T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
-  { id: "mem-6", potId: "pot-2", userId: otherUsers.chidi.id, role: "member", invitedByUserId: otherUsers.amaka.id, joinedAt: "2026-06-19T09:00:00.000Z", fullName: otherUsers.chidi.fullName, username: otherUsers.chidi.username },
-  { id: "mem-7", potId: "pot-2", userId: otherUsers.segun.id, role: "member", invitedByUserId: otherUsers.amaka.id, joinedAt: "2026-06-20T09:00:00.000Z", fullName: otherUsers.segun.fullName, username: otherUsers.segun.username },
+  activeMember({ id: "mem-4", potId: "pot-2", userId: otherUsers.amaka.id, role: "admin", invitedByUserId: null, joinedAt: "2026-06-18T12:00:00.000Z", user: otherUsers.amaka }),
+  activeMember({ id: "mem-5", potId: "pot-2", userId: demoUser.id, role: "member", invitedByUserId: otherUsers.amaka.id, joinedAt: "2026-06-19T09:00:00.000Z", user: demoUser }),
+  activeMember({ id: "mem-6", potId: "pot-2", userId: otherUsers.chidi.id, role: "member", invitedByUserId: otherUsers.amaka.id, joinedAt: "2026-06-19T09:00:00.000Z", user: otherUsers.chidi }),
+  activeMember({ id: "mem-7", potId: "pot-2", userId: otherUsers.segun.id, role: "member", invitedByUserId: otherUsers.amaka.id, joinedAt: "2026-06-20T09:00:00.000Z", user: otherUsers.segun }),
 
-  { id: "mem-8", potId: "pot-3", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-03-28T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
+  activeMember({ id: "mem-8", potId: "pot-3", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-03-28T09:00:00.000Z", user: demoUser }),
 
-  { id: "mem-9", potId: "pot-4", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-05-20T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
-  { id: "mem-10", potId: "pot-4", userId: otherUsers.fatima.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-21T09:00:00.000Z", fullName: otherUsers.fatima.fullName, username: otherUsers.fatima.username },
-  { id: "mem-11", potId: "pot-4", userId: otherUsers.segun.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-21T09:00:00.000Z", fullName: otherUsers.segun.fullName, username: otherUsers.segun.username },
+  activeMember({ id: "mem-9", potId: "pot-4", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-05-20T09:00:00.000Z", user: demoUser }),
+  activeMember({ id: "mem-10", potId: "pot-4", userId: otherUsers.fatima.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-21T09:00:00.000Z", user: otherUsers.fatima }),
+  activeMember({ id: "mem-11", potId: "pot-4", userId: otherUsers.segun.id, role: "member", invitedByUserId: demoUser.id, joinedAt: "2026-05-21T09:00:00.000Z", user: otherUsers.segun }),
 
-  { id: "mem-12", potId: "pot-5", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-06-29T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
+  activeMember({ id: "mem-12", potId: "pot-5", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-06-29T09:00:00.000Z", user: demoUser }),
 
-  { id: "mem-13", potId: "pot-6", userId: otherUsers.fatima.id, role: "admin", invitedByUserId: null, joinedAt: "2026-02-20T09:00:00.000Z", fullName: otherUsers.fatima.fullName, username: otherUsers.fatima.username },
-  { id: "mem-14", potId: "pot-6", userId: demoUser.id, role: "member", invitedByUserId: null, joinedAt: "2026-03-02T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
+  activeMember({ id: "mem-13", potId: "pot-6", userId: otherUsers.fatima.id, role: "admin", invitedByUserId: null, joinedAt: "2026-02-20T09:00:00.000Z", user: otherUsers.fatima }),
+  activeMember({ id: "mem-14", potId: "pot-6", userId: demoUser.id, role: "member", invitedByUserId: null, joinedAt: "2026-03-02T09:00:00.000Z", user: demoUser }),
 
-  { id: "mem-15", potId: "pot-7", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-03-25T09:00:00.000Z", fullName: demoUser.fullName, username: demoUser.username },
+  activeMember({ id: "mem-15", potId: "pot-7", userId: demoUser.id, role: "admin", invitedByUserId: null, joinedAt: "2026-03-25T09:00:00.000Z", user: demoUser }),
 ];
 
 export const initialContributions: ContributionResponse[] = [

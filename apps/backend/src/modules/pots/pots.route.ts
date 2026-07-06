@@ -2,10 +2,12 @@ import { FastifyInstance } from "fastify";
 import {
   activatePotHandler,
   addMemberHandler,
+  cancelInviteHandler,
   closePotHandler,
   contributeHandler,
   createPotHandler,
   getPotHandler,
+  listInvitesHandler,
   listMembersHandler,
   listPotsHandler,
   removeMemberHandler,
@@ -23,6 +25,7 @@ import {
   AddMemberInput,
   ContributeInput,
   CreatePotInput,
+  InviteIdParams,
   MemberParams,
   PotIdParams,
   RequestPayoutOtpInput,
@@ -207,10 +210,34 @@ async function potsRoutes(server: FastifyInstance) {
       schema: {
         params: $ref("potIdParamsSchema"),
         body: $ref("addMemberSchema"),
-        response: { 201: $ref("memberResponseSchema") },
+        response: { 201: $ref("addMemberResponseSchema") },
       },
     },
     addMemberHandler
+  );
+
+  server.get<{ Params: PotIdParams }>(
+    "/:id/invites",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        response: { 200: $ref("inviteListResponseSchema") },
+      },
+    },
+    listInvitesHandler
+  );
+
+  server.delete<{ Params: InviteIdParams }>(
+    "/:id/invites/:inviteId",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("inviteIdParamsSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    cancelInviteHandler
   );
 
   server.patch<{ Params: MemberParams; Body: UpdateMemberRoleInput }>(
