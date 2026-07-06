@@ -5,6 +5,7 @@ import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
 import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
+import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
@@ -69,7 +70,7 @@ export const ContributionsService = {
         if (!input.refundAccountNumber || !input.refundBankCode) {
           throw new PotError("refundAccountNumber and refundBankCode must both be set or both omitted", 400);
         }
-        const resolved = await nomba.lookupBankAccount(input.refundAccountNumber, input.refundBankCode);
+        const resolved = await verifyAccountDetails(input.refundAccountNumber, input.refundBankCode);
         refundAccountNumber = input.refundAccountNumber;
         refundAccountName = resolved.accountName;
         refundBank = input.refundBankCode;

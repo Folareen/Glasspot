@@ -53,6 +53,8 @@ export const scheduledPayoutLegs = pgTable(
     sequenceOrder: integer('sequence_order').notNull(),
     destinationAccount: text('destination_account').notNull(),
     destinationBank: text('destination_bank').notNull(),
+    /** account holder name resolved via Nomba's lookup at save time — see verifyAccountDetails() */
+    destinationAccountName: text('destination_account_name').notNull(),
     amount: bigint('amount', { mode: 'bigint' }).notNull(),
     scheduledDate: timestamp('scheduled_date', { withTimezone: true }).notNull(),
     fired: boolean('fired').notNull().default(false),

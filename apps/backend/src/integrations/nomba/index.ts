@@ -9,6 +9,7 @@
 import { NombaClient } from "@/integrations/nomba/nomba.client";
 import env from "@/config/env";
 import { RedisWebhookIdStore } from "@/integrations/nomba/webhooks";
+import { RedisBankStore } from "@/integrations/nomba/bank-store";
 import redis from "@/config/redis";
 
 export const nomba = new NombaClient({
@@ -19,4 +20,5 @@ export const nomba = new NombaClient({
   webhookSecret: env.NOMBA_WEBHOOK_SECRET,
   environment: env.NOMBA_ENVIRONMENT,
   webhookIdStore: new RedisWebhookIdStore(redis),
+  bankStore: new RedisBankStore(redis),
 });
