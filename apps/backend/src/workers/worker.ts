@@ -65,7 +65,9 @@ async function callNomba(data: DisbursementJobData) {
     narration:
       data.kind === 'contribution_refund'
         ? `Glasspot contribution refund`
-        : `Glasspot ${data.kind} for pot ${data.potId}`,
+        : data.kind === 'pot_refund'
+        ? `Glasspot refund for pot ${data.potId}`
+        : `Glasspot payout for pot ${data.potId}`,
   });
 
   return { transfer, amount };
