@@ -9,7 +9,7 @@
     "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc -p tsconfig.json && tsc-alias -p tsconfig.json --resolve-full-paths --resolve-full-extension .js",
     "migrate:prod": "cross-env DB_MIGRATING=true node dist/db/migrate.js",
-    "start": "pnpm migrate:prod && concurrently -n server,worker -k \"node dist/server.js\" \"node dist/workers/worker.js\"",
+    "start": "pnpm migrate:prod && node dist/server.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "cross-env DB_MIGRATING=true tsx --env-file=.env src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
