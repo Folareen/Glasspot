@@ -13,24 +13,32 @@ import { nigerianBanks } from "@/lib/mock/fixtures";
 type PayoutDestinationModalProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: (destination: { account: string; bank: string }) => void;
+  onConfirm: (destination: { account: string; bank: string }, amount?: string) => void;
+  /** Pot's current balance, kobo string — shown as the amount field's placeholder/cap. */
+  balance: string;
 };
 
-export function PayoutDestinationModal({ open, onClose, onConfirm }: PayoutDestinationModalProps) {
+export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: PayoutDestinationModalProps) {
   const [account, setAccount] = useState("");
   const [bank, setBank] = useState("");
+  const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const balanceNaira = Number(balance) / 100;
 
   function handleClose() {
     setAccount("");
     setBank("");
+    setAmount("");
     onClose();
   }
 
   function handleConfirm() {
     if (!account || !bank) return;
+    const naira = Number(amount);
+    if (amount && (!naira || naira <= 0 || naira > balanceNaira)) return;
     setIsSubmitting(true);
-    onConfirm({ account, bank });
+    onConfirm({ account, bank }, amount ? String(Math.round(naira * 100)) : undefined);
     setIsSubmitting(false);
     handleClose();
   }
@@ -63,6 +71,23 @@ export function PayoutDestinationModal({ open, onClose, onConfirm }: PayoutDesti
               </option>
             ))}
           </Select>
+        </Field>
+
+        <Field
+          label="Amount"
+          htmlFor="payout-destination-amount"
+          helperText={`Optional. Leave blank to send the full balance (₦${balanceNaira.toLocaleString()}).`}
+        >
+          <Input
+            id="payout-destination-amount"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            max={balanceNaira}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder={String(balanceNaira)}
+          />
         </Field>
 
         <div className="flex gap-3">
