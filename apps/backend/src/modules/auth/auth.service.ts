@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword } from "@/lib/hash";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
 import { hashToken, signRefreshToken, verifyRefreshTokenSignature } from "@/lib/tokens";
 import { sendMail } from "@/lib/mailer";
+import { otpEmail } from "@/lib/otp-email";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { AuthError, RateLimitError } from "./auth.errors";
 import { RegisterInput, UpdateRefundProfileInput } from "./auth.schema";
@@ -87,11 +88,12 @@ async function createOtp(userId: string, email: string, purpose: OtpPurposeValue
     expiresAt: otpExpiry(),
   });
 
-  await sendMail({
-    to: email,
-    subject: `Your Glasspot code: ${code}`,
-    text: `Use this code to ${otpPurposeLabel(purpose)}: ${code}\n\nThis code expires in ${OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this email.`,
+  const { subject, text, html } = otpEmail({
+    code,
+    intro: `Use this code to ${otpPurposeLabel(purpose)}.`,
+    ttlMinutes: OTP_TTL_MINUTES,
   });
+  await sendMail({ to: email, subject, text, html });
 
   return code;
 }

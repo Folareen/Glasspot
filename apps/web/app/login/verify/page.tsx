@@ -17,6 +17,9 @@ export default async function LoginVerifyPage({ searchParams }: LoginVerifyPageP
         <Text color="secondary" className="mt-1">
           Enter the code we sent to {email || "your email"}.
         </Text>
+        <Text size="sm" color="secondary" className="mt-2">
+          Can&apos;t find it? Check your spam or junk folder.
+        </Text>
       </div>
       <OtpVerifyForm email={email} successMessage="Logged in successfully" />
     </AuthCard>

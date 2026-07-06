@@ -17,6 +17,9 @@ export default async function SignupVerifyPage({ searchParams }: SignupVerifyPag
         <Text color="secondary" className="mt-1">
           Enter the code we sent to {email || "your email"} to finish setting up your account.
         </Text>
+        <Text size="sm" color="secondary" className="mt-2">
+          Can&apos;t find it? Check your spam or junk folder.
+        </Text>
       </div>
       <OtpVerifyForm email={email} successMessage="Account created successfully" />
     </AuthCard>

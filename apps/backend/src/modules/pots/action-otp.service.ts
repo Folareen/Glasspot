@@ -3,6 +3,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import db, { actionOtpCodes, users } from "@/db";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
 import { sendMail } from "@/lib/mailer";
+import { otpEmail } from "@/lib/otp-email";
 import { PotError } from "./pots.errors";
 
 type ActionOtpAction = "trigger_payout" | "trigger_refund";
@@ -87,11 +88,12 @@ export const ActionOtpService = {
       expiresAt: otpExpiry(),
     });
 
-    await sendMail({
-      to: admin.email,
-      subject: `Your Glasspot confirmation code: ${code}`,
-      text: `Use this code to ${actionLabel(action)}: ${code}\n\nThis code expires in ${OTP_TTL_MINUTES} minutes. If you didn't request this, you can ignore this email.`,
+    const { subject, text, html } = otpEmail({
+      code,
+      intro: `Use this code to ${actionLabel(action)}.`,
+      ttlMinutes: OTP_TTL_MINUTES,
     });
+    await sendMail({ to: admin.email, subject, text, html });
   },
 
   /**

@@ -51,7 +51,7 @@ All five cron jobs currently run once daily at midnight, staggered by a minute e
 
 > ⚠️ **Known tradeoff:** collapsing these to midnight-only introduces up to a 24h lag between a condition being met (targetDate reached, contribution expired) and it actually firing. Previously polling every 5–15 min. Revisit if this lag becomes a problem for payout-sensitive users.
 
-> ⚠️ **Open item:** `reconciliation-frequent` (`hoursBack: 1`) is now redundant/broken at daily cadence — it only checks the 11pm–midnight window and misses 23 hours. Either delete it or change `hoursBack` to `24` (making it a duplicate of `reconciliation-daily`). Needs a decision — not yet resolved.
+> ⚠️ **Open item:** `reconciliation-frequent` (`hoursBack: 1`) is still redundant/broken at daily cadence — it only checks the 11pm–midnight window and misses 23 hours. Either delete it or change `hoursBack` to `24` (making it a duplicate of `reconciliation-daily`). Needs a decision — not yet resolved.
 
 ---
 
@@ -139,16 +139,17 @@ export class TransferQueueService {
 - `concurrency: 5`
 - `limiter: { max: TRANSFER_RATE_LIMIT_MAX, duration: ...MS }` — this is the **global** rate limit against Nomba's `/transfer` endpoint, applied across **all** jobs this worker processes (payouts + refunds combined, since they hit the same subaccount/endpoint).
 
-  > ⚠️ `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS` env vars are currently **placeholder values** — need Nomba's actual documented rate limit before going live, set with headroom below their stated ceiling.
+  > ⚠️ `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS` are still **placeholder values**, read raw off `process.env` in `worker.ts` with hardcoded fallbacks (`?? 10` / `?? 1000`) — not even in `env.ts`'s validated schema or `.env.example` yet. Need Nomba's actual documented rate limit before going live, set with headroom below their stated ceiling.
 
-The handler builds a `TransferParams` object for `nomba.transferToBankAccount()`:
+The handler resolves the destination account's name via `nomba.lookupBankAccount()` before building the `TransferParams` object for `nomba.transferToBankAccount()`:
 
 ```typescript
+const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
 const response = await nomba.transferToBankAccount({
   accountNumber: destinationAccount,
-  accountName,                    // ⚠ not yet resolved anywhere — see Open Items
+  accountName: resolved.accountName,
   bankCode: destinationBank,
-  amount: Number(amount),     // ⚠ unconfirmed kobo vs. Naira — see Open Items
+  amount: Number(amount) / 100, // Nomba expects Naira, not kobo — confirmed
   merchantTxRef,                  // idempotency key, prevents double-send on retry
   senderName: PLATFORM_SENDER_NAME,
   narration,
@@ -158,9 +159,9 @@ const response = await nomba.transferToBankAccount({
 | Field | Source |
 |---|---|
 | `accountNumber` | `destinationAccount` |
-| `accountName` | **Not yet wired** — must be resolved separately |
+| `accountName` | Resolved via `nomba.lookupBankAccount()` at send time |
 | `bankCode` | `destinationBank` |
-| `amount` | `Number(amount)` — safe cast, JS's safe-integer ceiling (~9×10¹⁵) comfortably covers realistic Naira amounts in kobo |
+| `amount` | `Number(amount) / 100` — ledger amount is kobo, Nomba's `/transfer` expects Naira |
 | `merchantTxRef` | `reference`/idempotency key |
 | `senderName` | Hardcoded `PLATFORM_SENDER_NAME` constant |
 
@@ -182,7 +183,7 @@ const response = await nomba.transferToBankAccount({
 
 A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against double-inserting if a job somehow emits `'failed'` more than once after exhausting attempts.
 
-> ⚠️ **Open item:** `recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry — but the current `transfersWorker` config applies the same 5-attempt exponential backoff to **all** failure causes (Nomba 5xx, network blip, *and* insufficient balance) indistinctly. Needs either `attempts: 1` for recurring-payout transfer jobs specifically, or a custom error type ("insufficient balance, do not retry") that a custom backoff strategy can special-case.
+> ⚠️ **Open item, resolved differently than originally proposed:** `recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry. Rather than adding a distinct "insufficient balance, don't retry" error type, all transfer job types (`payout`, `pot_refund`, `contribution_refund` — see `transfer-queue.service.ts`) were switched to `attempts: 1` across the board (`worker.ts`: `// attempts:1 → straight to failed_jobs, no auto-retry`). This does stop blind-retrying insufficient-balance failures, but it also removes retries for genuinely transient failures (a Nomba 5xx or network blip now goes straight to `failed_jobs` too, same as before requiring a human to hit `FailedJobTracker.retry()`). Revisit if transient-failure volume in `failed_jobs` turns out to be high enough that it's worth distinguishing causes again.
 
 > ⚠️ There's currently no admin UI/route wired to actually call `FailedJobTracker.retry()` / `.ignore()` — only the service methods exist.
 
@@ -196,7 +197,7 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 - `onReady` hook calls `CronSchedulerService.registerAll()` — this is where the midnight schedules actually get registered with Redis on every app boot.
 - `onClose` hook closes both queues gracefully.
 
-> ⚠️ `onClose` only fires if something calls `app.close()` — if the deploy environment sends raw `SIGTERM` without that, Redis connections drop ungracefully. Check `server.ts` has a `SIGTERM`/`SIGINT` handler that calls `app.close()` before exiting.
+> ⚠️ **Still open:** `onClose` only fires if something calls `app.close()`. `server.ts` (the HTTP API process) has no `SIGTERM`/`SIGINT` handling at all today — it just calls `app.listen(...)` and exits ungracefully on a raw signal. The `SIGTERM`/`SIGINT` handling that does exist (`worker.ts`'s `shutdown()`) is in the separate worker process and only closes BullMQ workers/`QueueEvents` — there's no Fastify `app` in that file to close. The API process itself still needs its own signal handler calling `app.close()`.
 
 ---
 
@@ -208,12 +209,17 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 
 ---
 
-## Open items (not yet resolved)
+## Open items
 
-- [ ] Resolve `accountName` for transfer payloads — either a bank-account-name resolution step (Nomba likely has a "resolve account" endpoint) called before enqueueing, or a column captured at payout-config creation time.
-- [ ] Confirm with Nomba docs whether `TransferParams.amount` expects kobo or Naira — if Naira, `amount` needs `/100` before sending, or a 100x overpayment will occur.
-- [ ] Decide fate of `reconciliation-frequent` now that everything runs daily — delete it, or change `hoursBack` to `24`.
-- [ ] Differentiate "insufficient balance, don't retry" from transient Nomba/network failures in the transfers worker's error handling.
-- [ ] Get Nomba's actual `/transfer` rate limit and replace the placeholder `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `_DURATION_MS` values.
+Resolved since this doc was first written:
+
+- [x] `accountName` for transfer payloads — resolved via `nomba.lookupBankAccount()` at send time (`worker.ts`), and `verifyAccountDetails()` at save time for pot-configured destinations (`pots.service.ts`).
+- [x] Kobo vs. Naira for `TransferParams.amount` — confirmed Naira; `amount` is divided by 100 before sending (`worker.ts`).
+
+Still open:
+
+- [ ] Decide fate of `reconciliation-frequent` now that everything runs daily — still registered with `hoursBack: 1`, still redundant with `reconciliation-daily`. Delete it, or change `hoursBack` to `24`.
+- [ ] Get Nomba's actual `/transfer` rate limit and replace the placeholder `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `_DURATION_MS` values — still hardcoded fallbacks in `worker.ts`, not even in `env.ts`'s validated schema yet.
 - [ ] Build admin routes for `FailedJobTracker.retry()` / `.ignore()` — service methods exist, nothing calls them yet.
-- [ ] Confirm `server.ts` has a `SIGTERM`/`SIGINT` handler calling `app.close()` for graceful Redis shutdown.
+- [ ] Give `server.ts` (the API process) a `SIGTERM`/`SIGINT` handler calling `app.close()` — it currently has none; the worker process's signal handling is separate and doesn't cover the Fastify app.
+- [ ] Revisit blanket `attempts: 1` on all transfer job types — this was the fix applied for "insufficient balance shouldn't blind-retry," but it also removes retries for transient Nomba/network failures, which now go straight to `failed_jobs` same as a real failure. Worth a distinct error type if transient-failure volume becomes noticeable.

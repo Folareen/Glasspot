@@ -61,7 +61,7 @@ type MockStoreValue = {
 
   contribute: (potId: string, amount: string, anonymous: boolean) => ContributionResponse;
 
-  triggerPayout: (potId: string, destination?: { account: string; bank: string }) => void;
+  triggerPayout: (potId: string, destination?: { account: string; bank: string }, amount?: string) => void;
   triggerRefund: (potId: string) => void;
 
   addMember: (potId: string, email: string, role: PotMemberRole) => { status: "active" | "pending" };
@@ -228,10 +228,13 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
     [currentUser, pots]
   );
 
-  const triggerPayout = useCallback((potId: string, destination?: { account: string; bank: string }) => {
+  const triggerPayout = useCallback((potId: string, destination?: { account: string; bank: string }, amount?: string) => {
     const now = new Date().toISOString();
+    const pot = pots.find((p) => p.id === potId);
+    const payoutAmount = amount ?? pot?.balance ?? "0";
+    const remainingBalance = (BigInt(pot?.balance ?? "0") - BigInt(payoutAmount)).toString();
     setPots((prev) =>
-      prev.map((pot) => (pot.id === potId ? { ...pot, pendingOperation: "payout" } : pot))
+      prev.map((p) => (p.id === potId ? { ...p, pendingOperation: "payout" } : p))
     );
     setTransactions((prev) => [
       {
@@ -240,17 +243,17 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
         status: "processing",
         reference: randomReference(),
         externalReference: null,
-        amount: pots.find((p) => p.id === potId)?.balance ?? "0",
+        amount: payoutAmount,
         createdAt: now,
         potId,
-        potTitle: pots.find((p) => p.id === potId)?.title ?? "",
+        potTitle: pot?.title ?? "",
         destinationAccount: destination?.account,
         destinationBank: destination?.bank,
       },
       ...prev,
     ]);
     setPots((prev) =>
-      prev.map((pot) => (pot.id === potId ? { ...pot, balance: "0", pendingOperation: null } : pot))
+      prev.map((p) => (p.id === potId ? { ...p, balance: remainingBalance, pendingOperation: null } : p))
     );
   }, [pots]);
 
