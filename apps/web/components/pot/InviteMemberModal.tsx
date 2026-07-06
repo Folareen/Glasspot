@@ -16,18 +16,26 @@ type InviteMemberModalProps = {
   potId: string;
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export function InviteMemberModal({ open, onClose, potId }: InviteMemberModalProps) {
   const { addMember } = useMockStore();
   const { showToast } = useToast();
-  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
   const [role, setRole] = useState<PotMemberRole>("member");
 
   function handleSubmit() {
-    const name = fullName.trim();
-    if (!name) return;
-    addMember(potId, name, role);
-    showToast(`${name} added to the pot`, "success");
-    setFullName("");
+    const trimmedEmail = email.trim();
+    if (!EMAIL_PATTERN.test(trimmedEmail)) return;
+
+    const { status } = addMember(potId, trimmedEmail, role);
+    showToast(
+      status === "active"
+        ? `${trimmedEmail} added to the pot`
+        : `Invite sent to ${trimmedEmail} — they'll join once they sign up`,
+      "success"
+    );
+    setEmail("");
     setRole("member");
     onClose();
   }
@@ -35,12 +43,13 @@ export function InviteMemberModal({ open, onClose, potId }: InviteMemberModalPro
   return (
     <Modal open={open} onClose={onClose} title="Add a member">
       <div className="flex flex-col gap-4">
-        <Field label="Full name" htmlFor="invite-name" required>
+        <Field label="Email address" htmlFor="invite-email" required>
           <Input
-            id="invite-name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            placeholder="Amaka Obi"
+            id="invite-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="amaka@example.com"
           />
         </Field>
         <Field label="Role" htmlFor="invite-role">
@@ -49,7 +58,7 @@ export function InviteMemberModal({ open, onClose, potId }: InviteMemberModalPro
             <option value="admin">Admin</option>
           </Select>
         </Field>
-        <Button className="w-full" onClick={handleSubmit} disabled={!fullName.trim()}>
+        <Button className="w-full" onClick={handleSubmit} disabled={!EMAIL_PATTERN.test(email.trim())}>
           Add member
         </Button>
       </div>

@@ -1,6 +1,7 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { PotsService } from "./pots.service";
 import { PotMembersService } from "./pot-members.service";
+import { PotInvitesService } from "./pot-invites.service";
 import { ContributionsService } from "./contributions.service";
 import { assertIsAdmin, getViewablePotOrThrow } from "./pot-authorization";
 import { PotError } from "./pots.errors";
@@ -10,6 +11,7 @@ import {
   AddMemberInput,
   ContributeInput,
   CreatePotInput,
+  InviteIdParams,
   MemberParams,
   PotIdParams,
   RequestPayoutOtpInput,
@@ -317,7 +319,13 @@ export async function listMembersHandler(
   }
 }
 
-/** Adds a new member to a pot (admin-only invite) and responds 201 with the created membership row. */
+/**
+ * Adds a member to a pot by email (admin-only invite). Responds 201 with
+ * either the created pot_members row (email belongs to an already-
+ * verified user — joined immediately) or the created pot_invites row
+ * (status 'pending' — no matching verified user yet; resolved later by
+ * AuthService.verifyEmail). See pots.schema.ts's addMemberSchema comment.
+ */
 export async function addMemberHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: AddMemberInput }>,
   reply: FastifyReply
@@ -325,8 +333,39 @@ export async function addMemberHandler(
   try {
     const userId = requireUserId(request);
     await assertIsAdmin(request.params.id, userId);
-    const member = await PotMembersService.add(request.params.id, userId, request.body);
-    return reply.code(201).send(member);
+    const result = await PotInvitesService.create(request.params.id, userId, request.body);
+    const body = result.kind === "member" ? result.member : result.invite;
+    return reply.code(201).send(body);
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/** Lists every invite (any status) for a pot (admin-only). */
+export async function listInvitesHandler(
+  request: FastifyRequest<{ Params: PotIdParams }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    await assertIsAdmin(request.params.id, userId);
+    const invites = await PotInvitesService.list(request.params.id);
+    return reply.code(200).send(invites);
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/** Cancels a still-pending invite (admin-only) and responds 200. */
+export async function cancelInviteHandler(
+  request: FastifyRequest<{ Params: InviteIdParams }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    await assertIsAdmin(request.params.id, userId);
+    await PotInvitesService.cancel(request.params.id, request.params.inviteId);
+    return reply.code(200).send({ message: "Invite cancelled" });
   } catch (e) {
     return handlePotError(e, reply);
   }

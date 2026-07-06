@@ -199,10 +199,17 @@ const potIdParamsSchema = z.object({
 // Schema for Fastify/AJV wire validation — nothing in this codebase
 // re-parses request.body through Zod itself — so a Zod-side .default()
 // is never actually applied at runtime and would silently mislead the
-// inferred type. pot-members.service.ts must treat a missing role as
+// inferred type. PotInvitesService.create must treat a missing role as
 // 'member' itself.
+//
+// Members are now added by email, not userId — the admin doing the
+// inviting has no way to know a stranger's userId. If the email already
+// belongs to a verified user, PotInvitesService.create adds them to
+// pot_members immediately; otherwise it creates a pending pot_invites row
+// that AuthService.verifyEmail resolves into real membership once that
+// person signs up and verifies. See pot-invites.ts schema comment.
 const addMemberSchema = z.object({
-  userId: z.string().uuid(),
+  email: z.string().email(),
   role: z.enum(potMemberRoleValues).optional(),
 });
 
@@ -215,6 +222,11 @@ const memberParamsSchema = z.object({
   userId: z.string().uuid(),
 });
 
+const inviteIdParamsSchema = z.object({
+  id: z.string().uuid(),
+  inviteId: z.string().uuid(),
+});
+
 const memberResponseSchema = z.object({
   id: z.string().uuid(),
   potId: z.string().uuid(),
@@ -225,6 +237,42 @@ const memberResponseSchema = z.object({
 });
 
 const memberListResponseSchema = z.array(memberResponseSchema);
+
+// Returned by POST /pots/:id/members whenever the invited email doesn't
+// belong to an already-verified user yet — see addMemberSchema's comment
+// and PotInvitesService.create. status is always 'pending' here (this
+// response shape is only ever returned right after creation); 'accepted'/
+// 'cancelled' only show up in listInvitesResponseSchema below.
+const inviteResponseSchema = z.object({
+  id: z.string().uuid(),
+  potId: z.string().uuid(),
+  email: z.string(),
+  role: z.enum(potMemberRoleValues),
+  status: z.literal("pending"),
+  invitedByUserId: z.string().uuid(),
+  createdAt: z.string(),
+});
+
+// AJV picks the first matching branch for a oneOf-style anyOf, and
+// memberResponseSchema/inviteResponseSchema don't share required fields
+// with ambiguous types (userId vs email, no status on member vs a fixed
+// literal status on invite), so — unlike updatePotSchema's documented
+// AJV/allOf pitfall above — a plain union here is unambiguous and safe.
+const addMemberResponseSchema = z.union([memberResponseSchema, inviteResponseSchema]);
+
+const inviteListResponseSchema = z.array(
+  z.object({
+    id: z.string().uuid(),
+    potId: z.string().uuid(),
+    email: z.string(),
+    role: z.enum(potMemberRoleValues),
+    status: z.enum(["pending", "accepted", "cancelled"]),
+    invitedByUserId: z.string().uuid(),
+    acceptedUserId: z.string().uuid().nullable(),
+    createdAt: z.string(),
+    acceptedAt: z.string().nullable(),
+  })
+);
 
 const messageResponseSchema = z.object({
   message: z.string(),
@@ -326,6 +374,7 @@ export type PotIdParams = z.infer<typeof potIdParamsSchema>;
 export type AddMemberInput = z.infer<typeof addMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
+export type InviteIdParams = z.infer<typeof inviteIdParamsSchema>;
 export type ContributeInput = z.infer<typeof contributeSchema>;
 export type TriggerPayoutInput = z.infer<typeof triggerPayoutSchema>;
 export type RequestPayoutOtpInput = z.infer<typeof requestPayoutOtpSchema>;
@@ -339,6 +388,9 @@ export type PotResponse = z.infer<typeof potResponseSchema>;
 export type PotListResponse = z.infer<typeof potListResponseSchema>;
 export type MemberResponse = z.infer<typeof memberResponseSchema>;
 export type MemberListResponse = z.infer<typeof memberListResponseSchema>;
+export type InviteResponse = z.infer<typeof inviteResponseSchema>;
+export type AddMemberResponse = z.infer<typeof addMemberResponseSchema>;
+export type InviteListResponse = z.infer<typeof inviteListResponseSchema>;
 export type TransactionResponse = z.infer<typeof transactionResponseSchema>;
 export type RefundResponse = z.infer<typeof refundResponseSchema>;
 export type ContributionResponse = z.infer<typeof contributionResponseSchema>;
@@ -355,6 +407,10 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     memberParamsSchema,
     memberResponseSchema,
     memberListResponseSchema,
+    inviteResponseSchema,
+    addMemberResponseSchema,
+    inviteListResponseSchema,
+    inviteIdParamsSchema,
     messageResponseSchema,
     contributeSchema,
     triggerPayoutSchema,

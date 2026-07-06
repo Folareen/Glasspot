@@ -7,6 +7,7 @@ import {
   initialMembers,
   initialPots,
   initialTransactions,
+  registeredUsersByEmail,
 } from "./fixtures";
 import type {
   ContributionResponse,
@@ -63,7 +64,7 @@ type MockStoreValue = {
   triggerPayout: (potId: string, destination?: { account: string; bank: string }) => void;
   triggerRefund: (potId: string) => void;
 
-  addMember: (potId: string, fullName: string, role: PotMemberRole) => void;
+  addMember: (potId: string, email: string, role: PotMemberRole) => { status: "active" | "pending" };
   updateMemberRole: (potId: string, memberId: string, role: PotMemberRole) => void;
   removeMember: (potId: string, memberId: string) => void;
 
@@ -129,7 +130,9 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
           id: randomId("mem"),
           potId: newPot.id,
           userId: currentUser?.id ?? demoUser.id,
+          email: currentUser?.email ?? demoUser.email,
           role: "admin",
+          status: "active",
           invitedByUserId: null,
           joinedAt: now,
           fullName: currentUser?.fullName ?? demoUser.fullName,
@@ -294,21 +297,47 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
     );
   }, [pots, contributions]);
 
-  const addMember = useCallback((potId: string, fullName: string, role: PotMemberRole) => {
-    const username = fullName.toLowerCase().replace(/\s+/g, "");
+  // Mirrors PotInvitesService.create on the backend: if the invited email
+  // already belongs to a known (registered) user, they join immediately as
+  // an active member; otherwise a pending row is added with no userId/
+  // fullName/username yet, resolved later — in the real backend, once that
+  // person signs up and verifies this email (see auth.service.ts's
+  // verifyEmail); here, there is no signup flow to hook into, so a pending
+  // row simply stays pending in this demo.
+  const addMember = useCallback((potId: string, email: string, role: PotMemberRole) => {
+    const normalized = email.trim().toLowerCase();
+    const existingUser = registeredUsersByEmail[normalized];
+
     setMembers((prev) => [
       ...prev,
-      {
-        id: randomId("mem"),
-        potId,
-        userId: randomId("user"),
-        role,
-        invitedByUserId: currentUser?.id ?? demoUser.id,
-        joinedAt: new Date().toISOString(),
-        fullName,
-        username,
-      },
+      existingUser
+        ? {
+            id: randomId("mem"),
+            potId,
+            userId: existingUser.id,
+            email: normalized,
+            role,
+            status: "active" as const,
+            invitedByUserId: currentUser?.id ?? demoUser.id,
+            joinedAt: new Date().toISOString(),
+            fullName: existingUser.fullName,
+            username: existingUser.username,
+          }
+        : {
+            id: randomId("mem"),
+            potId,
+            userId: "",
+            email: normalized,
+            role,
+            status: "pending" as const,
+            invitedByUserId: currentUser?.id ?? demoUser.id,
+            joinedAt: new Date().toISOString(),
+            fullName: "",
+            username: "",
+          },
     ]);
+
+    return { status: existingUser ? ("active" as const) : ("pending" as const) };
   }, [currentUser]);
 
   const updateMemberRole = useCallback((potId: string, memberId: string, role: PotMemberRole) => {

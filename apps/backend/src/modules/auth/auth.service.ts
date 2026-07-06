@@ -7,6 +7,7 @@ import { sendMail } from "@/lib/mailer";
 import { nomba } from "@/integrations/nomba";
 import { AuthError, RateLimitError } from "./auth.errors";
 import { RegisterInput, UpdateRefundProfileInput } from "./auth.schema";
+import { PotInvitesService } from "@/modules/pots/pot-invites.service";
 
 type OtpPurposeValue = "signup_verification" | "login" | "password_reset";
 
@@ -204,7 +205,15 @@ export const AuthService = {
     await createOtp(user.id, user.email, purpose);
   },
 
-  /** Confirms the signup-verification code, marks the email verified, and immediately issues a token pair — verification doubles as login. */
+  /**
+   * Confirms the signup-verification code, marks the email verified, and
+   * immediately issues a token pair — verification doubles as login. Also
+   * activates any pending pot invites addressed to this email (see
+   * PotInvitesService.activateForEmail) — this is the point where the
+   * email is first confirmed to belong to this person, so it's the
+   * correct place to convert a placeholder invite into real pot_members
+   * rows, rather than doing it at registration before verification.
+   */
   async verifyEmail(email: string, code: string, sign: SignFn) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -217,6 +226,7 @@ export const AuthService = {
     await verifyOtp(user.id, "signup_verification", code);
 
     await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, user.id));
+    await PotInvitesService.activateForEmail(user.id, user.email);
 
     const tokens = await issueTokenPair(user.id, sign);
     return { ...tokens, user: toPublicUser(user) };

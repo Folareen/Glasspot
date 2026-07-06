@@ -208,7 +208,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
               {activeTabId === "members" && (
                 <div>
                   <div className="mb-3 flex items-center justify-between">
-                    <AvatarStack names={members.slice(0, 5).map((m) => m.fullName)} extraCount={Math.max(0, members.length - 5)} />
+                    <AvatarStack names={members.slice(0, 5).map((m) => m.fullName || m.email)} extraCount={Math.max(0, members.length - 5)} />
                     {isAdmin && (
                       <Button size="sm" variant="secondary" onClick={() => setInviteOpen(true)}>
                         <UserPlus className="h-4 w-4" strokeWidth={1.5} />
@@ -230,7 +230,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                                 type="button"
                                 onClick={() => {
                                   removeMember(pot.id, member.id);
-                                  showToast(`${member.fullName} removed`, "default");
+                                  showToast(`${member.fullName || member.email} removed`, "default");
                                 }}
                                 className="text-xs font-medium text-text-secondary transition-colors duration-150 hover:text-error"
                               >
