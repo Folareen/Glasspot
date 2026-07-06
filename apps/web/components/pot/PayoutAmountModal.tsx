@@ -7,12 +7,13 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
+import { toNairaAmount } from "@/lib/money";
 
 type PayoutAmountModalProps = {
   open: boolean;
   onClose: () => void;
   onConfirm: (amount?: string) => void;
-  /** Pot's current balance, kobo string — shown as the amount field's cap. */
+  /** Pot's current balance, wire-format naira string — shown as the amount field's cap. */
   balance: string;
 };
 
@@ -20,7 +21,7 @@ export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutA
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const balanceNaira = Number(balance) / 100;
+  const balanceNaira = Number(balance);
 
   function handleClose() {
     setAmount("");
@@ -31,7 +32,7 @@ export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutA
     const naira = Number(amount);
     if (amount && (!naira || naira <= 0 || naira > balanceNaira)) return;
     setIsSubmitting(true);
-    onConfirm(amount ? String(Math.round(naira * 100)) : undefined);
+    onConfirm(amount ? (toNairaAmount(amount) ?? undefined) : undefined);
     setIsSubmitting(false);
     handleClose();
   }

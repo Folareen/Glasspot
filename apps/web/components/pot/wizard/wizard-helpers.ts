@@ -1,12 +1,14 @@
 import type { PayoutConfig } from "@/lib/mock/types";
+import { toNairaAmount } from "@/lib/money";
 import type { WizardState } from "./wizard-types";
-
-export function toKobo(naira: string) {
-  return String(Math.round(Number(naira) * 100));
-}
 
 export function toIsoDate(date: string) {
   return date ? new Date(date).toISOString() : new Date().toISOString();
+}
+
+/** Reshapes a wizard amount field (whatever the user typed, e.g. "5000" or "5000.5") into the wire-format "NN.NN" naira string, falling back to "0.00" for an empty/invalid field — callers only call this where the field is already known non-empty (isConfigStepValid), so the fallback is defensive, never expected to fire. */
+function wireAmount(raw: string): string {
+  return toNairaAmount(raw) ?? "0.00";
 }
 
 export function buildPayoutConfig(state: WizardState): PayoutConfig {
@@ -22,7 +24,7 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
       return {
         destinationAccount: state.recurringDestinationAccount,
         destinationBank: state.recurringDestinationBank,
-        amount: toKobo(state.recurringAmountNaira),
+        amount: wireAmount(state.recurringAmountNaira),
         intervalDays: Number(state.recurringIntervalDays) || 30,
         nextRunAt: toIsoDate(state.recurringNextRunAt),
       };
@@ -31,7 +33,7 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
         ordered: state.scheduledOrdered,
         legs: state.scheduledLegs.map((leg) => ({
           ...leg,
-          amount: toKobo(leg.amount),
+          amount: wireAmount(leg.amount),
           scheduledDate: toIsoDate(leg.scheduledDate),
         })),
       };
@@ -41,7 +43,7 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
         destinationAccount: state.targetDestinationAccount,
         destinationBank: state.targetDestinationBank,
         targetDate: state.targetDate ? toIsoDate(state.targetDate) : undefined,
-        targetAmount: state.targetAmountNaira ? toKobo(state.targetAmountNaira) : undefined,
+        targetAmount: state.targetAmountNaira ? wireAmount(state.targetAmountNaira) : undefined,
       };
   }
 }

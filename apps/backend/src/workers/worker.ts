@@ -14,6 +14,7 @@ import { nomba } from '@/integrations/nomba/index';
 import { NombaApiError } from '@/integrations/nomba/nomba.error';
 import { clearPendingOperation, decrementPendingOperationLeg } from '@/modules/pots/pots.service';
 import type { DisbursementJobData } from '@/modules/scheduler/disbursement-job.types';
+import { koboToNairaString } from '@/lib/money';
 
 import { recurringPayoutConfigs, scheduledPayoutLegs } from '@/db';
 import type { DisbursementOnSuccess } from '@/modules/scheduler/disbursement-job.types';
@@ -63,7 +64,7 @@ async function callNomba(data: DisbursementJobData) {
   const amount = BigInt(data.amount);
 
   const transfer = await nomba.transferToBankAccount({
-    amount: Number(amount) / 100, // Nomba expects Naira, not kobo — confirmed
+    amountNaira: Number(koboToNairaString(amount)), // Nomba expects Naira, not kobo — confirmed
     accountNumber: data.destinationAccount,
     accountName: resolved.accountName,
     bankCode: data.destinationBank,

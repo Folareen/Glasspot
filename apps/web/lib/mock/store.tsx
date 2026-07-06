@@ -21,6 +21,7 @@ import type {
   RefundType,
   TransactionResponse,
 } from "./types";
+import { addNaira, subtractNaira } from "@/lib/money";
 
 function randomId(prefix: string) {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
@@ -113,14 +114,14 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
         payoutConfig: input.payoutConfig,
         refundType: input.refundType,
         shareSlug: input.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-        minContribution: input.minContribution ?? "100000",
+        minContribution: input.minContribution ?? "1000.00",
         maxContribution: input.maxContribution ?? null,
         goalAmount: input.goalAmount ?? null,
         activatedAt: null,
         closedAt: null,
         createdAt: now,
         updatedAt: now,
-        balance: "0",
+        balance: "0.00",
         pendingOperation: null,
       };
       setPots((prev) => [newPot, ...prev]);
@@ -219,7 +220,7 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
       setPots((prev) =>
         prev.map((pot) =>
           pot.id === potId
-            ? { ...pot, balance: String(BigInt(pot.balance) + BigInt(amount)) }
+            ? { ...pot, balance: addNaira(pot.balance, amount) }
             : pot
         )
       );
@@ -231,8 +232,8 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
   const triggerPayout = useCallback((potId: string, destination?: { account: string; bank: string }, amount?: string) => {
     const now = new Date().toISOString();
     const pot = pots.find((p) => p.id === potId);
-    const payoutAmount = amount ?? pot?.balance ?? "0";
-    const remainingBalance = (BigInt(pot?.balance ?? "0") - BigInt(payoutAmount)).toString();
+    const payoutAmount = amount ?? pot?.balance ?? "0.00";
+    const remainingBalance = subtractNaira(pot?.balance ?? "0.00", payoutAmount);
     setPots((prev) =>
       prev.map((p) => (p.id === potId ? { ...p, pendingOperation: "payout" } : p))
     );
@@ -287,7 +288,7 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
           status: "processing",
           reference: randomReference(),
           externalReference: null,
-          amount: pot?.balance ?? "0",
+          amount: pot?.balance ?? "0.00",
           createdAt: now,
           potId,
           potTitle: pot?.title ?? "",
@@ -296,7 +297,7 @@ export function MockStoreProvider({ children }: { children: React.ReactNode }) {
       ]);
     }
     setPots((prev) =>
-      prev.map((p) => (p.id === potId ? { ...p, balance: "0", pendingOperation: null } : p))
+      prev.map((p) => (p.id === potId ? { ...p, balance: "0.00", pendingOperation: null } : p))
     );
   }, [pots, contributions]);
 

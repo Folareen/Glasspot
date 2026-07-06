@@ -20,7 +20,8 @@ export interface BankAccountLookupResult {
 }
 
 export interface TransferParams {
-  amount: number;
+  /** Naira, NOT kobo — e.g. 3500 for ₦3,500. Nomba's transfer endpoint takes a decimal naira amount; convert from an internal kobo bigint via koboToNairaString (apps/backend/src/lib/money.ts) before calling. */
+  amountNaira: number;
   accountNumber: string;
   /** confirm this with lookupBankAccount() before calling */
   accountName: string;
@@ -54,6 +55,7 @@ export type TransferStatus =
 export interface TransferResult {
   id: string;
   status: "SUCCESS" | "PENDING_BILLING";
+  /** Naira, as returned by Nomba — not kobo. */
   amount: string;
   fee: number;
   timeCreated: string;
@@ -67,7 +69,8 @@ export interface CreateVirtualAccountParams {
   accountName: string;
   bvn?: string;
   expiryDate?: string;
-  expectedAmount?: number;
+  /** Naira, NOT kobo — e.g. 3500 for ₦3,500. Convert from an internal kobo bigint via koboToNairaString (apps/backend/src/lib/money.ts) before calling. */
+  expectedAmountNaira?: number;
 }
 
 export interface VirtualAccount {
@@ -85,6 +88,7 @@ export interface VirtualAccount {
 export interface Transaction {
   id: string;
   status: string;
+  /** Naira, as returned by Nomba — not kobo. */
   amount: number;
   merchantTxRef?: string;
   [key: string]: unknown;
@@ -156,6 +160,7 @@ export interface WebhookTransactionData {
   merchant: { walletId: string; walletBalance: number; userId: string };
   transaction: {
     transactionId: string;
+    /** Naira, as sent by Nomba — not kobo. Convert to an internal kobo bigint via nairaStringToKobo(transactionAmount.toFixed(2)) (apps/backend/src/lib/money.ts), never Math.round(transactionAmount * 100) directly on the float. */
     transactionAmount: number;
     fee: number;
     type: string;

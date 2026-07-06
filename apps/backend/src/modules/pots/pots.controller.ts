@@ -21,25 +21,27 @@ import {
   UpdatePotInput,
 } from "./pots.schema";
 import { TransferQueueService } from "@/modules/scheduler/transfer-queue.service";
+import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import type { Pot } from "@/db";
 
-// potResponseSchema declares minContribution/maxContribution/
-// goalAmount as strings (JSON has no bigint), but Drizzle returns them
-// as real bigints — every handler that sends a pot row back to the client
-// must run it through here first, or AJV rejects the response with a 500
-// ("does not match schema definition") the moment any of them is a
-// non-null bigint. Also attaches the pot's current ledger balance (see
-// PotsService.getBalance) so callers can show amount contributed against
-// minContribution/maxContribution/goalAmount without a
-// separate request.
+// potResponseSchema declares minContribution/maxContribution/goalAmount/
+// balance as naira "NN.NN" strings (see pots.schema.ts's nairaAmount
+// comment), but Drizzle returns them as real kobo bigints — every handler
+// that sends a pot row back to the client must run it through here first,
+// both to convert kobo -> naira (koboToNairaString) and because AJV
+// rejects the response with a 500 ("does not match schema definition") the
+// moment any of them is a non-null bigint instead of a string. Also
+// attaches the pot's current ledger balance (see PotsService.getBalance)
+// so callers can show amount contributed against
+// minContribution/maxContribution/goalAmount without a separate request.
 async function serializePot(pot: Pot) {
   const balance = await PotsService.getBalance(pot.id);
   return {
     ...pot,
-    minContribution: pot.minContribution.toString(),
-    maxContribution: pot.maxContribution?.toString() ?? null,
-    goalAmount: pot.goalAmount?.toString() ?? null,
-    balance: balance.toString(),
+    minContribution: koboToNairaString(pot.minContribution),
+    maxContribution: pot.maxContribution !== null ? koboToNairaString(pot.maxContribution) : null,
+    goalAmount: pot.goalAmount !== null ? koboToNairaString(pot.goalAmount) : null,
+    balance: koboToNairaString(balance),
   };
 }
 
@@ -222,7 +224,7 @@ export async function triggerPayoutHandler(
         request.body?.destinationAccount && request.body?.destinationBank
           ? { destinationAccount: request.body.destinationAccount, destinationBank: request.body.destinationBank }
           : undefined;
-      const amount = request.body?.amount !== undefined ? BigInt(request.body.amount) : undefined;
+      const amount = request.body?.amount !== undefined ? nairaStringToKobo(request.body.amount) : undefined;
       await PotsService.triggerPayout(request.params.id, userId, destination, amount);
       return { statusCode: 202, body: undefined };
     });
@@ -294,10 +296,14 @@ export async function contributeHandler(
       const contribution = await ContributionsService.create(request.params.id, userId, request.body);
       return {
               statusCode: 201,
-              body: { ...contribution, expectedAmount: contribution.expectedAmount.toString() },
+              body: { ...contribution, expectedAmount: koboToNairaString(contribution.expectedAmount) },
             };
     });
-    return reply.code(statusCode).send({ ...body, expectedAmount: body.expectedAmount.toString() });
+    // body.expectedAmount is already a naira string here — either just
+    // converted above (fresh call) or read back as-is from the cached JSON
+    // response of an earlier identical call (see withIdempotencyKey) — so
+    // no further conversion happens on this path.
+    return reply.code(statusCode).send(body);
   } catch (e) {
     return handlePotError(e, reply);
   }

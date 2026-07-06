@@ -7,10 +7,20 @@ import db, {
 } from "@/db";
 import { nomba } from "@/integrations/nomba";
 import type { LocalPaymentRecord, ReconciliationLineItem, ReconciliationStatus } from "@/integrations/nomba/nomba.types";
+import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 
-/** Nomba amounts are naira; our ledger is kobo integers (docs/system-rules.md) — this module converts at the boundary only, never storing/comparing a float against a kobo value directly. */
-function koboToNaira(amount: bigint): number {
-  return Number(amount) / 100;
+/**
+ * Converts a Nomba-reported naira amount (a native JS number, prone to
+ * float representation error, e.g. 19.1 * 100 !== 1910) back to an exact
+ * kobo bigint. toFixed(2) is the one safe place to touch a naira float in
+ * this codebase — it's rounding a genuine currency value Nomba itself
+ * returned (never a value we're constructing), to the same 2-decimal
+ * precision Nomba's own API represents money in — then the naira/kobo
+ * split-and-combine in nairaStringToKobo takes over so no further float
+ * arithmetic touches the result.
+ */
+function nombaNairaToKobo(amount: number): bigint {
+  return nairaStringToKobo(amount.toFixed(2));
 }
 
 /** A reconcile() line item's own status vocabulary doesn't map 1:1 onto reconciliation_records' — this is the single place that translates between them. */
@@ -77,7 +87,7 @@ export const ReconciliationService = {
       findLocalByRef: async (merchantTxRef): Promise<LocalPaymentRecord | null> => {
         const [transaction] = await db.select().from(transactions).where(eq(transactions.reference, merchantTxRef));
         if (!transaction) return null;
-        return { amount: koboToNaira(transaction.amount) };
+        return { amount: Number(koboToNairaString(transaction.amount)) };
       },
       listExpectedRefs: async () => expectedInWindow.map((r) => r.reference),
       onLineItem: async (item: ReconciliationLineItem) => {
@@ -86,30 +96,31 @@ export const ReconciliationService = {
           .from(transactions)
           .where(eq(transactions.reference, item.merchantTxRef));
 
-        // Number.isFinite guards against BigInt(Math.round(NaN)) throwing
-        // and aborting the whole reconciliation batch over one bad line
-        // item — a null/undefined amount is expected (e.g. an orphan has
-        // no localAmount), but NaN/Infinity should degrade to "unknown"
-        // for this one record rather than blow up the run.
+        // Number.isFinite guards against nombaNairaToKobo(NaN) throwing (a
+        // malformed naira string fails isValidNairaString) and aborting the
+        // whole reconciliation batch over one bad line item — a
+        // null/undefined amount is expected (e.g. an orphan has no
+        // localAmount), but NaN/Infinity should degrade to "unknown" for
+        // this one record rather than blow up the run.
         await db.insert(reconciliationRecords).values({
           settlementBatchId: batch.id,
           transactionId: transaction?.id,
           externalReference: item.merchantTxRef,
-          internalAmount: Number.isFinite(item.localAmount) ? BigInt(Math.round(item.localAmount! * 100)) : undefined,
-          externalAmount: Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount! * 100)) : undefined,
+          internalAmount: Number.isFinite(item.localAmount) ? nombaNairaToKobo(item.localAmount!) : undefined,
+          externalAmount: Number.isFinite(item.nombaAmount) ? nombaNairaToKobo(item.nombaAmount!) : undefined,
           status: toRecordStatus(item.status),
         });
       },
     });
 
-    // Round each line item's naira amount to kobo individually, then sum as
-    // BigInt — summing report.byCustomer[].receivedTotal (a JS float
-    // accumulated across every transaction in the window before rounding)
+    // Convert each line item's naira amount to kobo individually, then sum
+    // as BigInt — summing report.byCustomer[].receivedTotal (a JS float
+    // accumulated across every transaction in the window before converting)
     // can drift from the true integer-kobo total by a kobo or more and
     // produce false "mismatched" statuses. Number.isFinite guards the same
     // NaN/Infinity edge case as the per-line-item insert above.
     const reportedAmount = report.lineItems.reduce(
-      (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount! * 100)) : 0n),
+      (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? nombaNairaToKobo(item.nombaAmount!) : 0n),
       0n
     );
 

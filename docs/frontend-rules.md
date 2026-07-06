@@ -77,6 +77,27 @@ the visual design system this all implements.
 - Respect safe-area insets (`env(safe-area-inset-*)`) in any full-bleed mobile layout (bottom nav,
   sticky headers/footers).
 
+## Money
+
+- The API speaks naira decimal strings end to end, "NN.NN" (e.g. "100.50"), never kobo integers —
+  see docs/system-rules.md's money rule. There is no kobo anywhere in `apps/web`.
+- All money parsing/formatting goes through `lib/money.ts` (`toNairaAmount`, `formatNaira`) — never
+  hand-roll `Number(x) / 100`, `Math.round(x * 100)`, or a one-off `Intl.NumberFormat` call in a
+  component. If you need a new money operation, add it to `lib/money.ts`, don't inline it.
+- `<Money naira={...}>` (`components/ui/Money.tsx`) is the only way to display an amount — it takes
+  the wire-format naira string directly and formats it, no conversion.
+- A form that collects a raw amount from a user (a plain `<Input type="number">`) must run it
+  through `toNairaAmount()` before it's stored in state destined for the API — this reshapes
+  whatever the user typed ("100", "100.5") into the strict "NN.NN" wire format, without ever
+  touching `Number()`/`Math.round()` on the combined value (split-on-decimal, per-part integer
+  parsing — same approach as the backend's `nairaStringToKobo`).
+- `lib/mock/store.tsx` simulates the backend's own ledger balance tracking (adding a contribution,
+  subtracting a payout) since there's no real API yet (see the General section below) — that
+  arithmetic goes through `lib/money.ts`'s `addNaira`/`subtractNaira`, which route through exact
+  kobo-bigint math internally rather than adding naira strings as floats. Once real API integration
+  replaces the mock store, this simulated arithmetic goes away entirely — the backend is the one
+  source of truth for balances then.
+
 ## General
 
 - This is a DEMO UI build phase: no API integration, no real data fetching. Use realistic mock/

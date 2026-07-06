@@ -126,7 +126,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             </div>
           </div>
 
-          <Money kobo={pot.balance} size="xl" className="mt-4 font-semibold" />
+          <Money naira={pot.balance} size="xl" className="mt-4 font-semibold" />
           <Text size="xs" color="secondary">
             Current balance
           </Text>
@@ -135,7 +135,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             <div className="mt-4">
               <ProgressBar value={progress} />
               <Text size="xs" color="secondary" className="mt-1">
-                {progress}% of <Money kobo={targetAmount ?? "0"} size="xs" color="secondary" /> target
+                {progress}% of <Money naira={targetAmount ?? "0.00"} size="xs" color="secondary" /> target
               </Text>
             </div>
           )}

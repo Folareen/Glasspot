@@ -2,6 +2,11 @@
 // (apps/backend/src/modules/{auth,pots}/*.schema.ts). apps/web has no
 // dependency on apps/backend, so these are hand-copied rather than imported —
 // keep them in sync by hand if the backend schemas change shape.
+//
+// Every money field below (minContribution, maxContribution, goalAmount,
+// balance, amount, expectedAmount, targetAmount, paidAmount) is a naira
+// string with exactly two decimal places ("100.50"), never a kobo integer
+// — see docs/system-rules.md's money rule and lib/money.ts.
 
 export type PayoutMode = "target_based" | "manual" | "recurring" | "scheduled";
 export type PotType = "public" | "private";

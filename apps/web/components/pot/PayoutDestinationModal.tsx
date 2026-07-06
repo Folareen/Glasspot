@@ -9,12 +9,13 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { nigerianBanks } from "@/lib/mock/fixtures";
+import { toNairaAmount } from "@/lib/money";
 
 type PayoutDestinationModalProps = {
   open: boolean;
   onClose: () => void;
   onConfirm: (destination: { account: string; bank: string }, amount?: string) => void;
-  /** Pot's current balance, kobo string — shown as the amount field's placeholder/cap. */
+  /** Pot's current balance, wire-format naira string — shown as the amount field's placeholder/cap. */
   balance: string;
 };
 
@@ -24,7 +25,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const balanceNaira = Number(balance) / 100;
+  const balanceNaira = Number(balance);
 
   function handleClose() {
     setAccount("");
@@ -38,7 +39,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
     const naira = Number(amount);
     if (amount && (!naira || naira <= 0 || naira > balanceNaira)) return;
     setIsSubmitting(true);
-    onConfirm({ account, bank }, amount ? String(Math.round(naira * 100)) : undefined);
+    onConfirm({ account, bank }, amount ? (toNairaAmount(amount) ?? undefined) : undefined);
     setIsSubmitting(false);
     handleClose();
   }

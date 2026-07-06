@@ -12,8 +12,16 @@
  *   - webhook signature verification + a nightly reconciliation helper
  *
  * Requires Node 18+ (global fetch). Token is cached in memory and refreshed
- * at the 55-minute mark 
- * 
+ * at the 55-minute mark
+ *
+ * UNITS: every amount field this client sends to or reads from Nomba is
+ * NAIRA (decimal), never kobo — see each field's own comment in
+ * nomba.types.ts (amountNaira, expectedAmountNaira, transactionAmount,
+ * Transaction.amount). Everywhere else in this codebase money is a kobo
+ * bigint (docs/system-rules.md) — convert via koboToNairaString /
+ * nairaStringToKobo (apps/backend/src/lib/money.ts) right at the call
+ * site, never earlier, and never store the naira value.
+ *
  * * REFUNDS: Nomba does not expose a dedicated "refund" endpoint for virtual
  * account overpayments. The correct mechanism - confirmed via Nomba's docs -
  * is to send the excess back to the sender as a normal outbound transfer
@@ -214,9 +222,28 @@ export class NombaClient {
    *   - a failure code (see TransferStatus) - on failure Nomba auto-refunds
    *     your account and status becomes "REFUND"; you may safely retry with
    *     a brand-new merchantTxRef in that case
+   *
+   * RATE LIMIT (confirmed via the Nomba dashboard's own notice on this
+   * endpoint): capped at 5 transfers to the SAME recipient (accountNumber +
+   * bankCode) per minute - separate from and narrower than any general
+   * per-subaccount/per-second limit. This client does not enforce that
+   * limit itself; callers going through the transfers worker get it for
+   * free via RedisTransferThrottle (src/integrations/nomba/transfer-throttle.ts,
+   * wired in src/workers/worker.ts) - a caller bypassing that worker (e.g.
+   * a script calling this method directly) must throttle per-recipient
+   * itself or risk Nomba rejecting the 6th rapid transfer to the same
+   * account.
    */
   async transferToBankAccount(params: TransferParams): Promise<TransferResult> {
-    return this.post(`/v2/transfers/bank/${encodeURIComponent(this.config.subAccountId)}`, params);
+    // Nomba's wire field is "amount" (see developer.nomba.com) — params.amountNaira
+    // is this client's own explicit name for the same value (see
+    // TransferParams's comment); map it back to Nomba's actual field name here
+    // rather than renaming the whole request body.
+    const { amountNaira, ...rest } = params;
+    return this.post(`/v2/transfers/bank/${encodeURIComponent(this.config.subAccountId)}`, {
+      ...rest,
+      amount: amountNaira,
+    });
   }
 
   
@@ -229,24 +256,24 @@ export class NombaClient {
    * derived from the original transactionId so a retried webhook can't
    * trigger a duplicate refund.
    *
-   * @param payment        `data` from a payment_success webhook (virtual account funding)
-   * @param expectedAmount the amount you were expecting for this payment
+   * @param payment             `data` from a payment_success webhook (virtual account funding)
+   * @param expectedAmountNaira the amount, in naira, you were expecting for this payment
    * @throws if the payment isn't actually an overpayment, or is missing the sender's bank details
    */
   async refundOverpayment(
     payment: WebhookTransactionData,
-    expectedAmount: number,
+    expectedAmountNaira: number,
     opts?: { narration?: string }
   ): Promise<TransferResult> {
-    const excess = payment.transaction.transactionAmount - expectedAmount;
+    const excess = payment.transaction.transactionAmount - expectedAmountNaira;
     if (excess <= 0) {
-      throw new Error("refundOverpayment() called but transactionAmount does not exceed expectedAmount");
+      throw new Error("refundOverpayment() called but transactionAmount does not exceed expectedAmountNaira");
     }
     if (!payment.customer?.accountNumber || !payment.customer.senderName || !payment.customer.bankCode) {
       throw new Error("refundOverpayment() called with a payload missing the sender's bank details");
     }
     return this.transferToBankAccount({
-      amount: excess,
+      amountNaira: excess,
       accountNumber: payment.customer.accountNumber,
       accountName: payment.customer.senderName,
       bankCode: payment.customer.bankCode,
@@ -274,7 +301,16 @@ export class NombaClient {
     if (params.accountName.length < 8 || params.accountName.length > 64) {
       throw new RangeError("accountName must be 8-64 characters");
     }
-    return this.post(`/v1/accounts/virtual/${encodeURIComponent(this.config.subAccountId)}`, params);
+    // Nomba's wire field is "expectedAmount" (see developer.nomba.com) —
+    // params.expectedAmountNaira is this client's own explicit name for the
+    // same value (see CreateVirtualAccountParams's comment); map it back to
+    // Nomba's actual field name here rather than renaming the whole request
+    // body.
+    const { expectedAmountNaira, ...rest } = params;
+    return this.post(`/v1/accounts/virtual/${encodeURIComponent(this.config.subAccountId)}`, {
+      ...rest,
+      expectedAmount: expectedAmountNaira,
+    });
   }
 
   /**
@@ -668,17 +704,19 @@ function safeEqualCaseInsensitive(a: string, b: string): boolean {
 // import { nomba } from "./nomba"; // singleton, see nomba.ts
 //
 // // --- Transact: create a virtual account for an invoice ---
+// // invoice.total is a kobo bigint internally — convert via koboToNairaString
+// // (apps/backend/src/lib/money.ts) right at this call, never earlier.
 // const account = await nomba.createVirtualAccount({
 //   accountRef: `invoice_${invoiceId}`,
 //   accountName: customer.fullName,
-//   expectedAmount: invoice.total,
+//   expectedAmountNaira: Number(koboToNairaString(invoice.total)),
 // });
 //
 // // --- Transact: pay out to a bank account (always lookup first) ---
 // const resolved = await nomba.lookupBankAccount("0554772814", "058");
 // // show resolved.accountName to the user for confirmation, then:
 // await nomba.transferToBankAccount({
-//   amount: 3500,
+//   amountNaira: 3500,
 //   accountNumber: "0554772814",
 //   accountName: resolved.accountName,
 //   bankCode: "058",
@@ -695,10 +733,12 @@ function safeEqualCaseInsensitive(a: string, b: string): boolean {
 //       if (payment.transaction.aliasAccountType !== "VIRTUAL") return;
 //
 //       const invoice = await db.invoices.findOne({ virtualAccountNumber: payment.transaction.aliasAccountNumber });
-//       const verdict = NombaClient.evaluatePayment(payment.transaction.transactionAmount, invoice?.total);
+//       // invoice.total is kobo internally — convert to naira for this comparison/call only.
+//       const expectedAmountNaira = invoice ? Number(koboToNairaString(invoice.total)) : undefined;
+//       const verdict = NombaClient.evaluatePayment(payment.transaction.transactionAmount, expectedAmountNaira);
 //
 //       if (verdict === "overpaid") {
-//         await nomba.refundOverpayment(payment, invoice!.total);
+//         await nomba.refundOverpayment(payment, expectedAmountNaira!);
 //       } else if (verdict === "underpaid") {
 //         await notifyCustomer(invoice, "short payment received");
 //       } else if (verdict === "exact") {

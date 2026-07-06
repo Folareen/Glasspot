@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { formatNaira } from "@/lib/money";
 
 type MoneySize = "xs" | "sm" | "base" | "lg" | "xl";
 type MoneyColor = "primary" | "secondary" | "accent" | "success" | "error";
@@ -19,24 +20,18 @@ const colorStyles: Record<MoneyColor, string> = {
   error: "text-error",
 };
 
-const formatter = new Intl.NumberFormat("en-NG", {
-  style: "currency",
-  currency: "NGN",
-});
-
 type MoneyProps = {
-  kobo: string | number;
+  /** Wire-format naira string, e.g. "100.50" — never kobo. */
+  naira: string;
   className?: string;
   size?: MoneySize;
   color?: MoneyColor;
 };
 
-export function Money({ kobo, className, size = "base", color = "primary" }: MoneyProps) {
-  const naira = Number(kobo) / 100;
-
+export function Money({ naira, className, size = "base", color = "primary" }: MoneyProps) {
   return (
     <span className={cn("tabular-nums", sizeStyles[size], colorStyles[color], className)}>
-      {formatter.format(naira)}
+      {formatNaira(naira)}
     </span>
   );
 }

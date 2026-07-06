@@ -1,11 +1,8 @@
 import type { PayoutConfig, PotResponse } from "@/lib/mock/types";
+import { formatNaira } from "@/lib/money";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" });
-}
-
-function formatNaira(kobo: string) {
-  return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(Number(kobo) / 100);
 }
 
 export function describePayoutRule(pot: PotResponse): string {

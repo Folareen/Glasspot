@@ -4,6 +4,7 @@ import { Money } from "@/components/ui/Money";
 import { Divider } from "@/components/ui/Divider";
 import { nigerianBanks } from "@/lib/mock/fixtures";
 import { payoutModeLabels } from "@/components/pot/PayoutModeIcon";
+import { toNairaAmount } from "@/lib/money";
 import type { WizardState } from "./wizard-types";
 
 type ReviewStepProps = {
@@ -40,12 +41,12 @@ export function ReviewStep({ state }: ReviewStepProps) {
         <Divider />
         <Row
           label="Minimum contribution"
-          value={state.minContribution ? <Money kobo={Number(state.minContribution) * 100} /> : "None set"}
+          value={state.minContribution ? <Money naira={toNairaAmount(state.minContribution) ?? "0.00"} /> : "None set"}
         />
         {state.maxContribution && (
           <>
             <Divider />
-            <Row label="Maximum contribution" value={<Money kobo={Number(state.maxContribution) * 100} />} />
+            <Row label="Maximum contribution" value={<Money naira={toNairaAmount(state.maxContribution) ?? "0.00"} />} />
           </>
         )}
       </Card>
@@ -69,7 +70,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
             {state.targetAmountNaira && (
               <>
                 <Divider />
-                <Row label="Target amount" value={<Money kobo={Number(state.targetAmountNaira) * 100} />} />
+                <Row label="Target amount" value={<Money naira={toNairaAmount(state.targetAmountNaira) ?? "0.00"} />} />
               </>
             )}
           </>
@@ -99,7 +100,13 @@ export function ReviewStep({ state }: ReviewStepProps) {
             <Divider />
             <Row
               label="Amount per payout"
-              value={state.recurringAmountNaira ? <Money kobo={Number(state.recurringAmountNaira) * 100} /> : "Not set"}
+              value={
+                state.recurringAmountNaira ? (
+                  <Money naira={toNairaAmount(state.recurringAmountNaira) ?? "0.00"} />
+                ) : (
+                  "Not set"
+                )
+              }
             />
             <Divider />
             <Row label="Repeats every" value={`${state.recurringIntervalDays} days`} />
@@ -121,7 +128,9 @@ export function ReviewStep({ state }: ReviewStepProps) {
                     <div className="flex flex-col items-end gap-0.5">
                       <span>{leg.destinationAccount || "Not set"} · {bankName(leg.destinationBank)}</span>
                       <span className="text-text-secondary">
-                        {leg.amount ? <Money kobo={Number(leg.amount) * 100} size="xs" color="secondary" /> : null}
+                        {leg.amount ? (
+                          <Money naira={toNairaAmount(leg.amount) ?? "0.00"} size="xs" color="secondary" />
+                        ) : null}
                         {leg.scheduledDate ? ` on ${leg.scheduledDate}` : ""}
                       </span>
                     </div>

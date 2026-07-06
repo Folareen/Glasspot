@@ -6,12 +6,25 @@ const potTypeValues = ["public", "private"] as const;
 const refundTypeValues = ["admin", "contributors"] as const;
 const potMemberRoleValues = ["admin", "member"] as const;
 
-// .min(1) rather than .positive(): zod-to-json-schema emits .positive()
-// as exclusiveMinimum: true (draft-04 boolean form) when no explicit
-// jsonSchema7 target is set, which AJV (Fastify's validator) rejects as
-// an invalid schema at boot. .min(1) emits `minimum: 1`, which is valid
-// in both forms and is equivalent for a positive integer amount anyway.
-const koboAmount = z.number().int().min(1);
+// Wire format for every money field, both request and response: a naira
+// string with exactly two decimal places ("100.50", "0.00") — never a
+// kobo integer, never a bare float. .regex() rather than .refine(): per
+// koboAmount's old comment (and z.coerce.date()'s, in pots.service.ts) —
+// nothing in this request pipeline calls Zod's real .parse()/refine()
+// logic, Fastify validates request.body against the compiled JSON Schema
+// via AJV only. zod-to-json-schema compiles .regex() to a real JSON
+// Schema `pattern` keyword AJV enforces, but drops .refine() entirely (it
+// has no JSON Schema equivalent) — a .refine() here would silently accept
+// any string at runtime despite type-checking correctly. Matches
+// apps/backend/src/lib/money.ts's isValidNairaString, kept in sync by
+// hand since one is a regex literal for a JSON Schema field and the other
+// a reusable predicate function. Conversion to/from the kobo bigint used
+// everywhere else in the backend happens via nairaStringToKobo/
+// koboToNairaString (see apps/backend/src/lib/money.ts), always right at
+// this wire boundary and nowhere else (see docs/system-rules.md).
+const nairaAmount = z
+  .string()
+  .regex(/^\d+\.\d{2}$/, 'Amount must be a naira string with exactly two decimal places, e.g. "100.50"');
 
 const destinationSchema = {
   destinationAccount: z.string().min(1),
@@ -33,7 +46,7 @@ export const targetBasedPayoutConfigSchema = z
   .object({
     ...destinationSchema,
     targetDate: z.coerce.date().optional(),
-    targetAmount: koboAmount.optional(),
+    targetAmount: nairaAmount.optional(),
   })
   .refine(
     (c) => c.targetDate !== undefined || c.targetAmount !== undefined,
@@ -62,15 +75,15 @@ export const manualPayoutConfigSchema = z
 
 export const recurringPayoutConfigSchema = z.object({
   ...destinationSchema,
-  amount: koboAmount,
-  intervalDays: z.number().int().min(1), // see koboAmount comment above re: .positive()
+  amount: nairaAmount,
+  intervalDays: z.number().int().min(1),
   nextRunAt: z.coerce.date(),
 });
 
 const scheduledLegSchema = z.object({
   ...destinationSchema,
   sequenceOrder: z.number().int().nonnegative(),
-  amount: koboAmount,
+  amount: nairaAmount,
   scheduledDate: z.coerce.date(),
 });
 
@@ -103,11 +116,11 @@ const potCommonFields = {
   description: z.string().optional(),
   potType: z.enum(potTypeValues),
   refundType: z.enum(refundTypeValues),
-  minContribution: koboAmount.optional(),
-  maxContribution: koboAmount.optional(),
+  minContribution: nairaAmount.optional(),
+  maxContribution: nairaAmount.optional(),
   // Display-only fundraising goal, independent of payoutMode — see
   // pots.ts's goalAmount comment. Never read by any trigger logic.
-  goalAmount: koboAmount.optional(),
+  goalAmount: nairaAmount.optional(),
 };
 
 const createPotSchema = z.discriminatedUnion("payoutMode", [
@@ -177,9 +190,9 @@ const updatePotSchema = z.object({
   description: z.string().optional(),
   potType: z.enum(potTypeValues).optional(),
   refundType: z.enum(refundTypeValues).optional(),
-  minContribution: koboAmount.optional(),
-  maxContribution: koboAmount.optional(),
-  goalAmount: koboAmount.optional(),
+  minContribution: nairaAmount.optional(),
+  maxContribution: nairaAmount.optional(),
+  goalAmount: nairaAmount.optional(),
   payoutMode: z.enum(payoutModeValues).optional(),
   payoutConfig: z
     .union([
@@ -287,7 +300,7 @@ const messageResponseSchema = z.object({
 // Idempotency is enforced via the Idempotency-Key request header (see
 // pots.controller.ts / lib/idempotency.service.ts), not a body field.
 const contributeSchema = z.object({
-  amount: koboAmount,
+  amount: nairaAmount,
   anonymous: z.boolean().optional(),
   refundAccountNumber: z.string().min(1).optional(),
   refundBankCode: z.string().min(1).optional(),
@@ -313,7 +326,7 @@ const contributeSchema = z.object({
 const triggerPayoutSchema = z.object({
   destinationAccount: z.string().min(1).optional(),
   destinationBank: z.string().min(1).optional(),
-  amount: koboAmount.optional(),
+  amount: nairaAmount.optional(),
   otpCode: z.string().length(6),
 });
 
@@ -337,6 +350,9 @@ const transactionResponseSchema = z.object({
   status: z.enum(["pending", "processing", "completed", "failed", "reversed"]),
   reference: z.string(),
   externalReference: z.string().nullable(),
+  // Naira string ("100.50"), converted from the underlying kobo bigint via
+  // koboToNairaString right before the response is sent — see nairaAmount's
+  // comment above.
   amount: z.string(),
   createdAt: z.string(),
 });
@@ -356,6 +372,7 @@ const contributionResponseSchema = z.object({
   contributorUserId: z.string().uuid().nullable(),
   virtualAccountRef: z.string(),
   virtualAccountNumber: z.string().nullable(),
+  // Naira string — see transactionResponseSchema's amount comment.
   expectedAmount: z.string(),
   status: z.enum(["pending", "funded", "underpaid", "failed", "reversed"]),
   anonymous: z.boolean(),
@@ -368,6 +385,12 @@ const contributionResponseSchema = z.object({
   fundedAt: z.string().nullable(),
 });
 
+// Request input types — every money field (minContribution, maxContribution,
+// goalAmount, targetAmount, amount) is a raw naira "NN.NN" string exactly as
+// received over the wire (nairaAmount above) — NOT yet converted to kobo.
+// Callers (pots.controller.ts) must run each one through
+// nairaStringToKobo() before it reaches PotsService/db — see
+// apps/backend/src/lib/money.ts.
 export type CreatePotInput = z.infer<typeof createPotSchema>;
 export type UpdatePotInput = z.infer<typeof updatePotSchema>;
 export type PotIdParams = z.infer<typeof potIdParamsSchema>;
@@ -381,9 +404,12 @@ export type RequestPayoutOtpInput = z.infer<typeof requestPayoutOtpSchema>;
 export type TriggerRefundInput = z.infer<typeof triggerRefundSchema>;
 
 // Response types — the wire contract, safe for apps/web to import
-// directly. Money/date fields are string here (JSON has no bigint/Date);
-// see apps/backend/src/db's $inferSelect types for the corresponding domain
-// shapes used internally by services (bigint/Date).
+// directly. Date fields are string here (JSON has no bigint/Date); money
+// fields are also string, but specifically a naira "NN.NN" string, never
+// the underlying kobo bigint (see nairaAmount's comment and
+// apps/backend/src/lib/money.ts) — see apps/backend/src/db's $inferSelect
+// types for the corresponding domain shapes used internally by services
+// (bigint/Date).
 export type PotResponse = z.infer<typeof potResponseSchema>;
 export type PotListResponse = z.infer<typeof potListResponseSchema>;
 export type MemberResponse = z.infer<typeof memberResponseSchema>;

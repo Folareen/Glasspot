@@ -7,6 +7,7 @@ import { nomba } from "@/integrations/nomba";
 import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { isUniqueViolation } from "@/lib/db-errors";
+import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
@@ -46,12 +47,12 @@ export const ContributionsService = {
       throw new PotError("Pot must be open to accept contributions", 409);
     }
 
-    const amount = BigInt(input.amount);
+    const amount = nairaStringToKobo(input.amount);
     if (amount < pot.minContribution) {
-      throw new PotError(`Contribution must be at least ${pot.minContribution} kobo`, 400);
+      throw new PotError(`Contribution must be at least ₦${koboToNairaString(pot.minContribution)}`, 400);
     }
     if (pot.maxContribution !== null && amount > pot.maxContribution) {
-      throw new PotError(`Contribution must not exceed ${pot.maxContribution} kobo`, 400);
+      throw new PotError(`Contribution must not exceed ₦${koboToNairaString(pot.maxContribution)}`, 400);
     }
 
     // A per-contributor refund account only means anything for a pot that
@@ -108,13 +109,14 @@ export const ContributionsService = {
     const expiresAt = new Date(Date.now() + CONTRIBUTION_EXPIRY_HOURS * 60 * 60 * 1000);
 
     // Nomba's expectedAmount is in naira, our amounts are kobo (see
-    // docs/system-rules.md) — divide down for the API call only, never
-    // for anything stored or posted to the ledger. expiryDate format
-    // confirmed against developer.nomba.com: "YYYY-MM-DD HH:mm:ss".
+    // docs/system-rules.md) — convert via koboToNairaString for the API
+    // call only, never for anything stored or posted to the ledger.
+    // expiryDate format confirmed against developer.nomba.com:
+    // "YYYY-MM-DD HH:mm:ss".
     const virtualAccount = await nomba.createVirtualAccount({
       accountRef: virtualAccountRef,
       accountName,
-      expectedAmount: Number(amount) / 100,
+      expectedAmountNaira: Number(koboToNairaString(amount)),
       expiryDate: formatNombaExpiryDate(expiresAt),
     });
 
@@ -184,7 +186,15 @@ export const ContributionsService = {
       throw new Error("payment_success payload missing customer bank details");
     }
 
-    const amount = BigInt(Math.round(payment.transaction.transactionAmount * 100));
+    // toFixed(2), not Math.round(transactionAmount * 100): Nomba's own API
+    // represents money as a 2-decimal-place naira number, so toFixed(2) is
+    // the exact bridge into nairaStringToKobo's split-and-combine parsing
+    // (see that function's own comment). Math.round(x * 100) can round
+    // UP on a float representation error (e.g. 19.995 * 100 evaluating to
+    // 1999.5000000000002) — this credits the ledger with the amount
+    // received, so it must never be inflated even by one kobo relative to
+    // what Nomba actually reports (docs/system-rules.md: never round money up).
+    const amount = nairaStringToKobo(payment.transaction.transactionAmount.toFixed(2));
 
     try {
       await db.insert(contributionPayments).values({
@@ -249,7 +259,7 @@ export const ContributionsService = {
       // this payment (capped at amount itself, since this payment
       // can't be blamed for more excess than its own size).
       const thisPaymentNeeded = amount - excess > 0n ? amount - excess : 0n;
-      await nomba.refundOverpayment(payment, Number(thisPaymentNeeded) / 100);
+      await nomba.refundOverpayment(payment, Number(koboToNairaString(thisPaymentNeeded)));
     }
   },
 
