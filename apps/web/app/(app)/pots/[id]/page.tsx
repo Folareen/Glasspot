@@ -63,12 +63,12 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const contributions = getContributionsForPot(id);
 
   const isAdmin = members.some((m) => m.userId === currentUser?.id && m.role === "admin");
-  const targetAmountKobo =
-    pot.payoutMode === "target_based" && "targetAmountKobo" in pot.payoutConfig
-      ? pot.payoutConfig.targetAmountKobo
+  const targetAmount =
+    pot.payoutMode === "target_based" && "targetAmount" in pot.payoutConfig
+      ? pot.payoutConfig.targetAmount
       : undefined;
-  const progress = targetAmountKobo
-    ? Math.round((Number(pot.balanceKobo) / Number(targetAmountKobo)) * 100)
+  const progress = targetAmount
+    ? Math.round((Number(pot.balance) / Number(targetAmount)) * 100)
     : null;
 
   // Only manual mode can be triggered on demand — target_based fires
@@ -83,13 +83,13 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
     isAdmin &&
     pot.status === "open" &&
     !pot.pendingOperation &&
-    Number(pot.balanceKobo) > 0 &&
+    Number(pot.balance) > 0 &&
     pot.payoutMode === "manual";
 
   const canTriggerRefund =
-    isAdmin && pot.status === "open" && !pot.pendingOperation && Number(pot.balanceKobo) > 0;
+    isAdmin && pot.status === "open" && !pot.pendingOperation && Number(pot.balance) > 0;
 
-  const canClose = isAdmin && pot.status === "open" && Number(pot.balanceKobo) === 0;
+  const canClose = isAdmin && pot.status === "open" && Number(pot.balance) === 0;
 
   return (
     <div>
@@ -125,7 +125,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             </div>
           </div>
 
-          <Money kobo={pot.balanceKobo} size="xl" className="mt-4 font-semibold" />
+          <Money kobo={pot.balance} size="xl" className="mt-4 font-semibold" />
           <Text size="xs" color="secondary">
             Current balance
           </Text>
@@ -134,7 +134,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             <div className="mt-4">
               <ProgressBar value={progress} />
               <Text size="xs" color="secondary" className="mt-1">
-                {progress}% of <Money kobo={targetAmountKobo ?? "0"} size="xs" color="secondary" /> target
+                {progress}% of <Money kobo={targetAmount ?? "0"} size="xs" color="secondary" /> target
               </Text>
             </div>
           )}
@@ -260,7 +260,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           showToast("Pot is now open for contributions", "success");
         }}
         title="Open this pot?"
-        description="Once open, the payout rule is locked in and can no longer be changed."
+        description="Once open, the the payout and refund rules are locked in and can no longer be changed."
         confirmLabel="Open pot"
       />
 

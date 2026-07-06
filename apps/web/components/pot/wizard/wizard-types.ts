@@ -5,8 +5,8 @@ export type WizardState = {
   description: string;
   potType: PotType;
   refundType: RefundType;
-  minContributionKobo: string;
-  maxContributionKobo: string;
+  minContribution: string;
+  maxContribution: string;
   payoutMode: PayoutMode | null;
 
   targetDestinationAccount: string;
@@ -32,8 +32,8 @@ export const initialWizardState: WizardState = {
   description: "",
   potType: "private",
   refundType: "contributors",
-  minContributionKobo: "",
-  maxContributionKobo: "",
+  minContribution: "",
+  maxContribution: "",
   payoutMode: null,
 
   targetDestinationAccount: "",

@@ -40,12 +40,12 @@ export function ReviewStep({ state }: ReviewStepProps) {
         <Divider />
         <Row
           label="Minimum contribution"
-          value={state.minContributionKobo ? <Money kobo={Number(state.minContributionKobo) * 100} /> : "None set"}
+          value={state.minContribution ? <Money kobo={Number(state.minContribution) * 100} /> : "None set"}
         />
-        {state.maxContributionKobo && (
+        {state.maxContribution && (
           <>
             <Divider />
-            <Row label="Maximum contribution" value={<Money kobo={Number(state.maxContributionKobo) * 100} />} />
+            <Row label="Maximum contribution" value={<Money kobo={Number(state.maxContribution) * 100} />} />
           </>
         )}
       </Card>
@@ -121,7 +121,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
                     <div className="flex flex-col items-end gap-0.5">
                       <span>{leg.destinationAccount || "Not set"} · {bankName(leg.destinationBank)}</span>
                       <span className="text-text-secondary">
-                        {leg.amountKobo ? <Money kobo={Number(leg.amountKobo) * 100} size="xs" color="secondary" /> : null}
+                        {leg.amount ? <Money kobo={Number(leg.amount) * 100} size="xs" color="secondary" /> : null}
                         {leg.scheduledDate ? ` on ${leg.scheduledDate}` : ""}
                       </span>
                     </div>

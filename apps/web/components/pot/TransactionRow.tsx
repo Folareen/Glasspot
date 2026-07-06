@@ -60,7 +60,7 @@ export function TransactionRow({ transaction }: TransactionRowProps) {
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
-        <Money kobo={transaction.amountKobo} color={moneyColor} className="font-medium" />
+        <Money kobo={transaction.amount} color={moneyColor} className="font-medium" />
         <StatusBadge status={transaction.status} />
       </div>
     </div>

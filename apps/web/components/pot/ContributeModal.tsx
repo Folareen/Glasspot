@@ -22,8 +22,8 @@ export function ContributeModal({ open, onClose, pot }: ContributeModalProps) {
   const [amount, setAmount] = useState("");
   const [anonymous, setAnonymous] = useState(false);
 
-  const minNaira = Number(pot.minContributionKobo) / 100;
-  const maxNaira = pot.maxContributionKobo ? Number(pot.maxContributionKobo) / 100 : null;
+  const minNaira = Number(pot.minContribution) / 100;
+  const maxNaira = pot.maxContribution ? Number(pot.maxContribution) / 100 : null;
 
   function handleSubmit() {
     const naira = Number(amount);

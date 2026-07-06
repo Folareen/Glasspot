@@ -53,8 +53,8 @@ export default function EditPotPage({ params }: EditPotPageProps) {
     updatePot(id, {
       title: state.title.trim(),
       description: state.description.trim() || undefined,
-      minContributionKobo: state.minContributionKobo ? toKobo(state.minContributionKobo) : undefined,
-      maxContributionKobo: state.maxContributionKobo ? toKobo(state.maxContributionKobo) : undefined,
+      minContribution: state.minContribution ? toKobo(state.minContribution) : undefined,
+      maxContribution: state.maxContribution ? toKobo(state.maxContribution) : undefined,
       payoutMode: state.payoutMode,
       payoutConfig: buildPayoutConfig(state),
     });
@@ -68,7 +68,7 @@ export default function EditPotPage({ params }: EditPotPageProps) {
       <Container className="max-w-2xl py-6">
         <Text size="sm" color="secondary" className="mb-6">
           You can change anything about this pot while it&apos;s still a draft. Once you open it,
-          the payout rule is locked in.
+          the payout and refund rules are locked in.
         </Text>
 
         <div className="flex flex-col gap-8">
