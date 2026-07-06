@@ -12,8 +12,13 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "cross-env DB_MIGRATING=true tsx --env-file=.env src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
-    "lint": "tsc --noEmit"
-  },
+    "lint": "tsc --noEmit",
+    "db:test:up": "docker compose -f docker-compose.yml --env-file .env.test up -d",
+    "db:test:migrate": "cross-env DB_MIGRATING=true TESTING=true tsx --env-file=.env.test src/db/migrate.ts",
+    "db:test:down": "docker compose -f docker-compose.yml --env-file .env.test down",
+    "test": "pnpm db:test:up && pnpm db:test:migrate && cross-env TESTING=true node --import tsx --test --test-concurrency=1 --test-force-exit --experimental-test-module-mocks test/**/*.test.ts",
+    "test:final": "pnpm db:test:migrate && cross-env TESTING=true node --import tsx --test --test-concurrency=1 --test-force-exit --experimental-test-module-mocks test/**/*.test.ts"
+},
   "dependencies": {
     "@bull-board/api": "^8.1.0",
     "@bull-board/fastify": "^8.1.0",

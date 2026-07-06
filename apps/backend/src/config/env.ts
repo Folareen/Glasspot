@@ -50,7 +50,11 @@ export type EnvSchema = z.infer<typeof EnvSchema>;
 // Node's --env-file flag (used by this app's dev/start scripts) doesn't
 // expand ${VAR} references, so DATABASE_URL's interpolation needs dotenv +
 // dotenv-expand loading .env directly, self-located regardless of cwd.
-const envPath = path.resolve(fileURLToPath(import.meta.url), "../../../.env");
+const envFile = process.env.TESTING === "true" ? ".env.test" : ".env";
+
+console.log(`Loading environment variables from ${envFile}...`);
+
+const envPath = path.resolve(fileURLToPath(import.meta.url), "../../../" + envFile);
 expand(config({ path: envPath, override: true }));
 
 let env: EnvSchema;

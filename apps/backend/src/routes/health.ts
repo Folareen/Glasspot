@@ -13,6 +13,7 @@ export async function healthRoutes(app: FastifyInstance) {
 /** Runs a trivial query to confirm the DB connection is reachable, returning "unreachable" instead of throwing on failure. */
 async function checkDb(): Promise<"ok" | "unreachable"> {
   try {
+    console.log("Checking DB connection...");
     await db.execute(sql`select 1`);
     return "ok";
   } catch {

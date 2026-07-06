@@ -12,7 +12,7 @@ export const db = drizzle(connection, {
   // Query logging prints bound parameters to stdout, including
   // passwordHash/codeHash/refreshTokenHash on auth-flow queries — never
   // enable it in production.
-  logger: env.NODE_ENV !== "production",
+  logger: false
 });
 
 export type db = typeof db;

@@ -18,7 +18,8 @@ import nombaWebhooksRoutes from "@/integrations/nomba/nomba-webhooks.route";
 
 /** Builds and configures the Fastify app: registers shared schemas, the JWT/rate-limit/CORS/BullMQ plugins, and all route modules. */
 export function buildApp(): FastifyInstance {
-  const app = Fastify({ logger: true });
+  console.log("Building Fastify app...", { env: process.env.NODE_ENV, testing: process.env.TESTING === "true" });
+  const app = Fastify({ logger: process.env.TESTING !== "true" });
 
   for (const schema of authSchemas) {
     app.addSchema(schema);
