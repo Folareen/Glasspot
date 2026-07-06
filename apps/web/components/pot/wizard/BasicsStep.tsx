@@ -57,7 +57,7 @@ export function BasicsStep({ state, onChange }: BasicsStepProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Minimum contribution" htmlFor="pot-min" helperText="In naira">
+        <Field label="Minimum contribution" htmlFor="pot-min" helperText="In naira. Leave blank for no minimum — don't enter 0.">
           <Input
             id="pot-min"
             type="number"
@@ -68,7 +68,7 @@ export function BasicsStep({ state, onChange }: BasicsStepProps) {
             placeholder="1000"
           />
         </Field>
-        <Field label="Maximum contribution" htmlFor="pot-max" helperText="Optional">
+        <Field label="Maximum contribution" htmlFor="pot-max" helperText="Optional. Leave blank for no limit — don't enter 0.">
           <Input
             id="pot-max"
             type="number"
@@ -80,6 +80,22 @@ export function BasicsStep({ state, onChange }: BasicsStepProps) {
           />
         </Field>
       </div>
+
+      <Field
+        label="Fundraising goal"
+        htmlFor="pot-goal"
+        helperText="Optional, shown to contributors as a progress target — doesn't trigger anything. Leave blank to skip — don't enter 0."
+      >
+        <Input
+          id="pot-goal"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          value={state.goalAmount}
+          onChange={(e) => onChange({ goalAmount: e.target.value })}
+          placeholder="No goal set"
+        />
+      </Field>
     </div>
   );
 }

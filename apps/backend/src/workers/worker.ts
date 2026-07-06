@@ -269,7 +269,36 @@ const transfersWorker = new Worker(
     // check-then-record pair, so two jobs to the SAME recipient racing
     // under this worker's concurrency:5 can't both slip through before
     // either counts against the cap.
-    if (!(await transferThrottle.reserve(data.destinationAccount, data.destinationBank))) {
+    //
+    // Wrapped in its own try/catch: reserve() talks to a dedicated Redis
+    // connection (transferThrottleConnection) that's independent of the
+    // job queue's own connection, so a Redis blip here is an
+    // infrastructure failure, not a throttle decision or a Nomba outcome.
+    // Left uncaught, it would propagate out of this processor exactly
+    // like a real transfer failure — attempts:1 sends it straight to
+    // failed_jobs — but no ledger transaction was ever posted and no lock
+    // cleanup path runs (that only happens inside processLedgerDisbursement/
+    // processContributionRefund's own try/catch, neither of which was
+    // entered), leaving a payout/refund's pendingOperation lock stuck on
+    // the pot indefinitely. Release the lock here explicitly before
+    // rethrowing, mirroring processLedgerDisbursement's own
+    // "failed before any ledger entry was posted — nothing to reverse,
+    // just release the lock" branch.
+    let reserved: boolean;
+    try {
+      reserved = await transferThrottle.reserve(data.destinationAccount, data.destinationBank);
+    } catch (err) {
+      console.error(
+        `[transfer] job ${job.id} throttle reserve() failed (infra error, not a real transfer attempt) — releasing lock and failing the job:`,
+        err
+      );
+      if (data.kind === 'payout' || data.kind === 'pot_refund') {
+        await releaseLock(data);
+      }
+      throw err;
+    }
+
+    if (!reserved) {
       console.log(
         `[transfer] job ${job.id} delayed — recipient ${data.destinationBank}:${data.destinationAccount} at Nomba's per-recipient transfer cap`
       );

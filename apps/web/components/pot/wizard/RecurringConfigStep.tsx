@@ -38,7 +38,12 @@ export function RecurringConfigStep({ state, onChange }: RecurringConfigStepProp
         </Select>
       </Field>
 
-      <Field label="Amount per payout" htmlFor="recurring-amount" helperText="In naira" required>
+      <Field
+        label="Amount per payout"
+        htmlFor="recurring-amount"
+        helperText="In naira. Must be greater than 0."
+        required
+      >
         <Input
           id="recurring-amount"
           type="number"

@@ -92,7 +92,12 @@ export function ScheduledLegBuilder({ ordered, legs, onChange }: ScheduledLegBui
               </Select>
             </Field>
             <div className="grid grid-cols-2 gap-4">
-              <Field label="Amount" htmlFor={`leg-amount-${index}`} helperText="In naira" required>
+              <Field
+                label="Amount"
+                htmlFor={`leg-amount-${index}`}
+                helperText="In naira. Must be greater than 0."
+                required
+              >
                 <Input
                   id={`leg-amount-${index}`}
                   type="number"

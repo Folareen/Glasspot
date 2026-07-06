@@ -30,6 +30,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
     refundType: pot.refundType,
     minContribution: toWizardAmount(pot.minContribution),
     maxContribution: toWizardAmount(pot.maxContribution ?? undefined),
+    goalAmount: toWizardAmount(pot.goalAmount ?? undefined),
     payoutMode: pot.payoutMode,
   };
 

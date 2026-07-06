@@ -1,6 +1,11 @@
 import type { PayoutConfig } from "@/lib/mock/types";
-import { toNairaAmount } from "@/lib/money";
+import { nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 import type { WizardState } from "./wizard-types";
+
+/** True for a wizard amount field holding a positive number — the wizard's own floor, mirroring the backend's nairaAmount schema (apps/backend/src/modules/pots/pots.schema.ts) rejecting "0.00"/an unset amount. Truthiness alone ("0" is a non-empty string) isn't enough here. Exported for reuse by minContribution/maxContribution's own validation in the pot create/edit pages. */
+export function isPositiveAmount(raw: string): boolean {
+  return Boolean(raw) && nairaAmountToNumber(raw) > 0;
+}
 
 export function toIsoDate(date: string) {
   return date ? new Date(date).toISOString() : new Date().toISOString();
@@ -58,7 +63,7 @@ export function isConfigStepValid(state: WizardState) {
       return Boolean(
         state.recurringDestinationAccount &&
           state.recurringDestinationBank &&
-          state.recurringAmountNaira &&
+          isPositiveAmount(state.recurringAmountNaira) &&
           state.recurringIntervalDays &&
           state.recurringNextRunAt
       );
@@ -66,14 +71,14 @@ export function isConfigStepValid(state: WizardState) {
       return (
         state.scheduledLegs.length > 0 &&
         state.scheduledLegs.every(
-          (leg) => leg.destinationAccount && leg.destinationBank && leg.amount && leg.scheduledDate
+          (leg) => leg.destinationAccount && leg.destinationBank && isPositiveAmount(leg.amount) && leg.scheduledDate
         )
       );
     case "target_based":
       return Boolean(
         state.targetDestinationAccount &&
           state.targetDestinationBank &&
-          (state.targetDate || state.targetAmountNaira)
+          (state.targetDate || isPositiveAmount(state.targetAmountNaira))
       );
     default:
       return false;

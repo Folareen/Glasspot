@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { nigerianBanks } from "@/lib/mock/fixtures";
-import { toNairaAmount } from "@/lib/money";
+import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 
 type PayoutDestinationModalProps = {
   open: boolean;
@@ -25,7 +25,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const balanceNaira = Number(balance);
+  const balanceNaira = nairaAmountToNumber(balance);
 
   function handleClose() {
     setAccount("");
@@ -36,7 +36,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
 
   function handleConfirm() {
     if (!account || !bank) return;
-    const naira = Number(amount);
+    const naira = nairaAmountToNumber(amount);
     if (amount && (!naira || naira <= 0 || naira > balanceNaira)) return;
     setIsSubmitting(true);
     onConfirm({ account, bank }, amount ? (toNairaAmount(amount) ?? undefined) : undefined);
@@ -77,7 +77,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
         <Field
           label="Amount"
           htmlFor="payout-destination-amount"
-          helperText={`Optional. Leave blank to send the full balance (₦${balanceNaira.toLocaleString()}).`}
+          helperText={`Optional. Leave blank to send the full balance (${formatNaira(balance)}).`}
         >
           <Input
             id="payout-destination-amount"

@@ -7,20 +7,40 @@ import db, {
 } from "@/db";
 import { nomba } from "@/integrations/nomba";
 import type { LocalPaymentRecord, ReconciliationLineItem, ReconciliationStatus } from "@/integrations/nomba/nomba.types";
-import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
+import { isValidNairaString, koboToNairaString, nairaStringToKobo } from "@/lib/money";
 
 /**
  * Converts a Nomba-reported naira amount (a native JS number, prone to
  * float representation error, e.g. 19.1 * 100 !== 1910) back to an exact
- * kobo bigint. toFixed(2) is the one safe place to touch a naira float in
- * this codebase — it's rounding a genuine currency value Nomba itself
- * returned (never a value we're constructing), to the same 2-decimal
- * precision Nomba's own API represents money in — then the naira/kobo
- * split-and-combine in nairaStringToKobo takes over so no further float
- * arithmetic touches the result.
+ * kobo bigint, or undefined if the value can't be represented as one.
+ * toFixed(2) is the one safe place to touch a naira float in this
+ * codebase — it's rounding a genuine currency value Nomba itself returned
+ * (never a value we're constructing), to the same 2-decimal precision
+ * Nomba's own API represents money in — then the naira/kobo split-and-
+ * combine in nairaStringToKobo takes over so no further float arithmetic
+ * touches the result.
+ *
+ * Takes `number | undefined` directly (matching ReconciliationLineItem's
+ * optional localAmount/nombaAmount) and returns undefined for anything it
+ * can't convert — missing, NaN/Infinity, or a magnitude toFixed(2) can't
+ * render as "digits.digits" (e.g. scientific notation) — so every call
+ * site degrades that one record to "unknown" instead of throwing.
+ *
+ * nairaStringToKobo's regex has no sign group (every other call site in
+ * this codebase runs on a value already validated by the nairaAmount
+ * zod/AJV schema, which only ever accepts a positive wire amount), but a
+ * reconciliation line item is untrusted external data and a negative
+ * figure is a real, legitimate case here (e.g. a reversal/adjustment row)
+ * — so the sign is peeled off and reapplied around the unsigned
+ * conversion rather than rejected.
  */
-function nombaNairaToKobo(amount: number): bigint {
-  return nairaStringToKobo(amount.toFixed(2));
+function nombaNairaToKobo(amount: number | undefined): bigint | undefined {
+  if (!Number.isFinite(amount)) return undefined;
+  const negative = amount! < 0;
+  const fixed = Math.abs(amount!).toFixed(2);
+  if (!isValidNairaString(fixed)) return undefined;
+  const kobo = nairaStringToKobo(fixed);
+  return negative ? -kobo : kobo;
 }
 
 /** A reconcile() line item's own status vocabulary doesn't map 1:1 onto reconciliation_records' — this is the single place that translates between them. */
@@ -96,18 +116,17 @@ export const ReconciliationService = {
           .from(transactions)
           .where(eq(transactions.reference, item.merchantTxRef));
 
-        // Number.isFinite guards against nombaNairaToKobo(NaN) throwing (a
-        // malformed naira string fails isValidNairaString) and aborting the
-        // whole reconciliation batch over one bad line item — a
-        // null/undefined amount is expected (e.g. an orphan has no
-        // localAmount), but NaN/Infinity should degrade to "unknown" for
-        // this one record rather than blow up the run.
+        // nombaNairaToKobo returns undefined for anything it can't convert
+        // (missing, NaN/Infinity, or an unrepresentable magnitude) instead
+        // of throwing — a null/undefined amount is expected (e.g. an
+        // orphan has no localAmount), and a bad one degrades to "unknown"
+        // for this one record rather than blowing up the whole batch.
         await db.insert(reconciliationRecords).values({
           settlementBatchId: batch.id,
           transactionId: transaction?.id,
           externalReference: item.merchantTxRef,
-          internalAmount: Number.isFinite(item.localAmount) ? nombaNairaToKobo(item.localAmount!) : undefined,
-          externalAmount: Number.isFinite(item.nombaAmount) ? nombaNairaToKobo(item.nombaAmount!) : undefined,
+          internalAmount: nombaNairaToKobo(item.localAmount),
+          externalAmount: nombaNairaToKobo(item.nombaAmount),
           status: toRecordStatus(item.status),
         });
       },
@@ -117,10 +136,12 @@ export const ReconciliationService = {
     // as BigInt — summing report.byCustomer[].receivedTotal (a JS float
     // accumulated across every transaction in the window before converting)
     // can drift from the true integer-kobo total by a kobo or more and
-    // produce false "mismatched" statuses. Number.isFinite guards the same
-    // NaN/Infinity edge case as the per-line-item insert above.
+    // produce false "mismatched" statuses. nombaNairaToKobo returning
+    // undefined (missing/NaN/unrepresentable) degrades that one item's
+    // contribution to 0 rather than aborting the whole sum, same as the
+    // per-line-item insert above.
     const reportedAmount = report.lineItems.reduce(
-      (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? nombaNairaToKobo(item.nombaAmount!) : 0n),
+      (sum, item) => sum + (nombaNairaToKobo(item.nombaAmount) ?? 0n),
       0n
     );
 

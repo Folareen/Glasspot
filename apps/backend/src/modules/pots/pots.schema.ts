@@ -7,24 +7,35 @@ const refundTypeValues = ["admin", "contributors"] as const;
 const potMemberRoleValues = ["admin", "member"] as const;
 
 // Wire format for every money field, both request and response: a naira
-// string with exactly two decimal places ("100.50", "0.00") — never a
-// kobo integer, never a bare float. .regex() rather than .refine(): per
+// string with exactly two decimal places ("100.50", never "0.00") — never
+// a kobo integer, never a bare float. .regex() rather than .refine(): per
 // koboAmount's old comment (and z.coerce.date()'s, in pots.service.ts) —
 // nothing in this request pipeline calls Zod's real .parse()/refine()
 // logic, Fastify validates request.body against the compiled JSON Schema
 // via AJV only. zod-to-json-schema compiles .regex() to a real JSON
 // Schema `pattern` keyword AJV enforces, but drops .refine() entirely (it
 // has no JSON Schema equivalent) — a .refine() here would silently accept
-// any string at runtime despite type-checking correctly. Matches
-// apps/backend/src/lib/money.ts's isValidNairaString, kept in sync by
-// hand since one is a regex literal for a JSON Schema field and the other
-// a reusable predicate function. Conversion to/from the kobo bigint used
-// everywhere else in the backend happens via nairaStringToKobo/
-// koboToNairaString (see apps/backend/src/lib/money.ts), always right at
-// this wire boundary and nowhere else (see docs/system-rules.md).
+// any string at runtime despite type-checking correctly. The pattern
+// requires at least one nonzero digit (a lookahead ruling out an
+// all-zero "0.00"/"00.00" match) so this keeps koboAmount's old
+// `.min(1)` floor of >=1 kobo — every one of these fields is already
+// `.optional()`, so "no minimum"/"no target" etc. is expressed by
+// omitting the field entirely, never by sending an explicit "0.00".
+// Matches apps/backend/src/lib/money.ts's isValidNairaString (a looser
+// shape-only check with no floor, used at boundaries like webhook/
+// reconciliation parsing where "0.00" can be a legitimate value), kept in
+// sync by hand since one is a regex literal for a JSON Schema field and
+// the other a reusable predicate function. Conversion to/from the kobo
+// bigint used everywhere else in the backend happens via
+// nairaStringToKobo/koboToNairaString (see apps/backend/src/lib/money.ts),
+// always right at this wire boundary and nowhere else (see
+// docs/system-rules.md).
 const nairaAmount = z
   .string()
-  .regex(/^\d+\.\d{2}$/, 'Amount must be a naira string with exactly two decimal places, e.g. "100.50"');
+  .regex(
+    /^(?=.*[1-9])\d+\.\d{2}$/,
+    'Amount must be a positive naira string with exactly two decimal places, e.g. "100.50"'
+  );
 
 const destinationSchema = {
   destinationAccount: z.string().min(1),
@@ -46,6 +57,8 @@ export const targetBasedPayoutConfigSchema = z
   .object({
     ...destinationSchema,
     targetDate: z.coerce.date().optional(),
+    // Omit to rely on targetDate instead — same "omit, don't send 0.00"
+    // rule as potCommonFields' minContribution/maxContribution/goalAmount.
     targetAmount: nairaAmount.optional(),
   })
   .refine(
@@ -116,10 +129,14 @@ const potCommonFields = {
   description: z.string().optional(),
   potType: z.enum(potTypeValues),
   refundType: z.enum(refundTypeValues),
+  // Omit the field for "no minimum"/"no maximum" — nairaAmount rejects an
+  // explicit "0.00" (see its own comment), so there is no wire value that
+  // means "unlimited" other than leaving the field out entirely.
   minContribution: nairaAmount.optional(),
   maxContribution: nairaAmount.optional(),
   // Display-only fundraising goal, independent of payoutMode — see
-  // pots.ts's goalAmount comment. Never read by any trigger logic.
+  // pots.ts's goalAmount comment. Never read by any trigger logic. Same
+  // "omit, don't send 0.00" rule as minContribution/maxContribution above.
   goalAmount: nairaAmount.optional(),
 };
 

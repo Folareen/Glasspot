@@ -8,7 +8,7 @@ import { Checkbox } from "@/components/ui/Checkbox";
 import { Button } from "@/components/ui/Button";
 import { useMockStore } from "@/lib/mock/store";
 import { useToast } from "@/lib/toast";
-import { toNairaAmount } from "@/lib/money";
+import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 import type { PotResponse } from "@/lib/mock/types";
 
 type ContributeModalProps = {
@@ -23,11 +23,11 @@ export function ContributeModal({ open, onClose, pot }: ContributeModalProps) {
   const [amount, setAmount] = useState("");
   const [anonymous, setAnonymous] = useState(false);
 
-  const minNaira = Number(pot.minContribution);
-  const maxNaira = pot.maxContribution ? Number(pot.maxContribution) : null;
+  const minNaira = nairaAmountToNumber(pot.minContribution);
+  const maxNaira = pot.maxContribution ? nairaAmountToNumber(pot.maxContribution) : null;
 
   function handleSubmit() {
-    const naira = Number(amount);
+    const naira = nairaAmountToNumber(amount);
     if (!naira || naira < minNaira || (maxNaira !== null && naira > maxNaira)) return;
     const wireAmount = toNairaAmount(amount);
     if (!wireAmount) return;
@@ -45,7 +45,7 @@ export function ContributeModal({ open, onClose, pot }: ContributeModalProps) {
           label="Amount"
           htmlFor="contribute-amount"
           required
-          helperText={`Minimum ₦${minNaira.toLocaleString()}${maxNaira ? `, maximum ₦${maxNaira.toLocaleString()}` : ""}`}
+          helperText={`Minimum ${formatNaira(pot.minContribution)}${pot.maxContribution ? `, maximum ${formatNaira(pot.maxContribution)}` : ""}`}
         >
           <Input
             id="contribute-amount"
