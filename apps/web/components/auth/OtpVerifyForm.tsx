@@ -39,7 +39,7 @@ export function OtpVerifyForm({ email, successMessage }: OtpVerifyFormProps) {
   function handleResend() {
     if (secondsLeft > 0) return;
     reset();
-    showToast(`We sent a new code to ${email}`, "success");
+    showToast(`We sent a new code to ${email}. Check spam if you don't see it.`, "success");
   }
 
   return (
