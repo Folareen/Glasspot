@@ -86,20 +86,17 @@ export const ReconciliationService = {
           .from(transactions)
           .where(eq(transactions.reference, item.merchantTxRef));
 
+        // Number.isFinite guards against BigInt(Math.round(NaN)) throwing
+        // and aborting the whole reconciliation batch over one bad line
+        // item — a null/undefined amount is expected (e.g. an orphan has
+        // no localAmount), but NaN/Infinity should degrade to "unknown"
+        // for this one record rather than blow up the run.
         await db.insert(reconciliationRecords).values({
           settlementBatchId: batch.id,
           transactionId: transaction?.id,
           externalReference: item.merchantTxRef,
-          
-          
-          // both lines below will throw an error cos of bigint, comment below can be used instead
-          internalAmount: item.localAmount != null ? BigInt(Math.round(item.localAmount * 100)) : undefined,
-          externalAmount: item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
-          // internalAmount: Number.isFinite(item.localAmount) ? BigInt(Math.round(item.localAmount * 100)) : undefined,
-          // externalAmount: Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
-          
-          
-          
+          internalAmount: Number.isFinite(item.localAmount) ? BigInt(Math.round(item.localAmount! * 100)) : undefined,
+          externalAmount: Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount! * 100)) : undefined,
           status: toRecordStatus(item.status),
         });
       },
@@ -109,22 +106,13 @@ export const ReconciliationService = {
     // BigInt — summing report.byCustomer[].receivedTotal (a JS float
     // accumulated across every transaction in the window before rounding)
     // can drift from the true integer-kobo total by a kobo or more and
-    // produce false "mismatched" statuses.
-    
-    
-    
-    // this will also throw an error cos of big int, comment below can be used instead
+    // produce false "mismatched" statuses. Number.isFinite guards the same
+    // NaN/Infinity edge case as the per-line-item insert above.
     const reportedAmount = report.lineItems.reduce(
-      (sum, item) => sum + (item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
+      (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount! * 100)) : 0n),
       0n
     );
-    // const reportedAmount = report.lineItems.reduce(
-    //   (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
-    //   0n
-    // );
 
-    
-    
     const allMatched =
       report.overpaidCount === 0 &&
       report.underpaidCount === 0 &&

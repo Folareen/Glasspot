@@ -1,6 +1,7 @@
 // src/worker.ts
 import { Worker, QueueEvents } from 'bullmq';
-import redisConnection from '@/config/redis';
+import { createRedisConnection } from '@/config/redis';
+import env from '@/config/env';
 import { QueueName, PayoutCronJob, TransferJob } from '@/queues/names';
 import { PayoutCronHandlers } from '@/modules/scheduler/payout-cron-handlers';
 import { FailedJobTracker } from '@/modules/scheduler/failed-job-tracker';
@@ -10,13 +11,19 @@ import db, { pots, targetBasedPayoutConfigs, contributionPayments } from '@/db';
 import { AccountsService } from '@/modules/ledger/accounts.service';
 import { LedgerService } from '@/modules/ledger/ledger.service';
 import { nomba } from '@/integrations/nomba/index';
+import { NombaApiError } from '@/integrations/nomba/nomba.error';
 import { clearPendingOperation, decrementPendingOperationLeg } from '@/modules/pots/pots.service';
 import type { DisbursementJobData } from '@/modules/scheduler/disbursement-job.types';
 
 import { recurringPayoutConfigs, scheduledPayoutLegs } from '@/db';
 import type { DisbursementOnSuccess } from '@/modules/scheduler/disbursement-job.types';
 
-const connection = redisConnection;
+// Each Worker/QueueEvents gets its own Redis connection — see createRedisConnection()'s comment.
+const cronWorkerConnection = createRedisConnection();
+const transfersWorkerConnection = createRedisConnection();
+const cronEventsConnection = createRedisConnection();
+const transferEventsConnection = createRedisConnection();
+
 const handlers = new PayoutCronHandlers();
 
 // --- Cron/sweep worker: dispatch job.name -> handler method ---
@@ -41,15 +48,15 @@ const payoutCronWorker = new Worker(
     console.log(`[cron] ${job.name} (job ${job.id}) finished:`, result);
     return result;
   },
-  { connection, concurrency: 1 } // sweeps should not overlap themselves
+  { connection: cronWorkerConnection, concurrency: 1 } // sweeps should not overlap themselves
 );
 
 // --- Transfers worker: rate-limited global handler for /transfer ---
 
 const PLATFORM_SENDER_NAME = 'Glasspot';
 
-const TRANSFER_RATE_LIMIT_MAX = Number(process.env.NOMBA_TRANSFER_RATE_LIMIT_MAX ?? 10);
-const TRANSFER_RATE_LIMIT_DURATION_MS = Number(process.env.NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS ?? 1000);
+const TRANSFER_RATE_LIMIT_MAX = env.NOMBA_TRANSFER_RATE_LIMIT_MAX;
+const TRANSFER_RATE_LIMIT_DURATION_MS = env.NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS;
 
 async function callNomba(data: DisbursementJobData) {
   const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
@@ -118,16 +125,36 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
 
     return transaction;
   } catch (err) {
-    if (transaction) {
+    // A NombaApiError with a real HTTP status means Nomba actually
+    // received and rejected the request (bad request, insufficient
+    // balance, etc) — confirmed not executed, safe to reverse. status 0
+    // means the request itself never got a response (network error,
+    // timeout, DNS failure) — Nomba may have received and processed it
+    // anyway, so the outcome is unknown, not "definitely failed."
+    // Reversing here on an unknown outcome risks the ledger saying "money
+    // never left" when it actually did, which is worse than leaving the
+    // transaction stuck 'processing' — that gets resolved later by the
+    // payout webhook or reconciliation, never by blind-retrying
+    // (docs/system-rules.md's "confirm not-executed before reversing").
+    const confirmedNotExecuted = !(err instanceof NombaApiError) || err.status !== 0;
+
+    if (transaction && confirmedNotExecuted) {
       await LedgerService.reverseTransaction(transaction.id, `${data.reference}_reversal`);
+      await releaseLock(data);
+    } else if (!transaction) {
+      // Failed before any ledger entry was posted (e.g. insufficient
+      // balance) — nothing to reverse, just release the lock.
+      await releaseLock(data);
     }
-    await releaseLock(data);
+    // else: transaction exists but the outcome is unknown — leave it
+    // 'processing' and the lock held, same as the PENDING_BILLING path.
+
     throw err; // attempts:1 → straight to failed_jobs, no auto-retry
   }
 }
 
 function releaseLock(data: Extract<DisbursementJobData, { kind: 'payout' | 'pot_refund' }>) {
-  return data.contributorUserId ? decrementPendingOperationLeg(data.potId) : clearPendingOperation(data.potId);
+  return data.isFanOutLeg ? decrementPendingOperationLeg(data.potId) : clearPendingOperation(data.potId);
 }
 
 /**
@@ -211,7 +238,7 @@ const transfersWorker = new Worker(
     return result;
   },
   {
-    connection: redisConnection,
+    connection: transfersWorkerConnection,
     concurrency: 5,
     limiter: { max: TRANSFER_RATE_LIMIT_MAX, duration: TRANSFER_RATE_LIMIT_DURATION_MS },
   }
@@ -226,8 +253,8 @@ transfersWorker.on('failed', (job, err) => {
 });
 
 // --- Failed job tracking for both queues ---
-const cronEvents = FailedJobTracker.attach(QueueName.PAYOUT_CRON, connection);
-const transferEvents = FailedJobTracker.attach(QueueName.TRANSFERS, connection);
+const cronTracker = FailedJobTracker.attach(QueueName.PAYOUT_CRON, cronEventsConnection);
+const transferTracker = FailedJobTracker.attach(QueueName.TRANSFERS, transferEventsConnection);
 
 for (const w of [payoutCronWorker, transfersWorker]) {
   w.on('failed', (job, err) => {
@@ -239,8 +266,16 @@ async function shutdown() {
   await Promise.all([
     payoutCronWorker.close(),
     transfersWorker.close(),
-    cronEvents.close(),
-    transferEvents.close(),
+    cronTracker.events.close(),
+    transferTracker.events.close(),
+    cronTracker.queue.close(),
+    transferTracker.queue.close(),
+  ]);
+  await Promise.all([
+    cronWorkerConnection.quit(),
+    transfersWorkerConnection.quit(),
+    cronEventsConnection.quit(),
+    transferEventsConnection.quit(),
   ]);
   process.exit(0);
 }

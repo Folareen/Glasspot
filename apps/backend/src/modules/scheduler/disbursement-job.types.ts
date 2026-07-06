@@ -5,13 +5,6 @@ export type DisbursementOnSuccess =
   | { type: "advance_recurring_next_run_at"; recurringConfigId: string }
   | { type: "mark_scheduled_leg_fired"; scheduledLegId: string };
 
-interface LedgerDisbursementJobData extends BaseDisbursementJobData {
-  kind: "payout" | "pot_refund";
-  potId: string;
-  contributorUserId?: string;
-  onSuccess?: DisbursementOnSuccess;
-}
-
 export type DisbursementKind = "payout" | "pot_refund" | "contribution_refund";
 
 interface BaseDisbursementJobData {
@@ -21,11 +14,22 @@ interface BaseDisbursementJobData {
   reference: string;
 }
 
-/** Payout or pot-level refund — money already recognized in the ledger. */
+/**
+ * Payout or pot-level refund — money already recognized in the ledger.
+ *
+ * contributorUserId is metadata only (tags which real user a fan-out leg
+ * belongs to, when there is one) — it is NOT the signal for whether this
+ * job is one leg of a multi-leg fan-out refund, since an anonymous
+ * contributor's leg has no contributorUserId at all but is still one of
+ * N legs sharing a pot-level lock. isFanOutLeg carries that distinction
+ * explicitly instead, so the worker's lock-release logic (decrement vs.
+ * clear) can't misfire on an anonymous leg (see releaseLock in worker.ts).
+ */
 interface LedgerDisbursementJobData extends BaseDisbursementJobData {
   kind: "payout" | "pot_refund";
   potId: string;
-  contributorUserId?: string; // set for a fan-out pot_refund leg
+  contributorUserId?: string;
+  isFanOutLeg?: boolean;
   onSuccess?: DisbursementOnSuccess;
 }
 
