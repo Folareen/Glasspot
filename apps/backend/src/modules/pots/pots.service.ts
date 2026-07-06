@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import db, {
   pots,
@@ -7,6 +7,7 @@ import db, {
   users,
   transactions,
   contributions,
+  contributionPayments,
   targetBasedPayoutConfigs,
   manualPayoutConfigs,
   recurringPayoutConfigs,
@@ -90,7 +91,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
         destinationAccount: c.destinationAccount,
         destinationBank: c.destinationBank,
         targetDate: c.targetDate !== undefined ? toDate(c.targetDate) : undefined,
-        targetAmountKobo: c.targetAmountKobo !== undefined ? BigInt(c.targetAmountKobo) : undefined,
+        targetAmount: c.targetAmount !== undefined ? BigInt(c.targetAmount) : undefined,
       });
       return;
     }
@@ -114,7 +115,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
         potId,
         destinationAccount: c.destinationAccount,
         destinationBank: c.destinationBank,
-        amountKobo: BigInt(c.amountKobo),
+        amount: BigInt(c.amount),
         intervalDays: c.intervalDays,
         nextRunAt: toDate(c.nextRunAt),
       });
@@ -132,7 +133,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
           sequenceOrder: leg.sequenceOrder,
           destinationAccount: leg.destinationAccount,
           destinationBank: leg.destinationBank,
-          amountKobo: BigInt(leg.amountKobo),
+          amount: BigInt(leg.amount),
           scheduledDate: toDate(leg.scheduledDate),
         }))
       );
@@ -215,6 +216,12 @@ async function deleteExistingPayoutConfig(potId: string, payoutMode: Pot["payout
 }
 
 export const PotsService = {
+  /** Current ledger balance for a pot, in kobo — 0n for a pot that hasn't received any completed contributions yet (see AccountsService.getOrCreatePotAccount/LedgerService.getBalance). */
+  async getBalance(potId: string): Promise<bigint> {
+    const potAccount = await AccountsService.getOrCreatePotAccount(potId);
+    return LedgerService.getBalance(potAccount.id);
+  },
+
   /** Creates a pot in 'draft' status, inserts its mode-specific payout config, and adds creatorId as its first admin member. */
   async create(creatorId: string, input: CreatePotInput) {
     const [pot] = await db
@@ -227,10 +234,12 @@ export const PotsService = {
         payoutMode: input.payoutMode,
         refundType: input.refundType,
         shareSlug: generateShareSlug(),
-        minContributionKobo:
-          input.minContributionKobo !== undefined ? BigInt(input.minContributionKobo) : undefined,
-        maxContributionKobo:
-          input.maxContributionKobo !== undefined ? BigInt(input.maxContributionKobo) : undefined,
+        minContribution:
+          input.minContribution !== undefined ? BigInt(input.minContribution) : undefined,
+        maxContribution:
+          input.maxContribution !== undefined ? BigInt(input.maxContribution) : undefined,
+        goalAmount:
+          input.goalAmount !== undefined ? BigInt(input.goalAmount) : undefined,
       })
       .returning();
 
@@ -271,11 +280,7 @@ export const PotsService = {
             myPotIds.has(p.id)
           );
 
-    return [...allPublic, ...privatePotsIAmIn].map((pot) => ({
-      ...pot,
-      minContributionKobo: pot.minContributionKobo.toString(),
-      maxContributionKobo: pot.maxContributionKobo?.toString() ?? null,
-    }));
+    return [...allPublic, ...privatePotsIAmIn];
   },
 
   /** Admin-only. Draft-only — payoutMode/refundType/config are immutable once a pot is 'open' (see pots.ts status semantics). */
@@ -307,14 +312,17 @@ export const PotsService = {
       throw new PotError("payoutConfig is required when changing payoutMode", 400);
     }
 
-    const { title, description, minContributionKobo, maxContributionKobo } = input;
+    const { title, description, potType, refundType, minContribution, maxContribution, goalAmount } = input;
     const [updated] = await db
       .update(pots)
       .set({
         ...(title !== undefined && { title }),
         ...(description !== undefined && { description }),
-        ...(minContributionKobo !== undefined && { minContributionKobo: BigInt(minContributionKobo) }),
-        ...(maxContributionKobo !== undefined && { maxContributionKobo: BigInt(maxContributionKobo) }),
+        ...(potType !== undefined && { potType }),
+        ...(refundType !== undefined && { refundType }),
+        ...(minContribution !== undefined && { minContribution: BigInt(minContribution) }),
+        ...(maxContribution !== undefined && { maxContribution: BigInt(maxContribution) }),
+        ...(goalAmount !== undefined && { goalAmount: BigInt(goalAmount) }),
         updatedAt: new Date(),
       })
       .where(eq(pots.id, potId))
@@ -394,11 +402,19 @@ export const PotsService = {
    * and pots.schema.ts's triggerPayoutSchema comment. A destination passed
    * alongside a pot that DOES have one fixed is ignored, not merged in, so
    * there is exactly one source of truth once a default is set.
+   *
+   * amount is optional — omit it for the original full-balance
+   * behavior, or set it to disburse only PART of the pot's current
+   * balance, leaving the rest in the pot for a later trigger. Must be
+   * >0 and <=balance; re-checked against a freshly-read balance right
+   * before claiming the lock in postFixedAmountDisbursement's caller here,
+   * same re-read-after-lock-risk pattern as postDisbursement.
    */
   async triggerPayout(
     potId: string,
     userId: string,
-    destination?: { destinationAccount: string; destinationBank: string }
+    destination?: { destinationAccount: string; destinationBank: string },
+    amount?: bigint
   ) {
     await assertIsAdmin(potId, userId);
     const pot = await getPotOrThrow(potId);
@@ -432,6 +448,19 @@ export const PotsService = {
           400
         );
       }
+
+      if (amount !== undefined) {
+        const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+        const balance = await LedgerService.getBalance(potAccount.id);
+        if (amount <= 0n) {
+          throw new PotError("amount must be greater than zero", 400);
+        }
+        if (amount > balance) {
+          throw new PotError(`amount (${amount}) exceeds the pot's current balance (${balance})`, 409);
+        }
+        return postFixedAmountDisbursement(pot, "payout", amount, resolvedDestination);
+      }
+
       return postDisbursement(pot, "payout", resolvedDestination);
     }
 
@@ -599,7 +628,7 @@ async function postDisbursement(
 //  * (locking out a second concurrent trigger — see docs/system-rules.md's
 //  * "two members approving in the same instant must not both trigger the
 //  * payout call"), then looks up the destination, posts the internal ledger
-//  * leg (debit pot_account, credit platform_float) for EXACTLY amountKobo
+//  * leg (debit pot_account, credit platform_float) for EXACTLY amount
 //  * (not necessarily the pot's full balance — see postDisbursement, which
 //  * passes the full balance for manual/target_based payout and admin
 //  * refund, vs PayoutSchedulerService, which passes a FIXED amount for
@@ -618,7 +647,7 @@ async function postDisbursement(
 // export async function postFixedAmountDisbursement(
 //   pot: Pot,
 //   kind: "payout" | "refund",
-//   amountKobo: bigint,
+//   amount: bigint,
 //   destination: { destinationAccount: string; destinationBank: string }
 // ): Promise<Transaction> {
 //   // UPDATE ... WHERE pending_operation IS NULL is atomic in Postgres — of
@@ -648,8 +677,8 @@ async function postDisbursement(
 //     const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
 //     const balance = await LedgerService.getBalance(potAccount.id);
 
-//     if (balance < amountKobo) {
-//       throw new PotError(`Pot balance is insufficient to ${kind} ${amountKobo} kobo`, 409);
+//     if (balance < amount) {
+//       throw new PotError(`Pot balance is insufficient to ${kind} ${amount} kobo`, 409);
 //     }
 
 //     transaction = await LedgerService.postTransaction({
@@ -657,8 +686,8 @@ async function postDisbursement(
 //       reference,
 //       status: "processing",
 //       entries: [
-//         { accountId: potAccount.id, direction: "debit", amountKobo },
-//         { accountId: platformFloat.id, direction: "credit", amountKobo },
+//         { accountId: potAccount.id, direction: "debit", amount },
+//         { accountId: platformFloat.id, direction: "credit", amount },
 //       ],
 //       metadata: { potId: pot.id },
 //     });
@@ -669,7 +698,7 @@ async function postDisbursement(
 //       .where(eq(pots.id, pot.id));
 
 //     const transfer = await nomba.transferToBankAccount({
-//       amount: Number(amountKobo) / 100,
+//       amount: Number(amount) / 100,
 //       accountNumber: destination.destinationAccount,
 //       accountName: resolved.accountName,
 //       bankCode: destination.destinationBank,
@@ -719,7 +748,7 @@ async function postDisbursement(
  * call, which treat an enqueue failure as "retry next sweep," not
  * "money moved."
  *
- * amountKobo is EXACTLY what gets disbursed, not necessarily the pot's
+ * amount is EXACTLY what gets disbursed, not necessarily the pot's
  * full balance — see postDisbursement, which passes the full balance for
  * manual/target_based payout and admin refund, vs PayoutSchedulerService,
  * which passes a FIXED amount for recurring/scheduled.
@@ -759,7 +788,7 @@ async function postDisbursement(
 export async function postFixedAmountDisbursement(
   pot: Pot,
   kind: "payout" | "refund",
-  amountKobo: bigint,
+  amount: bigint,
   destination: { destinationAccount: string; destinationBank: string },
   onSuccess?: DisbursementOnSuccess,
   contributorUserId?: string
@@ -781,7 +810,7 @@ export async function postFixedAmountDisbursement(
   const jobData: DisbursementJobData = {
     kind: kind === "payout" ? "payout" : "pot_refund", // maps service-level "refund" -> job-level "pot_refund"
     potId: pot.id,
-    amountKobo: amountKobo.toString(),
+    amount: amount.toString(),
     destinationAccount: destination.destinationAccount,
     destinationBank: destination.destinationBank,
     reference,
@@ -830,7 +859,14 @@ export async function clearPendingOperation(potId: string): Promise<void> {
  */
 async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
   const funded = await db
-    .select({ contributorUserId: contributions.contributorUserId, expectedAmountKobo: contributions.expectedAmountKobo })
+    .select({
+      contributionId: contributions.id,
+      contributorUserId: contributions.contributorUserId,
+      expectedAmount: contributions.expectedAmount,
+      refundAccountNumber: contributions.refundAccountNumber,
+      refundAccountName: contributions.refundAccountName,
+      refundBank: contributions.refundBank,
+    })
     .from(contributions)
     .where(and(eq(contributions.potId, pot.id), eq(contributions.status, "funded")));
 
@@ -838,14 +874,24 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     throw new PotError("Pot has no funded contributions to refund", 409);
   }
 
-  const totalsByContributor = new Map<string, bigint>();
-  let totalContributedKobo = 0n;
+  // Group by contributorUserId so a logged-in contributor's multiple
+  // contributions consolidate into one refund. An anonymous contribution
+  // (contributorUserId null) has no shared identity to group by, so it
+  // gets a synthetic key derived from its own contribution id instead —
+  // guaranteed unique, never collapsed with another anonymous contributor
+  // (see contributions.ts's contributorUserId comment).
+  type FundedRow = (typeof funded)[number];
+  const groups = new Map<string, FundedRow[]>();
+  let totalContributed = 0n;
   for (const row of funded) {
-    totalsByContributor.set(
-      row.contributorUserId,
-      (totalsByContributor.get(row.contributorUserId) ?? 0n) + row.expectedAmountKobo
-    );
-    totalContributedKobo += row.expectedAmountKobo;
+    const groupKey = row.contributorUserId ?? `anon:${row.contributionId}`;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.push(row);
+    } else {
+      groups.set(groupKey, [row]);
+    }
+    totalContributed += row.expectedAmount;
   }
 
   const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
@@ -854,33 +900,102 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
     throw new PotError("Pot has no balance to refund", 409);
   }
 
-  // Resolve every contributor's refund destination (validated at
-  // contribution time — see contributions.ts) and their pro-rata share
-  // BEFORE claiming the lock, so a data problem (missing refund profile)
-  // fails loudly before any money moves.
-  const legs: { userId: string; contributedKobo: bigint; amountKobo: bigint; destinationAccount: string; destinationBank: string; accountName: string }[] = [];
-  for (const [userId, contributedKobo] of totalsByContributor) {
-    const shareKobo = (contributedKobo * balance) / totalContributedKobo;
-    if (shareKobo <= 0n) continue;
+  // Resolve every group's refund destination(s) and their pro-rata share
+  // BEFORE claiming the lock, so a data problem fails loudly before any
+  // money moves. A group WITH an explicit refundAccountNumber on file
+  // (set at contribution time — see contributions.ts) gets one leg to
+  // that account. A group with NO explicit account instead refunds to
+  // wherever each of its funding transfers actually came from
+  // (contribution_payments.senderAccountNumber/senderBankCode) — one leg
+  // PER PAYMENT, split proportionally to what that payment actually
+  // contributed, mirroring ExpiryService.sweepExpiredContributions'
+  // per-payment refund for never-funded contributions. A contributor who
+  // topped up from two different accounts gets refunded to both,
+  // proportionally — never guessed as a single destination.
+  // numerator/denominator let the fresh-balance rescale below
+  // recompute each leg's share as (numerator * freshBalance) /
+  // denominator — a single ratio all the way from "this leg's slice"
+  // to "the whole pot," so a per-payment leg's numerator/denominator (this
+  // payment's amount over this group's total payments, times this group's
+  // amount over the pot's total) doesn't need the group-level fan-out
+  // logic repeated at rescale time.
+  const legs: {
+    groupKey: string;
+    numerator: bigint;
+    denominator: bigint;
+    amount: bigint;
+    destinationAccount: string;
+    destinationBank: string;
+    accountName: string;
+  }[] = [];
+  for (const [groupKey, rows] of groups) {
+    const contributed = rows.reduce((sum, r) => sum + r.expectedAmount, 0n);
+    const share = (contributed * balance) / totalContributed;
+    if (share <= 0n) continue;
 
-    const [contribution] = await db
-      .select({ refundAccountNumber: contributions.refundAccountNumber, refundAccountName: contributions.refundAccountName, refundBank: contributions.refundBank })
-      .from(contributions)
-      .where(and(eq(contributions.potId, pot.id), eq(contributions.contributorUserId, userId), eq(contributions.status, "funded")))
-      .limit(1);
+    // Every row in a group shares one refund destination — true by
+    // construction for a real user (one refund profile), and trivially
+    // true for an anonymous group (exactly one row, its own contribution).
+    const { refundAccountNumber, refundAccountName, refundBank } = rows[0];
 
-    if (!contribution?.refundAccountNumber || !contribution.refundAccountName || !contribution.refundBank) {
-      throw new PotError(`Contributor ${userId} has no refund destination on file`, 409);
+    if (refundAccountNumber && refundAccountName && refundBank) {
+      legs.push({
+        groupKey,
+        numerator: contributed,
+        denominator: totalContributed,
+        amount: share,
+        destinationAccount: refundAccountNumber,
+        destinationBank: refundBank,
+        accountName: refundAccountName,
+      });
+      continue;
     }
 
-    legs.push({
-      userId,
-      contributedKobo,
-      amountKobo: shareKobo,
-      destinationAccount: contribution.refundAccountNumber,
-      destinationBank: contribution.refundBank,
-      accountName: contribution.refundAccountName,
-    });
+    // No refund account on file — fan out across this group's actual
+    // funding payments instead. expectedAmount (what we refund
+    // pro-rata against) can differ from SUM(contribution_payments) for an
+    // overpaid contribution (the excess was already refunded back at
+    // funding time — see confirmFunding's refundOverpayment call), so
+    // scale each payment's OWN share of share by its proportion of
+    // this group's total received payments, not of expectedAmount.
+    const payments = await db
+      .select({
+        amount: contributionPayments.amount,
+        senderAccountNumber: contributionPayments.senderAccountNumber,
+        senderBankCode: contributionPayments.senderBankCode,
+        senderName: contributionPayments.senderName,
+      })
+      .from(contributionPayments)
+      .where(
+        inArray(
+          contributionPayments.contributionId,
+          rows.map((r) => r.contributionId)
+        )
+      );
+
+    if (payments.length === 0) {
+      // A funded contribution always has at least one payment (that's
+      // what funded it) — this would mean the data is inconsistent, not
+      // just "no refund account configured."
+      throw new PotError(`Contributor ${groupKey} has no refund destination and no recorded payments`, 409);
+    }
+
+    const totalPayments = payments.reduce((sum, p) => sum + p.amount, 0n);
+    for (const payment of payments) {
+      const paymentShare = (payment.amount * share) / totalPayments;
+      if (paymentShare <= 0n) continue;
+      legs.push({
+        groupKey,
+        // this payment's fraction of the pot = (payment / totalPayments) * (contributed / totalContributed)
+        // — collapsed to one fraction so rescaling is (numerator * freshBalance) / denominator.
+        numerator: payment.amount * contributed,
+        denominator: totalPayments * totalContributed,
+        amount: paymentShare,
+        destinationAccount: payment.senderAccountNumber,
+        destinationBank: payment.senderBankCode,
+        accountName: payment.senderName,
+      });
+    }
   }
 
   if (legs.length === 0) {
@@ -906,13 +1021,13 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
 
   // A contribution can land in the gap between the balance read above and
   // claiming the lock just now — re-read and rescale each leg's share
-  // against the fresh balance (same contributedKobo/totalContributedKobo
-  // ratios) rather than posting against a stale snapshot, mirroring
+  // against the fresh balance (same numerator/denominator ratio)
+  // rather than posting against a stale snapshot, mirroring
   // postFixedAmountDisbursement's re-read-after-lock pattern.
   const freshBalance = await LedgerService.getBalance(potAccount.id);
   if (freshBalance !== balance) {
     for (const leg of legs) {
-      leg.amountKobo = (leg.contributedKobo * freshBalance) / totalContributedKobo;
+      leg.amount = (leg.numerator * freshBalance) / leg.denominator;
     }
   }
 
@@ -920,30 +1035,38 @@ async function postContributorsRefund(pot: Pot): Promise<Transaction[]> {
   const results: Transaction[] = [];
 
   for (const leg of legs) {
-    if (leg.amountKobo <= 0n) {
+    if (leg.amount <= 0n) {
       // Rescaling against the fresh balance left this leg with nothing to
       // send — still release its share of the lock.
       await decrementPendingOperationLeg(pot.id);
       continue;
     }
 
-    const reference = `refund_${pot.id}_${leg.userId}_${randomUUID()}`;
+    // groupKey is either a real contributorUserId or a synthetic
+    // "anon:<contributionId>" (see the grouping above) — only ever put the
+    // former into metadata.contributorUserId, so that field stays a real
+    // user id or absent, never a synthetic string a future reader might
+    // mistake for one.
+    const isAnonymousGroup = leg.groupKey.startsWith("anon:");
+    const reference = `refund_${pot.id}_${leg.groupKey.replace(":", "-")}_${randomUUID()}`;
 
     const transaction = await LedgerService.postTransaction({
       type: "refund",
       reference,
       status: "processing",
       entries: [
-        { accountId: potAccount.id, direction: "debit", amountKobo: leg.amountKobo },
-        { accountId: platformFloat.id, direction: "credit", amountKobo: leg.amountKobo },
+        { accountId: potAccount.id, direction: "debit", amount: leg.amount },
+        { accountId: platformFloat.id, direction: "credit", amount: leg.amount },
       ],
-      metadata: { potId: pot.id, contributorUserId: leg.userId },
+      metadata: isAnonymousGroup
+        ? { potId: pot.id }
+        : { potId: pot.id, contributorUserId: leg.groupKey },
     });
     results.push(transaction);
 
     try {
       const transfer = await nomba.transferToBankAccount({
-        amount: Number(leg.amountKobo) / 100,
+        amount: Number(leg.amount) / 100,
         accountNumber: leg.destinationAccount,
         accountName: leg.accountName,
         bankCode: leg.destinationBank,

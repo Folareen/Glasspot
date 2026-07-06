@@ -17,7 +17,7 @@ const batch = await ReconciliationService.runForWindow(dateFrom, dateTo);
 
 console.log(
   `Reconciliation batch ${batch.id} [${batch.periodStart.toISOString()} - ${batch.periodEnd.toISOString()}]: ` +
-    `status=${batch.status} expected=${batch.expectedAmountKobo} reported=${batch.reportedAmountKobo}`
+    `status=${batch.status} expected=${batch.expectedAmount} reported=${batch.reportedAmount}`
 );
 
 process.exit(batch.status === "matched" ? 0 : 1);

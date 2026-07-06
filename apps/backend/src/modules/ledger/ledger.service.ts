@@ -14,7 +14,7 @@ import { DuplicateTransactionReferenceError, LedgerError, UnbalancedTransactionE
 export type LedgerEntryInput = {
   accountId: string;
   direction: "debit" | "credit";
-  amountKobo: bigint;
+  amount: bigint;
 };
 
 export type PostTransactionInput = {
@@ -34,13 +34,13 @@ function assertBalanced(entries: LedgerEntryInput[]): void {
   let debitTotal = 0n;
   let creditTotal = 0n;
   for (const entry of entries) {
-    if (entry.amountKobo <= 0n) {
-      throw new LedgerError("Ledger entry amountKobo must be positive");
+    if (entry.amount <= 0n) {
+      throw new LedgerError("Ledger entry amount must be positive");
     }
     if (entry.direction === "debit") {
-      debitTotal += entry.amountKobo;
+      debitTotal += entry.amount;
     } else {
-      creditTotal += entry.amountKobo;
+      creditTotal += entry.amount;
     }
   }
   if (debitTotal !== creditTotal) {
@@ -73,7 +73,7 @@ async function applyEntryToBalance(
     .for("update");
 
   const current = lockedBalance?.ledgerBalance ?? 0n;
-  const signedDelta = entry.direction === account.normalBalance ? entry.amountKobo : -entry.amountKobo;
+  const signedDelta = entry.direction === account.normalBalance ? entry.amount : -entry.amount;
   const next = current + signedDelta;
 
   if (lockedBalance) {
@@ -135,7 +135,7 @@ export const LedgerService = {
               status: input.status ?? "completed",
               reference: input.reference,
               externalReference: input.externalReference,
-              amountKobo: input.entries.filter((e) => e.direction === "debit").reduce((sum, e) => sum + e.amountKobo, 0n),
+              amount: input.entries.filter((e) => e.direction === "debit").reduce((sum, e) => sum + e.amount, 0n),
               metadata: input.metadata,
               completedAt: input.status === undefined || input.status === "completed" ? new Date() : undefined,
             })
@@ -163,7 +163,7 @@ export const LedgerService = {
             transactionId: created.id,
             accountId: entry.accountId,
             direction: entry.direction,
-            amountKobo: entry.amountKobo,
+            amount: entry.amount,
             balanceAfter,
           });
         }
@@ -211,7 +211,7 @@ export const LedgerService = {
     const reversedEntries: LedgerEntryInput[] = originalEntries.map((e) => ({
       accountId: e.accountId,
       direction: e.direction === "debit" ? "credit" : "debit",
-      amountKobo: e.amountKobo,
+      amount: e.amount,
     }));
 
     // postTransaction opens its own db.transaction internally; the status
