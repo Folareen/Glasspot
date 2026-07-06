@@ -141,6 +141,8 @@ export class TransferQueueService {
 
   > ⚠️ `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS` are now in `env.ts`'s validated zod schema and `.env.example`, but the values themselves (`10` / `1000`) are still **placeholders**. Need Nomba's actual documented `/transfer` rate limit before going live, set with headroom below their stated ceiling.
 
+- **Per-recipient throttle (resolved):** Nomba's dashboard shows a separate, narrower cap on `POST /v2/transfers/bank` — **5 transfers to the SAME recipient per minute** — independent of the global limiter above. A recurring payout config firing repeatedly to the same fixed destination, or several pots paying out to the same bank account within the same minute, can trip this even while comfortably under the global cap. `RedisTransferThrottle` (`src/integrations/nomba/transfer-throttle.ts`) tracks a sliding-window count per `destinationAccount:destinationBank`, atomically via a single Redis `EVAL` (`reserve()` — check-and-add in one script, so two jobs to the same recipient racing under `concurrency:5` can't both slip past the cap before either counts against it). The `transfersWorker` processor calls `reserve()` **before** dispatching to `processLedgerDisbursement`/`processContributionRefund` — if it returns false, the job is pushed back via `job.moveToDelayed()` + `throw new DelayedError()` (BullMQ's documented "this job was postponed, not failed" signal, so it does NOT count against `attempts:1` and does NOT emit `FailedJobTracker`'s `'failed'` event). The check happens this early specifically so a throttled job never reaches `processLedgerDisbursement`'s ledger-transaction-posting step — delaying afterward would make the resulting `DelayedError` propagate through that function's `catch` block as if a real Nomba call had failed, risking a wrongful reversal of a transaction that was never attempted.
+
 The handler resolves the destination account's name via `nomba.lookupBankAccount()` before building the `TransferParams` object for `nomba.transferToBankAccount()`:
 
 ```typescript
@@ -149,7 +151,7 @@ const response = await nomba.transferToBankAccount({
   accountNumber: destinationAccount,
   accountName: resolved.accountName,
   bankCode: destinationBank,
-  amount: Number(amount) / 100, // Nomba expects Naira, not kobo — confirmed
+  amountNaira: Number(koboToNairaString(amount)), // Nomba expects Naira, not kobo — confirmed
   merchantTxRef,                  // idempotency key, prevents double-send on retry
   senderName: PLATFORM_SENDER_NAME,
   narration,
@@ -161,7 +163,7 @@ const response = await nomba.transferToBankAccount({
 | `accountNumber` | `destinationAccount` |
 | `accountName` | Resolved via `nomba.lookupBankAccount()` at send time |
 | `bankCode` | `destinationBank` |
-| `amount` | `Number(amount) / 100` — ledger amount is kobo, Nomba's `/transfer` expects Naira |
+| `amountNaira` | `Number(koboToNairaString(amount))` — ledger amount is kobo, Nomba's `/transfer` expects Naira (see `docs/system-rules.md`'s money rule and `src/lib/money.ts`) |
 | `merchantTxRef` | `reference`/idempotency key |
 | `senderName` | Hardcoded `PLATFORM_SENDER_NAME` constant |
 
@@ -222,11 +224,12 @@ Resolved since this doc was first written:
 - [x] Get Nomba's actual `/transfer` rate limit and replace the placeholder `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `_DURATION_MS` values — partially resolved: both are now in `env.ts`'s validated schema and `.env.example`, but the values themselves are still guessed defaults pending Nomba's documented ceiling.
 - [x] Build admin routes for `FailedJobTracker.retry()` / `.ignore()` — `modules/scheduler/failed-jobs.route.ts` now exposes list/retry/ignore under `/api/v1/failed-jobs`, gated by the same allowlist pattern as `POST /banks/refresh`.
 - [x] Blind-reversal-on-ambiguous-failure — `processLedgerDisbursement`'s catch block now only reverses the ledger transaction on a confirmed-not-executed `NombaApiError` (non-zero HTTP status); a `status: 0` network/timeout error leaves the transaction `processing` and the lock held for the webhook/reconciliation to resolve later, rather than guessing.
+- [x] Nomba's per-recipient `/transfer` cap — confirmed via the Nomba dashboard's own rate-limit notice: 5 transfers to the SAME recipient per minute, separate from and narrower than the global `TRANSFER_RATE_LIMIT_MAX`/`_DURATION_MS` limiter. `RedisTransferThrottle` (`src/integrations/nomba/transfer-throttle.ts`) now enforces it per `destinationAccount:destinationBank` via an atomic Redis `EVAL`, delaying (not failing) a throttled job with `job.moveToDelayed()` + `DelayedError` before it ever reaches `processLedgerDisbursement` — see Flow 3 above.
 
 Still open:
 
 - [ ] Decide fate of `reconciliation-frequent` now that everything runs daily — still registered with `hoursBack: 1`, still redundant with `reconciliation-daily`. Delete it, or change `hoursBack` to `24`.
-- [ ] Nomba's actual `/transfer` rate limit — still a guessed default (`10`/`1000ms`), now at least validated/documented in `env.ts` and `.env.example`.
+- [ ] Nomba's actual GLOBAL `/transfer` rate limit — still a guessed default (`10`/`1000ms`) for `TRANSFER_RATE_LIMIT_MAX`/`_DURATION_MS`, now at least validated/documented in `env.ts` and `.env.example`. (The separate PER-RECIPIENT cap is resolved — see above.)
 - [ ] Give `server.ts` (the API process) a `SIGTERM`/`SIGINT` handler calling `app.close()` — it currently has none; the worker process's signal handling is separate and doesn't cover the Fastify app.
 - [ ] Revisit blanket `attempts: 1` on all transfer job types — this was the fix applied for "insufficient balance shouldn't blind-retry," but it also removes retries for transient Nomba/network failures, which now go straight to `failed_jobs` same as a real failure. Worth a distinct error type if transient-failure volume becomes noticeable.
 - [ ] No dedicated "get transaction status by reference" call exists against Nomba's API — only bulk/date-range `fetchTransactions`/`reconcile`. Would let the ambiguous-failure path above resolve proactively instead of waiting on the webhook/next reconciliation pass.
