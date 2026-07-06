@@ -1,5 +1,5 @@
 // src/worker.ts
-import { Worker, QueueEvents } from 'bullmq';
+import { Worker, QueueEvents, DelayedError, type Job } from 'bullmq';
 import { createRedisConnection } from '@/config/redis';
 import env from '@/config/env';
 import { QueueName, PayoutCronJob, TransferJob } from '@/queues/names';
@@ -12,6 +12,7 @@ import { AccountsService } from '@/modules/ledger/accounts.service';
 import { LedgerService } from '@/modules/ledger/ledger.service';
 import { nomba } from '@/integrations/nomba/index';
 import { NombaApiError } from '@/integrations/nomba/nomba.error';
+import { RedisTransferThrottle } from '@/integrations/nomba/transfer-throttle';
 import { clearPendingOperation, decrementPendingOperationLeg } from '@/modules/pots/pots.service';
 import type { DisbursementJobData } from '@/modules/scheduler/disbursement-job.types';
 import { koboToNairaString } from '@/lib/money';
@@ -58,6 +59,32 @@ const PLATFORM_SENDER_NAME = 'Glasspot';
 
 const TRANSFER_RATE_LIMIT_MAX = env.NOMBA_TRANSFER_RATE_LIMIT_MAX;
 const TRANSFER_RATE_LIMIT_DURATION_MS = env.NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS;
+
+// Nomba caps transfers to the SAME recipient at 5/minute (confirmed via
+// the Nomba dashboard's own rate-limit notice on POST /v2/transfers/bank),
+// independent of and much narrower than TRANSFER_RATE_LIMIT_MAX above
+// (which is global across every recipient). A recurring payout config
+// firing repeatedly to the same fixed destination, or several pots paying
+// out to the same bank account within the same minute, can trip this even
+// while comfortably under the global limit — see transfer-throttle.ts.
+const transferThrottleConnection = createRedisConnection();
+const transferThrottle = new RedisTransferThrottle(transferThrottleConnection);
+const TRANSFER_THROTTLE_RETRY_DELAY_MS = 15_000;
+
+/**
+ * Delays `job` and signals BullMQ it was deliberately postponed (not
+ * failed) by throwing DelayedError — the correct way to push a job back
+ * from inside an active processor (see BullMQ's own DelayedError doc
+ * comment). Distinct from the attempts:1/no-retry policy on every
+ * transfer job (see transfer-queue.service.ts): that policy stops a
+ * genuine failure from blind-retrying, but this isn't a failure at all —
+ * the job hasn't been attempted yet, it's just waiting for this
+ * recipient's per-minute window to free up.
+ */
+async function delayForThrottle(job: Job, token: string): Promise<never> {
+  await job.moveToDelayed(Date.now() + TRANSFER_THROTTLE_RETRY_DELAY_MS, token);
+  throw new DelayedError();
+}
 
 async function callNomba(data: DisbursementJobData) {
   const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
@@ -224,11 +251,30 @@ async function applyOnSuccess(onSuccess: DisbursementOnSuccess) {
 
 const transfersWorker = new Worker(
   QueueName.TRANSFERS,
-  async (job) => {
+  async (job, token) => {
      const startedAt = new Date().toISOString();
     console.log(`[transfer] ${job.name} (job ${job.id}) started at ${startedAt}`, job.data);
 
     const data = job.data as DisbursementJobData;
+
+    // Reserved BEFORE dispatching to either processor below — specifically
+    // so a throttled job gets pushed back before processLedgerDisbursement
+    // posts its ledger transaction (status 'processing') rather than
+    // after. Delaying post-posting would mean DelayedError propagates
+    // through that function's try/catch as if the transfer attempt itself
+    // had failed, wrongly reversing a transaction that was never actually
+    // attempted (see that function's own confirmedNotExecuted comment,
+    // which assumes any thrown error there came from a real Nomba call).
+    // reserve() is atomic (a single Redis EVAL) rather than a separate
+    // check-then-record pair, so two jobs to the SAME recipient racing
+    // under this worker's concurrency:5 can't both slip through before
+    // either counts against the cap.
+    if (!(await transferThrottle.reserve(data.destinationAccount, data.destinationBank))) {
+      console.log(
+        `[transfer] job ${job.id} delayed — recipient ${data.destinationBank}:${data.destinationAccount} at Nomba's per-recipient transfer cap`
+      );
+      await delayForThrottle(job, token as string);
+    }
 
     const result = data.kind === 'contribution_refund'
       ? await processContributionRefund(data)
