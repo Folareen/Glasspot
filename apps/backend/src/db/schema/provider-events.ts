@@ -1,19 +1,11 @@
 import { pgTable, uuid, text, jsonb, boolean, timestamp } from 'drizzle-orm/pg-core';
 
 /**
- * Log of every inbound webhook from a payment provider (Nomba). This is
- * the dedupe/idempotency layer for anything arriving from outside — insert
- * first, verify signature, then process (see docs comment order in the
- * reference material). eventId is the provider's own id and IS the
- * idempotency key: unique constraint means a redelivered webhook fails the
- * insert / conflicts, so the handler skips reprocessing instead of
- * re-applying the event.
- *
- * processed/processedAt track whether the business-logic side effect
- * (posting a transaction, etc.) actually ran — kept separate from the
- * insert itself since "we've seen this webhook" and "we've acted on it"
- * can legitimately be different instants (e.g. crash between insert and
- * processing, retried on next delivery of the same event).
+ * Log of every inbound webhook from Nomba — the dedupe/idempotency layer for inbound events
+ * (insert first, verify signature, then process). eventId is the provider's own id and is the
+ * idempotency key, unique so a redelivered webhook conflicts instead of reprocessing.
+ * processed/processedAt are tracked separately from the insert since "seen" and "acted on" can
+ * be different instants (e.g. a crash between insert and processing).
  */
 export const providerEvents = pgTable('provider_events', {
   id: uuid('id').primaryKey().defaultRandom(),

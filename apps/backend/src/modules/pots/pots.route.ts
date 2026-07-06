@@ -17,8 +17,6 @@ import {
   triggerRefundHandler,
   updateMemberRoleHandler,
   updatePotHandler,
-  // adminTriggerPayoutHandler, // new
-
 } from "./pots.controller";
 import { $ref } from "./pots.schema";
 import {
@@ -37,18 +35,7 @@ import {
 import { TransferQueueService } from "../scheduler/transfer-queue.service";
 import type { DisbursementJobData } from "@/modules/scheduler/disbursement-job.types";
 
-/**
- * Every route below passes its RouteGenericInterface as an explicit type
- * argument (e.g. server.post<{ Body: X }>(...)) instead of relying on
- * Fastify to infer it from `schema`. fastify-zod's $ref() schemas are
- * typed as { $ref: string } — not a real JSON Schema shape — so Fastify's
- * schema-based generic inference can't recover a concrete Params/Body
- * type from them and silently falls back to `unknown`, which then fails
- * to typecheck against each controller's explicitly-typed handler. This
- * bites `params` in particular (route.ts had zero params-schema routes
- * before this module, so the gap was latent, not something this module
- * introduced).
- */
+/** Registers all pot-related routes; each passes its RouteGenericInterface explicitly since fastify-zod's $ref() schemas can't be inferred by Fastify. */
 async function potsRoutes(server: FastifyInstance) {
   server.post<{ Body: CreatePotInput }>(
     "/",
@@ -264,18 +251,6 @@ async function potsRoutes(server: FastifyInstance) {
     },
     removeMemberHandler
   );
-
-  // server.post<{ Params: PotIdParams }>(
-  //   "/:id/admin-trigger-payout",
-  //   {
-  //     preHandler: [server.authenticate],
-  //     schema: {
-  //       params: $ref("potIdParamsSchema"),
-  //       response: { 202: {} },
-  //     },
-  //   },
-  //   adminTriggerPayoutHandler
-  // );
 
   server.post<{ Body: { amount?: string } }>("/transfers/test-payout", async (request, reply) => {
     const payload = {

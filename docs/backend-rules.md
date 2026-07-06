@@ -5,6 +5,6 @@ Money: integers (kobo) only everywhere internally — DB, ledger, service layer.
 Ledger: append-only. No UPDATE or DELETE on ledger_entries, contributions, payouts, refunds.
 Idempotency: every mutating method must be safe to call twice.
 State: use the defined enums. No new statuses without explicit instruction.
-Methods: descriptive names, one-line JSDoc explaining the "what" (purpose/behavior, not a tautology of the name). Use inline `//` comments for "why" — rationale, invariants, gotchas — only where non-obvious.
+Methods: descriptive names, one-line JSDoc explaining the "what" (purpose/behavior, not a tautology of the name). Use inline `//` comments for "why" — rationale, invariants, gotchas — only where non-obvious. Never restate the code in prose. Never leave commented-out code — delete it, git history is the record. Fix a stale comment the moment you notice it; a wrong comment is worse than none.
 No invented abstractions. No extra tables. No extra columns. Work with the schema given.
 When unsure, ask — do not assume and implement.

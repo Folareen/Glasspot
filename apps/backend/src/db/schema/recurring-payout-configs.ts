@@ -2,21 +2,10 @@ import { pgTable, uuid, text, bigint, integer, timestamp } from 'drizzle-orm/pg-
 import { pots } from './pots';
 
 /**
- * Payout rule for a pot with payoutMode = 'recurring'. Pays a fixed amount
- * to a single destination every intervalDays, repeating. nextRunAt is
- * advanced by intervalDays after each fire (execution logic is Milestone 2).
- *
- * One row per pot (potId unique). Set once while the pot is 'draft' and
- * immutable once the pot is 'open' — see pots.ts status semantics.
- *
- * Runs indefinitely until the pot is closed — no occurrence cap or end
- * date. No endsAt/maxOccurrences column.
- *
- * If pot balance is below amount when nextRunAt hits: fail and wait —
- * that occurrence must be satisfied before nextRunAt advances or any later
- * occurrence can fire. Not blind-retried; surfaced per system-rules.md's
- * "no silent failures". Execution/retry logic is Milestone 2 — no schema
- * column needed for this here.
+ * Payout rule for payoutMode='recurring': pays a fixed amount to a single destination every
+ * intervalDays, indefinitely until the pot closes (no occurrence cap). One row per pot, set
+ * during 'draft' and immutable once 'open'. If balance is below amount when nextRunAt hits, that
+ * occurrence must be satisfied before advancing — surfaced, never blind-retried.
  */
 export const recurringPayoutConfigs = pgTable('recurring_payout_configs', {
   id: uuid('id').primaryKey().defaultRandom(),

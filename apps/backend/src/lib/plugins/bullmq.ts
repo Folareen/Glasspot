@@ -13,15 +13,7 @@ declare module "fastify" {
   }
 }
 
-/**
- * Registers cron job schedulers on boot (idempotent — upsertJobScheduler
- * dedupes by id) and decorates the app with queue instances so routes can
- * enqueue jobs (e.g. an admin "trigger payout now" endpoint) without
- * reaching into @/queues/queues directly.
- *
- * Does NOT create any Workers — this process only enqueues/schedules.
- * Actual job processing happens in the separate worker.ts process.
- */
+/** Registers cron job schedulers on boot (idempotent) and decorates the app with queue instances so routes can enqueue jobs directly. Does not create Workers — job processing happens in the separate worker.ts process. */
 export default fp(async function bullmqPlugin(app: FastifyInstance) {
   app.decorate("queues", {
     payoutCron: payoutCronQueue,

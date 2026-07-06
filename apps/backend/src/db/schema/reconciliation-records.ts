@@ -3,17 +3,11 @@ import { settlementBatches } from './settlement-batches';
 import { transactions } from './transactions';
 
 /**
- * One row per reconciliation finding — every run INSERTS rows here rather
- * than mutating transactions directly, so discrepancy history and how each
- * was resolved is never lost (see reference doc's reconciliation logic).
- * settlementBatchId/transactionId are both nullable since a finding can
- * exist before either side is known: 'unmatched_external' means the
- * provider reported a transaction with no matching local transactionId at
- * all yet.
- *
- * status='amount_mismatch' is never auto-resolved — resolutionNote exists
- * specifically to record a human's manual review outcome, not an
- * automated one.
+ * One row per reconciliation finding — every run inserts rather than mutating transactions
+ * directly, so discrepancy history is never lost. settlementBatchId/transactionId are both
+ * nullable since a finding can exist before either side is known ('unmatched_external' = no
+ * matching local transaction yet). status='amount_mismatch' is never auto-resolved;
+ * resolutionNote records a human's manual review outcome.
  */
 export const reconciliationStatusEnum = pgEnum('reconciliation_status', [
   'matched',

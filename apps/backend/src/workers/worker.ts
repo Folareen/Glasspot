@@ -1,4 +1,3 @@
-// src/worker.ts
 import { Worker, QueueEvents, DelayedError, type Job } from 'bullmq';
 import { createRedisConnection } from '@/config/redis';
 import env from '@/config/env';
@@ -26,7 +25,7 @@ const transfersWorkerConnection = createRedisConnection();
 const cronEventsConnection = createRedisConnection();
 const transferEventsConnection = createRedisConnection();
 
-const handlers = new PayoutCronHandlers();
+const handlers = PayoutCronHandlers;
 
 // --- Cron/sweep worker: dispatch job.name -> handler method ---
 const cronDispatch: Record<string, (data: any) => Promise<unknown>> = {
@@ -71,16 +70,7 @@ const transferThrottleConnection = createRedisConnection();
 const transferThrottle = new RedisTransferThrottle(transferThrottleConnection);
 const TRANSFER_THROTTLE_RETRY_DELAY_MS = 15_000;
 
-/**
- * Delays `job` and signals BullMQ it was deliberately postponed (not
- * failed) by throwing DelayedError — the correct way to push a job back
- * from inside an active processor (see BullMQ's own DelayedError doc
- * comment). Distinct from the attempts:1/no-retry policy on every
- * transfer job (see transfer-queue.service.ts): that policy stops a
- * genuine failure from blind-retrying, but this isn't a failure at all —
- * the job hasn't been attempted yet, it's just waiting for this
- * recipient's per-minute window to free up.
- */
+/** Delays `job` and signals BullMQ it was deliberately postponed (not failed) via DelayedError — distinct from the attempts:1 no-retry policy, since the job was never actually attempted. */
 async function delayForThrottle(job: Job, token: string): Promise<never> {
   await job.moveToDelayed(Date.now() + TRANSFER_THROTTLE_RETRY_DELAY_MS, token);
   throw new DelayedError();
@@ -139,7 +129,6 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
 
     const { transfer } = await callNomba(data);
 
-    // inside processLedgerDisbursement, replacing the single mark_target_based_fired branch
     if (transfer.status === 'SUCCESS') {
       await LedgerService.markCompleted(transaction.id);
       await releaseLock(data);
@@ -185,14 +174,7 @@ function releaseLock(data: Extract<DisbursementJobData, { kind: 'payout' | 'pot_
   return data.isFanOutLeg ? decrementPendingOperationLeg(data.potId) : clearPendingOperation(data.potId);
 }
 
-/**
- * Contribution-expiry refund — the contribution never reached 'funded',
- * so no transactions/ledgerEntries row exists for it (see contributions.ts's
- * status comment: transactionId is only ever set once funded). Nothing to
- * reverse in the ledger; this just moves real money back to the original
- * sender and marks the specific payment refunded so ExpiryService's sweep
- * is idempotent per-payment.
- */
+/** Contribution-expiry refund — the contribution never reached 'funded' so nothing exists in the ledger to reverse; just moves money back to the sender and marks the payment refunded. */
 async function processContributionRefund(data: Extract<DisbursementJobData, { kind: 'contribution_refund' }>) {
   const { transfer } = await callNomba(data);
 
@@ -209,13 +191,7 @@ async function processContributionRefund(data: Extract<DisbursementJobData, { ki
   return transfer;
 }
 
-/**
- * Applies a job's declared side effect ONLY after the transfer has
- * actually succeeded — this is what makes fired/nextRunAt/leg-fired
- * state accurately reflect reality rather than "we attempted this,"
- * matching the schema comments' "only advance after actual success" rule
- * for recurring_payout_configs and scheduled_payout_configs.
- */
+/** Applies a job's declared side effect only after the transfer has actually succeeded, so fired/nextRunAt state reflects reality, not just an attempt. */
 async function applyOnSuccess(onSuccess: DisbursementOnSuccess) {
   switch (onSuccess.type) {
     case 'mark_target_based_fired':
@@ -252,7 +228,7 @@ async function applyOnSuccess(onSuccess: DisbursementOnSuccess) {
 const transfersWorker = new Worker(
   QueueName.TRANSFERS,
   async (job, token) => {
-     const startedAt = new Date().toISOString();
+    const startedAt = new Date().toISOString();
     console.log(`[transfer] ${job.name} (job ${job.id}) started at ${startedAt}`, job.data);
 
     const data = job.data as DisbursementJobData;

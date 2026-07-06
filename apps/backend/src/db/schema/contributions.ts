@@ -4,68 +4,30 @@ import { users } from './users';
 import { transactions } from './transactions';
 
 /**
- * One row per contribution attempt (see spec-mvp.md: one virtual account
- * per contribution). Tracks the funding lifecycle BEFORE any money has
- * actually moved — the ledger transaction (transactionId) only exists once
- * the provider confirms funding, since we never post to the ledger on a
- * client-supplied amount alone (see docs/system-rules.md). This table is
- * the source of truth for "did this contribution ever get paid," not the
- * ledger, which only knows about contributions that succeeded.
+ * One row per contribution attempt (one virtual account each). Tracks the funding lifecycle
+ * before any ledger posting happens — transactionId is only set once the provider confirms
+ * funding, never from a client-supplied amount.
  *
- * status:
- *   pending  - virtual account created, no funding webhook received yet.
- *   underpaid - at least one payment received (see contribution-payments.ts),
- *              but SUM(contribution_payments.amount) is still below
- *              expectedAmount — a top-up, not a terminal state. The
- *              virtual account stays open for further transfers until
- *              either the total reaches expectedAmount (-> funded) or
- *              expiresAt passes (-> failed, each payment refunded to its
- *              own sender — see ExpiryService).
- *   funded   - accumulated payments reached/exceeded expectedAmount;
- *              ledger transaction posted for exactly expectedAmount
- *              (never the received total — see system-rules.md); any
- *              excess on the payment that tipped it over is refunded via
- *              refundOverpayment(). transactionId set once posted.
- *   failed   - expiresAt passed while still pending/underpaid; virtual
- *              account released via Nomba's expire endpoint, any partial
- *              payments refunded individually to their own senders.
- *   reversed - was 'funded' (ledger transaction posted), then Nomba sent a
- *              payment_reversal for it — the credited funds were clawed
- *              back out. transactionId still points at the ORIGINAL
- *              contribution transaction; the reversing entry is a
- *              separate transaction (see LedgerService.reverseTransaction —
- *              ledger entries are never edited, only reversed forward).
+ * status: pending (account created, unfunded) -> underpaid (partial payment(s) received, still
+ * below expectedAmount, account stays open for more transfers) -> funded (total reached
+ * expectedAmount; ledger posts for exactly expectedAmount, any excess refunded via
+ * refundOverpayment()) or failed (expiresAt passed while pending/underpaid; each partial payment
+ * refunded to its own sender). funded can later become reversed if Nomba sends a
+ * payment_reversal; transactionId still points at the original transaction, the clawback is a
+ * separate reversing transaction (ledger entries are never edited).
  *
- * virtualAccountRef is OUR accountRef sent to Nomba (the idempotency key
- * for the createVirtualAccount call and what a retry re-derives).
- * virtualAccountNumber is Nomba's returned NUBAN, used to match the
- * incoming webhook back to this row. expiresAt is set at creation
- * (createdAt + a fixed window) and passed to Nomba as the virtual
- * account's own expiryDate — see ContributionsService.create.
+ * virtualAccountRef is our idempotency key sent to Nomba; virtualAccountNumber is Nomba's NUBAN
+ * used to match incoming webhooks.
  *
- * refundAccountNumber/refundAccountName/refundBank: only meaningful (and
- * only collected) for a pot with refundType='contributors' — the account
- * THIS contributor gets their own money back to, if the pot's refund ever
- * fires (see pots.ts refundTypeEnum). Structured, not free text, because
- * this is a real transfer destination: refundAccountName is the holder
- * name Nomba's own lookupBankAccount() resolved for refundAccountNumber +
- * refundBank, confirmed at contribution time rather than trusted from
- * client input (see docs/system-rules.md — same validate-before-storing
- * pattern used for every other payout/refund destination in this
- * codebase). Null for refundType='admin' pots, where the admin's own
- * profile destination is used instead (see users.ts).
+ * refundAccountNumber/refundAccountName/refundBank are only used for refundType='contributors'
+ * pots — refundAccountName is resolved via Nomba's lookup at contribution time, never trusted
+ * from client input. Null for refundType='admin' pots (the admin's own profile destination is
+ * used instead).
  *
- * contributorUserId is nullable: a public pot accepts contributions from
- * an unauthenticated caller too (spec.md: "public: anyone can view and
- * contribute"), and there is then no users row to attach. An anonymous
- * contributor to a refundType='contributors' pot MAY supply
- * refundAccountNumber/refundBankCode at contribution time (see
- * ContributionsService.create); if omitted, PotsService's
- * postContributorsRefund falls back to refunding each of this
- * contribution's actual funding payments to its own sender account
- * instead. Each anonymous contribution is refunded as its OWN independent
- * leg (see postContributorsRefund) — never grouped with another anonymous
- * contribution, since there is no shared identity to group them by.
+ * contributorUserId is nullable because public pots accept unauthenticated contributions. An
+ * anonymous contributor to a refundType='contributors' pot may supply a refund account; if
+ * omitted, postContributorsRefund falls back to refunding each underlying payment to its own
+ * sender, each as an independent leg (no shared identity to group anonymous contributions by).
  */
 export const contributionStatusEnum = pgEnum('contribution_status', [
   'pending',

@@ -11,26 +11,11 @@ import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { postFixedAmountDisbursement } from "./pots.service";
 
-/**
- * Enqueues due recurring/scheduled payouts (see recurring-payout-configs.ts
- * and scheduled-payout-configs.ts) onto the `transfers` queue — the actual
- * Nomba call and ledger completion happen later, in worker.ts, once the
- * job reaches the front of the queue. "fired"/"skipped" below mean
- * "successfully enqueued this sweep" / "not enqueued this sweep," not
- * "completed" — completion is now async (see postFixedAmountDisbursement).
- */
+/** Enqueues due recurring/scheduled payouts onto the `transfers` queue; "fired"/"skipped" mean enqueued/not-enqueued this sweep, not completed — the Nomba call and ledger completion happen later in the worker. */
 export const PayoutSchedulerService = {
-  /**
-   * For every OPEN pot's recurring_payout_configs row with nextRunAt due:
-   * enqueues a fixed-amount payout. nextRunAt only advances once the
-   * WORKER confirms the transfer actually succeeded (see
-   * advance_recurring_next_run_at in worker.ts) — NOT at enqueue time. If
-   * the pot's balance is below amount, per recurring-payout-configs.ts's
-   * own documented intent: skip this run, leave nextRunAt UNCHANGED (the
-   * occurrence must be satisfied before it advances), and surface via
-   * logging — not a silent drop (see docs/system-rules.md).
-   */
+  /** Enqueues a fixed-amount payout for every OPEN pot's due recurring_payout_configs row; underfunded pots are skipped and logged, leaving nextRunAt unchanged so the occurrence retries. */
   async fireDueRecurringPayouts(): Promise<{ fired: number; skipped: number }> {
+    // nextRunAt only advances once the worker confirms the transfer succeeded (advance_recurring_next_run_at), never at enqueue time.
     const due = await db
       .select({ config: recurringPayoutConfigs, pot: pots })
       .from(recurringPayoutConfigs)
@@ -73,28 +58,9 @@ export const PayoutSchedulerService = {
     return { fired, skipped };
   },
 
-  /**
-   * For every OPEN pot's scheduled payout config, enqueues due legs
-   * according to that pot's own `ordered` flag (see
-   * scheduled-payout-configs.ts):
-   *
-   * ordered=true (ajo/esusu rotation semantics): enqueues only the LOWEST
-   * sequenceOrder unfired leg once its scheduledDate is due — never a
-   * later leg while an earlier one is still unfired ("leg 2 cannot fire
-   * before leg 1"), even if the later leg's own scheduledDate has also
-   * passed. A stuck leg blocks the rest of that pot's legs from
-   * progressing until it succeeds, surfaced via logging each sweep.
-   *
-   * ordered=false (staged/installment disbursement semantics): enqueues
-   * EVERY unfired leg whose own scheduledDate is due, independently —
-   * one leg failing or not yet being due has no bearing on any other leg
-   * of the same pot.
-   *
-   * A leg only flips `fired` once the WORKER confirms its transfer
-   * actually succeeded (see mark_scheduled_leg_fired in worker.ts) — not
-   * at enqueue time.
-   */
+  /** Enqueues due scheduled-payout legs per pot: if `ordered`, only the lowest-sequence unfired leg fires, blocking later legs until it succeeds (ajo/esusu rotation); otherwise every due unfired leg fires independently. */
   async fireDueScheduledLegs(): Promise<{ fired: number; skipped: number }> {
+    // A leg only flips `fired` once the worker confirms its transfer succeeded (mark_scheduled_leg_fired), never at enqueue time.
     const openPots = await db
       .select({ config: scheduledPayoutConfigs, pot: pots })
       .from(scheduledPayoutConfigs)

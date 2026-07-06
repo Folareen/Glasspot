@@ -1,10 +1,6 @@
 import crypto from "crypto";
 
-/**
- * The `users` table only has a single `passwordHash` column (no separate
- * `salt` column like the old Prisma schema had), so the salt is embedded
- * directly in the stored string as `salt:hash`.
- */
+// users.passwordHash has no separate salt column, so the salt is embedded in the stored string as "salt:hash".
 const KEY_LENGTH = 64;
 
 /** Hashes a password with scrypt and a freshly generated random salt, returning them combined as "salt:hash". */

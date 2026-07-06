@@ -34,15 +34,7 @@ export class IdempotencyIndeterminateError extends Error {
   }
 }
 
-/**
- * fn() should throw this (wrapping the real cause) instead of a plain
- * error when it fails AFTER an irreversible external call may have gone
- * out (e.g. a Nomba transfer request that could have been accepted
- * server-side even though the response errored) and has no compensating
- * reversal of its own. Signals withIdempotencyKey to leave the key row in
- * 'failed_indeterminate' rather than deleting it — deleting would let a
- * client retry re-execute the external call from scratch.
- */
+/** Thrown by fn() instead of a plain error when it fails after an irreversible external call may have already gone out with no compensating reversal — signals withIdempotencyKey to leave the key row 'failed_indeterminate' instead of deleting it, so a retry can't re-execute that call. */
 export class IndeterminateFailureError extends Error {
   constructor(public readonly cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause));
@@ -55,44 +47,7 @@ export function hashRequest(parts: unknown): string {
   return createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 }
 
-/**
- * Wraps a mutating money endpoint's handler logic in the shared
- * idempotency_keys table (see docs/system-rules.md: "idempotency keys on
- * every mutating money endpoint... server stores result against it,
- * retries return the cached result instead of re-executing").
- *
- * First call for `key`: inserts an 'in_progress' row, runs `fn`, stores
- * its result as 'completed', returns it.
- * Repeat call, same key + same requestHash, status 'completed': returns
- * the cached { statusCode, body } WITHOUT calling `fn` again.
- * Repeat call, same key + same requestHash, status 'in_progress': throws
- * IdempotencyInProgressError (409) — no polling, per system-rules.md
- * discussion; the client's own retry will succeed once the first
- * request's row flips to 'completed'.
- * Repeat call, same key + DIFFERENT requestHash: throws
- * IdempotencyKeyReuseError (409) — reusing a key across different
- * requests is a client bug, not a retry, and must not silently replay
- * the wrong cached response.
- *
- * The insert of the 'in_progress' row is the race-safety mechanism: two
- * concurrent requests with the same key race on inserting the same
- * primary key, and only one wins (23505 unique violation) — the loser
- * re-reads the now-existing row and falls into the in_progress/completed
- * handling above instead of double-executing `fn`.
- *
- * If `fn` throws a plain error (a legitimate rejection like "pot has no
- * balance to pay out", or any failure it has already fully compensated
- * for itself — e.g. PotsService.postDisbursement's own internal
- * reversal-on-failure), the key row is DELETED rather than left
- * 'in_progress' forever — nothing outstanding remains, so the client must
- * be able to retry the same key from a clean slate.
- *
- * If `fn` throws an IndeterminateFailureError — a failure where an
- * external call may have already gone out with no compensating reversal —
- * the row is instead left 'failed_indeterminate' and a client retry with
- * the same key is permanently rejected via IdempotencyIndeterminateError,
- * since silently deleting it would risk re-executing that external call.
- */
+/** Runs `fn` under an idempotency key: first call executes and caches the result as 'completed'; a repeat with the same key+requestHash returns the cached result (or 409s if still 'in_progress'); a repeat with a different requestHash 409s as key reuse; on a plain throw the key is deleted so the client can retry clean, but on IndeterminateFailureError it's left 'failed_indeterminate' and permanently rejected. Race-safe because concurrent inserts of the same key collide on the primary key (23505) and the loser falls into the read path instead of double-running `fn`. */
 export async function withIdempotencyKey<T extends { statusCode: number; body: unknown }>(
   key: string,
   requestHash: string,

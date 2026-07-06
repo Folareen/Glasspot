@@ -2,12 +2,7 @@ import { and, eq } from "drizzle-orm";
 import db, { pots, potMembers, type Pot } from "@/db";
 import { PotError, PotNotFoundError } from "./pots.errors";
 
-/**
- * Loads a pot and enforces private-pot visibility in one place: a
- * non-member requesting a private pot gets the same 404 as a pot that
- * doesn't exist at all, so existence of private pots is never leaked.
- * userId is the requester if authenticated, undefined if anonymous.
- */
+/** Loads a pot, 404-ing a private pot the caller isn't a member of the same as a nonexistent one (never leaks existence). */
 export async function getViewablePotOrThrow(potId: string, userId: string | undefined): Promise<Pot> {
   const [pot] = await db.select().from(pots).where(eq(pots.id, potId)).limit(1);
   if (!pot) {
@@ -52,11 +47,7 @@ export async function getMemberRole(potId: string, userId: string): Promise<"adm
   return row?.role ?? null;
 }
 
-/**
- * Throws unless userId holds the 'admin' role on this pot. This is the
- * only authority check in the system — there is no separate 'creator'
- * privilege (see pot-members.ts schema comment).
- */
+/** Throws unless userId holds the 'admin' role on this pot — the only authority check in the system, there is no separate 'creator' privilege. */
 export async function assertIsAdmin(potId: string, userId: string | undefined): Promise<void> {
   if (!userId) {
     throw new PotError("Authentication required", 401);

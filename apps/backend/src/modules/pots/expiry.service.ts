@@ -3,33 +3,13 @@ import db, { contributions, contributionPayments } from "@/db";
 import { nomba } from "@/integrations/nomba";
 import { TransferQueueService } from "../scheduler/transfer-queue.service";
 
-/**
- * Sweeps virtual accounts whose funding window has closed without
- * reaching expectedAmount (see contributions.ts's expiresAt/status
- * comments). For each: refunds every recorded contribution_payments row
- * individually to ITS OWN sender (not a single lump sum — two different
- * people may have each partially funded the same virtual account, and
- * each gets exactly what they sent back), marks the contribution
- * 'failed', and releases the virtual account on Nomba's side so it stops
- * counting against that contributor's 2-account cap.
- *
- * Scheduled via CronSchedulerService's expiry-sweep cron entry, running in
- * worker.ts's payoutCronWorker.
- */
+/** Sweeps expired, underfunded virtual accounts: refunds each contribution_payments row to its own sender, marks the contribution 'failed', and releases the Nomba virtual account. Scheduled via CronSchedulerService's expiry-sweep cron entry. */
 export const ExpiryService = {
-  /**
-   * Runs one sweep pass. Enqueues a contribution-refund job per
-   * unrefunded payment rather than calling Nomba directly — routes
-   * through the same rate-limited transfers queue as every other
-   * disbursement. A contribution is only marked 'failed' once ALL of
-   * its payments were successfully HANDED OFF to the queue — if any
-   * enqueue call fails (e.g. Redis unreachable), the contribution stays
-   * pending/underpaid so the NEXT sweep retries the whole thing, rather
-   * than silently stranding a payment that never got a job created for
-   * it. "refundedPayments" below means "successfully enqueued," not
-   * "money has moved" — actual completion happens async in the worker.
-   */
+  /** Runs one sweep pass, enqueueing a contribution-refund job per unrefunded payment through the transfers queue rather than calling Nomba directly. */
   async sweepExpiredContributions(): Promise<{ expiredContributions: number; refundedPayments: number }> {
+    // A contribution is only marked 'failed' once ALL its payments are successfully enqueued — if any enqueue
+    // fails, it stays pending/underpaid so the next sweep retries rather than stranding an unqueued payment.
+    // "refundedPayments" below means "enqueued," not "money moved" — completion happens async in the worker.
     const expired = await db
       .select()
       .from(contributions)

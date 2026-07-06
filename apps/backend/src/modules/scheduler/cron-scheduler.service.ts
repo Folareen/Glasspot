@@ -21,8 +21,8 @@ const schedules: ScheduleDef[] = [
   { id: 'reconciliation-daily', jobName: PayoutCronJob.RECONCILIATION, pattern: '4 0 * * *', data: { hoursBack: 24 } },
 ];
 
-export class CronSchedulerService {
-  static async registerAll() {
+export const CronSchedulerService = {
+  async registerAll() {
     for (const s of schedules) {
       await payoutCronQueue.upsertJobScheduler(
         s.id,
@@ -30,5 +30,5 @@ export class CronSchedulerService {
         { name: s.jobName, data: s.data ?? {} }
       );
     }
-  }
-}
+  },
+};

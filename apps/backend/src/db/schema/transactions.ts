@@ -1,23 +1,12 @@
 import { pgTable, uuid, text, bigint, timestamp, pgEnum, jsonb } from 'drizzle-orm/pg-core';
 
 /**
- * The business-readable wrapper around a real-world money event — "user
- * funded wallet," "user contributed to pot," "pot paid out." One
- * transaction can (and for fees, always does) spawn multiple ledgerEntries
- * rows. status here is the transaction's own lifecycle, not any single
- * entry's — entries themselves have no status, they're immutable once
- * written (see ledger-entries.ts).
- *
- * reference is OUR idempotency key (caller-supplied or derived), unique so
- * a retried request can never double-post. externalReference is Nomba's
- * transaction id, used to match against provider_events/reconciliation —
- * nullable since purely-internal transactions (a contribution moving
- * wallet -> pot) never touch Nomba at all.
- *
- * amount (a kobo integer, per docs/system-rules.md) is informational/gross
- * only — the real truth of what moved where is always the sum of this
- * transaction's ledgerEntries, never this column. Never derive a balance
- * from it.
+ * The business-readable wrapper around a money event (funding, contribution, payout, etc); one
+ * transaction can spawn multiple ledgerEntries rows. status is the transaction's own lifecycle —
+ * entries themselves are immutable and have no status. reference is our idempotency key, unique
+ * so a retry never double-posts; externalReference is Nomba's id, nullable for purely-internal
+ * transactions. amount is informational/gross only — never derive a balance from it, only from
+ * the sum of this transaction's ledgerEntries.
  */
 export const transactionTypeEnum = pgEnum('transaction_type', [
   'funding',

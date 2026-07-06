@@ -29,12 +29,8 @@ const EnvSchema = z.object({
   NOMBA_ACCOUNT_ID: z.string(),
   NOMBA_SUBACCOUNT_ID: z.string(),
   NOMBA_WEBHOOK_SECRET: z.string(),
-  // Global rate limit against Nomba's /transfer endpoint, applied across
-  // every job the transfers worker processes (payouts + refunds combined
-  // — see worker.ts's transfersWorker limiter). Still placeholder
-  // defaults — replace with Nomba's actual documented /transfer rate
-  // limit (with headroom below their stated ceiling) before going live
-  // (see docs/bullmq-architecture.md's open items).
+  // Global rate limit against Nomba's /transfer endpoint across all transfer worker jobs.
+  // Placeholder defaults — replace with Nomba's documented limit (with headroom) before launch.
   NOMBA_TRANSFER_RATE_LIMIT_MAX: z.coerce.number().default(10),
   NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS: z.coerce.number().default(1000),
   REDIS_URL: z.string(),
@@ -44,10 +40,8 @@ const EnvSchema = z.object({
   SMTP_PASSWORD: z.string(),
   MAIL_FROM: z.string().default("Glasspot <no-reply@glasspot.app>"),
   BULL_BOARD_ENABLED: stringBoolean,
-  // Comma-separated user ids allowed to force-refresh the cached bank list
-  // (POST /banks/refresh) — there's no general staff/admin role in this
-  // codebase yet (see pot-authorization.ts: "admin" there is per-pot, not
-  // global), so this is a narrow allowlist rather than a new role concept.
+  // Comma-separated user ids allowed to force-refresh the cached bank list — a narrow allowlist
+  // since there's no general staff/admin role yet ("admin" elsewhere is per-pot, not global).
   BANKS_REFRESH_ALLOWED_USER_IDS: z.string().default(""),
 });
 

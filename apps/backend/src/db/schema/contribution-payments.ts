@@ -2,24 +2,12 @@ import { pgTable, uuid, text, bigint, boolean, timestamp } from 'drizzle-orm/pg-
 import { contributions } from './contributions';
 
 /**
- * One row per INBOUND TRANSFER against a contribution's virtual account —
- * not one row per contribution. A single virtual account can legitimately
- * receive more than one transfer (top-up toward an underpaid contribution,
- * or two different people paying into the same account), and each
- * transfer has its own sender to refund if the contribution ultimately
- * expires unfunded — see contributions.ts's expiresAt/ContributionsService
- * comments. contributions.receivedAmount does not exist as a stored
- * column; the running total is always SUM(amount) over this table (kobo
- * integer, per docs/system-rules.md), same "derive, never store"
- * principle as ledger balances.
- *
- * nombaTransactionId is Nomba's own transaction id for this specific
- * transfer (payment.transaction.transactionId on the funding webhook) and
- * is unique — the dedupe key for a redelivered payment_success webhook
- * for the SAME transfer, distinct from provider_events' top-level
- * requestId dedupe (see nomba-webhooks.service.ts) which only protects
- * against redelivery of one event, not against double-crediting if two
- * different webhook events ever pointed at the same underlying transfer.
+ * One row per inbound transfer against a contribution's virtual account, not per contribution —
+ * a single account can receive multiple transfers (top-ups, multiple payers), each with its own
+ * sender to refund if the contribution expires unfunded. Received total is always SUM(amount)
+ * here, never a stored column (same derive-never-store principle as ledger balances).
+ * nombaTransactionId is Nomba's own id for this transfer and is the dedupe key for a redelivered
+ * payment_success webhook, distinct from provider_events' event-level dedupe.
  */
 export const contributionPayments = pgTable('contribution_payments', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -31,10 +19,8 @@ export const contributionPayments = pgTable('contribution_payments', {
   senderAccountNumber: text('sender_account_number').notNull(),
   senderBankCode: text('sender_bank_code').notNull(),
   senderName: text('sender_name').notNull(),
-  // Set true once ExpiryService has sent this specific payment's refund
-  // back to senderAccountNumber — makes the sweep idempotent per-payment
-  // rather than per-contribution (see ExpiryService: two payments on one
-  // expired contribution refund independently).
+  // True once ExpiryService has refunded this payment back to senderAccountNumber — makes the
+  // expiry sweep idempotent per-payment rather than per-contribution.
   refunded: boolean('refunded').notNull().default(false),
   receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
 });

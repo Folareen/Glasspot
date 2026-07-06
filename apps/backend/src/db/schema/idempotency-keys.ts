@@ -1,23 +1,12 @@
 import { pgTable, text, jsonb, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 
 /**
- * Dedupe layer for OUR OWN API calls (not inbound webhooks — see
- * provider-events.ts for that side). key is client-supplied (e.g. a hash
- * of user+action+nonce) and is the primary key: a retried request with the
- * same key returns the cached `response` instead of re-executing the
- * mutation. requestHash detects key reuse against a *different* payload,
- * which is a client bug, not a legitimate retry, and should be rejected
- * rather than silently replayed.
- *
- * status is 'in_progress' for the window between "we accepted this
- * request" and "we finished handling it" — a concurrent duplicate request
- * arriving in that window should not re-execute the mutation either
- * (checked at the service layer, not enforced by a DB constraint here).
- * 'failed_indeterminate' is for a failure where an external side effect
- * (e.g. a Nomba transfer call) may have already gone out before the
- * failure — the row is deliberately NOT deleted in that case (see
- * idempotency.service.ts), so a client retry is rejected rather than
- * silently re-executing a possibly-already-sent external call.
+ * Dedupe layer for our own mutating API calls (not inbound webhooks — see provider-events.ts).
+ * key is client-supplied and primary; a retry with the same key returns the cached `response`.
+ * requestHash catches key reuse with a different payload (a client bug, rejected not replayed).
+ * status='in_progress' blocks a concurrent duplicate from re-executing; 'failed_indeterminate'
+ * means an external side effect (e.g. a Nomba transfer) may already have fired, so the row is
+ * kept and a retry is rejected rather than risking a second call.
  */
 export const idempotencyStatusEnum = pgEnum('idempotency_status', ['in_progress', 'completed', 'failed_indeterminate']);
 

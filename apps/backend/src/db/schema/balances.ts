@@ -3,23 +3,11 @@ import { sql } from 'drizzle-orm';
 import { accounts } from './accounts';
 
 /**
- * Materialized running balance per account, updated atomically in the same
- * DB transaction as the ledgerEntries that affect it — so reads never need
- * to SUM(ledger_entries) on every request. Ledger entries remain the
- * source of truth; this table is a derived cache that must always be
- * reconstructable from them (see sanity checks in system-rules.md).
- *
- * ledgerBalance = everything posted. availableBalance = ledgerBalance minus
- * active holds (not modeled yet in this build — no holds table exists, so
- * availableBalance currently always equals ledgerBalance; kept as a
- * separate column now so adding holds later doesn't require a migration).
- *
- * version is incremented on every write for audit/debugging visibility,
- * but is NOT itself a lock — ledger.service.ts's real protection against
- * two concurrent postings on the same account racing each other is the
- * pessimistic `SELECT ... FOR UPDATE` taken before this row is read
- * (see system-rules.md's locking requirement). Do not rely on this
- * column for a lock-free/optimistic-locking code path; none exists.
+ * Materialized running balance per account, written atomically in the same DB transaction as
+ * the ledgerEntries that produced it — a read cache, never the source of truth. availableBalance
+ * currently always equals ledgerBalance (no holds table yet); kept separate to avoid a migration
+ * later. version is for audit visibility only, not a lock — concurrency is protected by
+ * `SELECT ... FOR UPDATE` in ledger.service.ts, not optimistic locking on this column.
  */
 export const balances = pgTable('balances', {
   accountId: uuid('account_id')

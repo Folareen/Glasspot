@@ -4,24 +4,13 @@ import { transactions } from './transactions';
 import { accounts } from './accounts';
 
 /**
- * The actual debit/credit lines — append-only, immutable, source of truth
- * for every balance in the system. No UPDATE or DELETE ever touches this
- * table (see docs/system-rules.md); correcting a mistake means posting a
- * new transaction with reversing entries, never editing history.
- *
- * amount (a kobo integer) is always positive; direction alone carries the sign meaning
- * (debit vs credit), same convention as the reference doc. balanceAfter is
- * a running-balance snapshot on this entry's account immediately after
- * this entry was applied — an audit trail column, not the read path for
- * "what's the balance now" (that's `balances`, updated atomically
- * alongside this insert in the same DB transaction — see ledger.service.ts).
- *
- * The debits==credits-per-transaction invariant is enforced in
- * ledger.service.ts's postTransaction inside a single DB transaction, not
- * by a DB constraint here — Postgres has no portable way to assert an
- * aggregate over sibling rows at insert time without a deferred trigger,
- * and "abort the whole DB transaction if the check fails before commit"
- * from application code gives the same guarantee.
+ * The debit/credit lines — append-only, immutable, source of truth for every balance. No UPDATE
+ * or DELETE ever touches this table; a correction posts a new reversing transaction instead.
+ * amount (kobo, always positive) with direction carrying the sign; balanceAfter is an audit
+ * snapshot only, not the balance read path (that's `balances`, updated in the same transaction).
+ * The debits==credits-per-transaction invariant is enforced in ledger.service.ts's
+ * postTransaction, not by a DB constraint (no portable way to assert a sibling-row aggregate at
+ * insert time).
  */
 export const ledgerDirectionEnum = pgEnum('ledger_direction', ['debit', 'credit']);
 

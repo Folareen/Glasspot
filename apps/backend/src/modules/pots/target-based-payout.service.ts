@@ -5,20 +5,10 @@ import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { postFixedAmountDisbursement } from "./pots.service";
 
-/**
- * Fires due target_based payouts automatically — targetDate reached or
- * targetAmount reached. Purely rule-driven: there is no admin-manual
- * trigger for this mode (PotsService.triggerPayout has no target_based
- * branch — see that method's top comment). Fires the pot's FULL current balance,
- * matching target_based's documented "pays out once" semantic (unlike
- * recurring/rotation's fixed amount per occurrence).
- *
- * config.fired only flips true once the WORKER confirms the transfer
- * actually succeeded (see mark_target_based_fired in worker.ts) — never
- * here at enqueue time, so a failed transfer leaves the condition
- * eligible to retry next sweep rather than being silently dropped.
- */
+/** Fires due target_based payouts automatically (targetDate or targetAmount reached) by disbursing the pot's full balance — this mode has no admin-manual trigger and pays out once. */
 export const TargetBasedPayoutService = {
+  // config.fired only flips true once the worker confirms the transfer succeeded (mark_target_based_fired),
+  // never at enqueue time, so a failed transfer stays eligible to retry next sweep rather than being dropped.
   async fireDueTargetBasedPayouts(): Promise<{ fired: number; skipped: number }> {
     const due = await db
       .select({ config: targetBasedPayoutConfigs, pot: pots })
