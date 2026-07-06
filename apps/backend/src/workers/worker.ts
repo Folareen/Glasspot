@@ -53,7 +53,7 @@ const TRANSFER_RATE_LIMIT_DURATION_MS = Number(process.env.NOMBA_TRANSFER_RATE_L
 
 async function callNomba(data: DisbursementJobData) {
   const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
-  const amount = BigInt(data.amountKobo);
+  const amount = BigInt(data.amount);
 
   const transfer = await nomba.transferToBankAccount({
     amount: Number(amount) / 100, // Nomba expects Naira, not kobo — confirmed
@@ -75,7 +75,7 @@ async function callNomba(data: DisbursementJobData) {
 async function processLedgerDisbursement(data: Extract<DisbursementJobData, { kind: 'payout' | 'pot_refund' }>) {
   const potAccount = await AccountsService.getOrCreatePotAccount(data.potId);
   const platformFloat = await AccountsService.getOrCreateSystemAccount('platform_float');
-  const amount = BigInt(data.amountKobo);
+  const amount = BigInt(data.amount);
 
   const balance = await LedgerService.getBalance(potAccount.id);
   if (balance < amount) {
@@ -90,8 +90,8 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
       reference: data.reference,
       status: 'processing',
       entries: [
-        { accountId: potAccount.id, direction: 'debit', amountKobo: amount },
-        { accountId: platformFloat.id, direction: 'credit', amountKobo: amount },
+        { accountId: potAccount.id, direction: 'debit', amount: amount },
+        { accountId: platformFloat.id, direction: 'credit', amount: amount },
       ],
       metadata: data.contributorUserId
         ? { potId: data.potId, contributorUserId: data.contributorUserId }

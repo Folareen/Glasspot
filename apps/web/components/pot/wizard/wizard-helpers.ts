@@ -22,7 +22,7 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
       return {
         destinationAccount: state.recurringDestinationAccount,
         destinationBank: state.recurringDestinationBank,
-        amountKobo: toKobo(state.recurringAmountNaira),
+        amount: toKobo(state.recurringAmountNaira),
         intervalDays: Number(state.recurringIntervalDays) || 30,
         nextRunAt: toIsoDate(state.recurringNextRunAt),
       };
@@ -31,7 +31,7 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
         ordered: state.scheduledOrdered,
         legs: state.scheduledLegs.map((leg) => ({
           ...leg,
-          amountKobo: toKobo(leg.amountKobo),
+          amount: toKobo(leg.amount),
           scheduledDate: toIsoDate(leg.scheduledDate),
         })),
       };
@@ -41,7 +41,7 @@ export function buildPayoutConfig(state: WizardState): PayoutConfig {
         destinationAccount: state.targetDestinationAccount,
         destinationBank: state.targetDestinationBank,
         targetDate: state.targetDate ? toIsoDate(state.targetDate) : undefined,
-        targetAmountKobo: state.targetAmountNaira ? toKobo(state.targetAmountNaira) : undefined,
+        targetAmount: state.targetAmountNaira ? toKobo(state.targetAmountNaira) : undefined,
       };
   }
 }
@@ -64,7 +64,7 @@ export function isConfigStepValid(state: WizardState) {
       return (
         state.scheduledLegs.length > 0 &&
         state.scheduledLegs.every(
-          (leg) => leg.destinationAccount && leg.destinationBank && leg.amountKobo && leg.scheduledDate
+          (leg) => leg.destinationAccount && leg.destinationBank && leg.amount && leg.scheduledDate
         )
       );
     case "target_based":

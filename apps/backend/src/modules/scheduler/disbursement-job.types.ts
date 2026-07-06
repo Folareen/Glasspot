@@ -15,7 +15,7 @@ interface LedgerDisbursementJobData extends BaseDisbursementJobData {
 export type DisbursementKind = "payout" | "pot_refund" | "contribution_refund";
 
 interface BaseDisbursementJobData {
-  amountKobo: string; // bigint travels as string over JSON — see prior note
+  amount: string; // kobo integer; bigint travels as string over JSON — see prior note
   destinationAccount: string;
   destinationBank: string;
   reference: string;

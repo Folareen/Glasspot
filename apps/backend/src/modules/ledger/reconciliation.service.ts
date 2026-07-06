@@ -9,8 +9,8 @@ import { nomba } from "@/integrations/nomba";
 import type { LocalPaymentRecord, ReconciliationLineItem, ReconciliationStatus } from "@/integrations/nomba/nomba.types";
 
 /** Nomba amounts are naira; our ledger is kobo integers (docs/system-rules.md) — this module converts at the boundary only, never storing/comparing a float against a kobo value directly. */
-function koboToNaira(amountKobo: bigint): number {
-  return Number(amountKobo) / 100;
+function koboToNaira(amount: bigint): number {
+  return Number(amount) / 100;
 }
 
 /** A reconcile() line item's own status vocabulary doesn't map 1:1 onto reconciliation_records' — this is the single place that translates between them. */
@@ -49,7 +49,7 @@ export const ReconciliationService = {
    */
   async runForWindow(dateFrom: Date, dateTo: Date): Promise<SettlementBatch> {
     const expectedInWindow = await db
-      .select({ reference: transactions.reference, amountKobo: transactions.amountKobo })
+      .select({ reference: transactions.reference, amount: transactions.amount })
       .from(transactions)
       .where(
         and(
@@ -66,7 +66,7 @@ export const ReconciliationService = {
         batchReference: `nomba_${dateFrom.toISOString()}_${dateTo.toISOString()}`,
         periodStart: dateFrom,
         periodEnd: dateTo,
-        expectedAmountKobo: expectedInWindow.reduce((sum, r) => sum + r.amountKobo, 0n),
+        expectedAmount: expectedInWindow.reduce((sum, r) => sum + r.amount, 0n),
       })
       .returning();
 
@@ -77,7 +77,7 @@ export const ReconciliationService = {
       findLocalByRef: async (merchantTxRef): Promise<LocalPaymentRecord | null> => {
         const [transaction] = await db.select().from(transactions).where(eq(transactions.reference, merchantTxRef));
         if (!transaction) return null;
-        return { amount: koboToNaira(transaction.amountKobo) };
+        return { amount: koboToNaira(transaction.amount) };
       },
       listExpectedRefs: async () => expectedInWindow.map((r) => r.reference),
       onLineItem: async (item: ReconciliationLineItem) => {
@@ -93,10 +93,10 @@ export const ReconciliationService = {
           
           
           // both lines below will throw an error cos of bigint, comment below can be used instead
-          internalAmountKobo: item.localAmount != null ? BigInt(Math.round(item.localAmount * 100)) : undefined,
-          externalAmountKobo: item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
-          // internalAmountKobo: Number.isFinite(item.localAmount) ? BigInt(Math.round(item.localAmount * 100)) : undefined,
-          // externalAmountKobo: Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
+          internalAmount: item.localAmount != null ? BigInt(Math.round(item.localAmount * 100)) : undefined,
+          externalAmount: item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
+          // internalAmount: Number.isFinite(item.localAmount) ? BigInt(Math.round(item.localAmount * 100)) : undefined,
+          // externalAmount: Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : undefined,
           
           
           
@@ -114,11 +114,11 @@ export const ReconciliationService = {
     
     
     // this will also throw an error cos of big int, comment below can be used instead
-    const reportedAmountKobo = report.lineItems.reduce(
+    const reportedAmount = report.lineItems.reduce(
       (sum, item) => sum + (item.nombaAmount != null ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
       0n
     );
-    // const reportedAmountKobo = report.lineItems.reduce(
+    // const reportedAmount = report.lineItems.reduce(
     //   (sum, item) => sum + (Number.isFinite(item.nombaAmount) ? BigInt(Math.round(item.nombaAmount * 100)) : 0n),
     //   0n
     // );
@@ -133,7 +133,7 @@ export const ReconciliationService = {
 
     const [updated] = await db
       .update(settlementBatches)
-      .set({ reportedAmountKobo, status: allMatched ? "matched" : "mismatched" })
+      .set({ reportedAmount, status: allMatched ? "matched" : "mismatched" })
       .where(eq(settlementBatches.id, batch.id))
       .returning();
 

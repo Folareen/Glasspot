@@ -28,12 +28,12 @@ export type Destination = {
 };
 
 // No admin-manual-trigger option: target_based is purely rule-driven,
-// fires once via targetDate/targetAmountKobo only. A group wanting
+// fires once via targetDate/targetAmount only. A group wanting
 // "fixed destination, admin releases whenever" should pick manual mode
 // with a destination set instead — see ManualPayoutConfig below.
 export type TargetBasedPayoutConfig = Destination & {
   targetDate?: string;
-  targetAmountKobo?: string;
+  targetAmount?: string;
 };
 
 // Manual mode's destination is optional. If unset, the group's agreed
@@ -46,14 +46,14 @@ export type TargetBasedPayoutConfig = Destination & {
 export type ManualPayoutConfig = Partial<Destination>;
 
 export type RecurringPayoutConfig = Destination & {
-  amountKobo: string;
+  amount: string;
   intervalDays: number;
   nextRunAt: string;
 };
 
 export type ScheduledLeg = Destination & {
   sequenceOrder: number;
-  amountKobo: string;
+  amount: string;
   scheduledDate: string;
   firedAt?: string | null;
 };
@@ -80,15 +80,21 @@ export type PotResponse = {
   payoutConfig: PayoutConfig;
   refundType: RefundType;
   shareSlug: string;
-  minContributionKobo: string;
-  maxContributionKobo: string | null;
+  minContribution: string;
+  maxContribution: string | null;
+  // Optional, display-only fundraising goal for ANY payout mode — purely
+  // informational, never read by trigger/payout logic. Distinct from
+  // target_based's payoutConfig.targetAmount, which actually fires a
+  // payout once reached.
+  goalAmount: string | null;
   activatedAt: string | null;
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  // Demo-only derived fields (not on the real wire type) used to render
-  // list/detail views without recomputing from a full ledger each time.
-  balanceKobo: string;
+  // Both real wire fields: balance is the pot's current ledger
+  // balance (server-computed, see PotsService.getBalance), pendingOperation
+  // mirrors the pots.pending_operation column.
+  balance: string;
   pendingOperation: "payout" | "refund" | null;
 };
 
@@ -110,7 +116,7 @@ export type TransactionResponse = {
   status: TransactionStatus;
   reference: string;
   externalReference: string | null;
-  amountKobo: string;
+  amount: string;
   createdAt: string;
   // Demo-only display fields.
   potId: string;
@@ -122,11 +128,12 @@ export type TransactionResponse = {
 export type ContributionResponse = {
   id: string;
   potId: string;
-  contributorUserId: string;
+  // null for an anonymous, unauthenticated contribution to a public pot.
+  contributorUserId: string | null;
   virtualAccountRef: string;
   virtualAccountNumber: string | null;
-  expectedAmountKobo: string;
-  paidAmountKobo: string;
+  expectedAmount: string;
+  paidAmount: string;
   status: ContributionStatus;
   anonymous: boolean;
   refundAccountNumber: string | null;

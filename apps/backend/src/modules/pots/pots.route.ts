@@ -140,10 +140,15 @@ async function potsRoutes(server: FastifyInstance) {
     triggerRefundHandler
   );
 
+  // optionalAuthenticate, not authenticate: a public pot accepts
+  // contributions from an unauthenticated caller too (docs/spec.md —
+  // "public: anyone can view and contribute"). Visibility for a private
+  // pot is still enforced inside ContributionsService.create via
+  // getViewablePotOrThrow, which 404s an anonymous or non-member caller.
   server.post<{ Params: PotIdParams; Body: ContributeInput }>(
     "/:id/contributions",
     {
-      preHandler: [server.authenticate],
+      preHandler: [server.optionalAuthenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
         body: $ref("contributeSchema"),
@@ -215,11 +220,11 @@ async function potsRoutes(server: FastifyInstance) {
   //   adminTriggerPayoutHandler
   // );
 
-  server.post<{ Body: { amountKobo?: string } }>("/transfers/test-payout", async (request, reply) => {
+  server.post<{ Body: { amount?: string } }>("/transfers/test-payout", async (request, reply) => {
     const payload = {
       kind: "payout",
       potId: "test-pot-id",
-      amountKobo: request.body?.amountKobo ?? "10000",
+      amount: request.body?.amount ?? "10000",
       destinationAccount: "1000000001",
       destinationBank: "000013",
       reference: `dev-test-payout-${Date.now()}`,

@@ -53,7 +53,7 @@ export const scheduledPayoutLegs = pgTable(
     sequenceOrder: integer('sequence_order').notNull(),
     destinationAccount: text('destination_account').notNull(),
     destinationBank: text('destination_bank').notNull(),
-    amountKobo: bigint('amount_kobo', { mode: 'bigint' }).notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
     scheduledDate: timestamp('scheduled_date', { withTimezone: true }).notNull(),
     fired: boolean('fired').notNull().default(false),
     firedAt: timestamp('fired_at', { withTimezone: true }),

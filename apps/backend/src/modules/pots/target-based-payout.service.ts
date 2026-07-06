@@ -7,11 +7,11 @@ import { postFixedAmountDisbursement } from "./pots.service";
 
 /**
  * Fires due target_based payouts automatically — targetDate reached or
- * targetAmountKobo reached. Purely rule-driven: there is no admin-manual
+ * targetAmount reached. Purely rule-driven: there is no admin-manual
  * trigger for this mode (PotsService.triggerPayout has no target_based
  * branch — see that method's top comment). Fires the pot's FULL current balance,
  * matching target_based's documented "pays out once" semantic (unlike
- * recurring/rotation's fixed amountKobo per occurrence).
+ * recurring/rotation's fixed amount per occurrence).
  *
  * config.fired only flips true once the WORKER confirms the transfer
  * actually succeeded (see mark_target_based_fired in worker.ts) — never
@@ -34,7 +34,7 @@ export const TargetBasedPayoutService = {
       const balance = await LedgerService.getBalance(potAccount.id);
 
       const targetDateReached = config.targetDate != null && config.targetDate <= new Date();
-      const targetAmountReached = config.targetAmountKobo != null && balance >= config.targetAmountKobo;
+      const targetAmountReached = config.targetAmount != null && balance >= config.targetAmount;
 
       if (!targetDateReached && !targetAmountReached) {
         continue; // not due yet — not a failure, just nothing to do

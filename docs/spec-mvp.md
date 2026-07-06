@@ -19,6 +19,7 @@ Glasspot lets a group agree on the rule before anyone pays. Money only moves whe
   - `closed`: terminal, irreversible. A pot can only close once its balance is zero.
 - **Members**: creator, admin(s), member(s). Admins carry the same payout/refund trigger authority as the creator wherever "admin" is referenced below.
 - Payout rule and refund rule are freely editable while `draft`. Once activated (`open`), they are **immutable for the pot's remaining lifetime** — never editable again. This is what "the rule can't quietly change" means in practice.
+- **Goal amount**: optional, display-only fundraising goal, available on ANY payout mode — purely informational ("raised X of Y"), never drives payout/trigger logic. Distinct from `target_based`'s target amount, which actually fires the payout once reached; a `target_based` pot can set both independently.
 
 ## Contribution
 

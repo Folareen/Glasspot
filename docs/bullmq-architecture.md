@@ -68,7 +68,7 @@ async checkTargetBasedPayouts() {
       eq(targetBasedPayoutConfigs.fired, false),
       or(
         lte(targetBasedPayoutConfigs.targetDate, new Date()),
-        // ...targetAmountKobo condition
+        // ...targetAmount condition
       )
     ),
   });
@@ -89,7 +89,7 @@ async checkTargetBasedPayouts() {
       destinationAccount: config.destinationAccount,
       destinationBank: config.destinationBank,
       accountName: /* resolved account holder name — see Open Item below */,
-      amountKobo: /* resolved pot balance at fire time */,
+      amount: /* resolved pot balance at fire time */,
       merchantTxRef: `payout-${config.id}-${config.firedAt?.getTime()}`,
     });
   }
@@ -148,7 +148,7 @@ const response = await nomba.transferToBankAccount({
   accountNumber: destinationAccount,
   accountName,                    // ⚠ not yet resolved anywhere — see Open Items
   bankCode: destinationBank,
-  amount: Number(amountKobo),     // ⚠ unconfirmed kobo vs. Naira — see Open Items
+  amount: Number(amount),     // ⚠ unconfirmed kobo vs. Naira — see Open Items
   merchantTxRef,                  // idempotency key, prevents double-send on retry
   senderName: PLATFORM_SENDER_NAME,
   narration,
@@ -160,7 +160,7 @@ const response = await nomba.transferToBankAccount({
 | `accountNumber` | `destinationAccount` |
 | `accountName` | **Not yet wired** — must be resolved separately |
 | `bankCode` | `destinationBank` |
-| `amount` | `Number(amountKobo)` — safe cast, JS's safe-integer ceiling (~9×10¹⁵) comfortably covers realistic Naira amounts in kobo |
+| `amount` | `Number(amount)` — safe cast, JS's safe-integer ceiling (~9×10¹⁵) comfortably covers realistic Naira amounts in kobo |
 | `merchantTxRef` | `reference`/idempotency key |
 | `senderName` | Hardcoded `PLATFORM_SENDER_NAME` constant |
 
@@ -211,7 +211,7 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 ## Open items (not yet resolved)
 
 - [ ] Resolve `accountName` for transfer payloads — either a bank-account-name resolution step (Nomba likely has a "resolve account" endpoint) called before enqueueing, or a column captured at payout-config creation time.
-- [ ] Confirm with Nomba docs whether `TransferParams.amount` expects kobo or Naira — if Naira, `amountKobo` needs `/100` before sending, or a 100x overpayment will occur.
+- [ ] Confirm with Nomba docs whether `TransferParams.amount` expects kobo or Naira — if Naira, `amount` needs `/100` before sending, or a 100x overpayment will occur.
 - [ ] Decide fate of `reconciliation-frequent` now that everything runs daily — delete it, or change `hoursBack` to `24`.
 - [ ] Differentiate "insufficient balance, don't retry" from transient Nomba/network failures in the transfers worker's error handling.
 - [ ] Get Nomba's actual `/transfer` rate limit and replace the placeholder `NOMBA_TRANSFER_RATE_LIMIT_MAX` / `_DURATION_MS` values.

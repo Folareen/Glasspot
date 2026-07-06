@@ -20,7 +20,7 @@ function emptyLeg(sequenceOrder: number): ScheduledLeg {
     destinationAccount: "",
     destinationBank: "",
     sequenceOrder,
-    amountKobo: "",
+    amount: "",
     scheduledDate: "",
     firedAt: null,
   };
@@ -98,8 +98,8 @@ export function ScheduledLegBuilder({ ordered, legs, onChange }: ScheduledLegBui
                   type="number"
                   inputMode="decimal"
                   min={0}
-                  value={leg.amountKobo}
-                  onChange={(e) => updateLeg(index, { amountKobo: e.target.value })}
+                  value={leg.amount}
+                  onChange={(e) => updateLeg(index, { amount: e.target.value })}
                   placeholder="250000"
                 />
               </Field>

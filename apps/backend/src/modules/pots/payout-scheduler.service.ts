@@ -22,10 +22,10 @@ import { postFixedAmountDisbursement } from "./pots.service";
 export const PayoutSchedulerService = {
   /**
    * For every OPEN pot's recurring_payout_configs row with nextRunAt due:
-   * enqueues a fixed-amountKobo payout. nextRunAt only advances once the
+   * enqueues a fixed-amount payout. nextRunAt only advances once the
    * WORKER confirms the transfer actually succeeded (see
    * advance_recurring_next_run_at in worker.ts) — NOT at enqueue time. If
-   * the pot's balance is below amountKobo, per recurring-payout-configs.ts's
+   * the pot's balance is below amount, per recurring-payout-configs.ts's
    * own documented intent: skip this run, leave nextRunAt UNCHANGED (the
    * occurrence must be satisfied before it advances), and surface via
    * logging — not a silent drop (see docs/system-rules.md).
@@ -44,9 +44,9 @@ export const PayoutSchedulerService = {
       const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
       const balance = await LedgerService.getBalance(potAccount.id);
 
-      if (balance < config.amountKobo) {
+      if (balance < config.amount) {
         console.warn(
-          `Recurring payout for pot ${pot.id} due but underfunded (balance=${balance}, needs=${config.amountKobo}) — skipping, nextRunAt unchanged`
+          `Recurring payout for pot ${pot.id} due but underfunded (balance=${balance}, needs=${config.amount}) — skipping, nextRunAt unchanged`
         );
         skipped++;
         continue;
@@ -56,7 +56,7 @@ export const PayoutSchedulerService = {
         await postFixedAmountDisbursement(
           pot,
           "payout",
-          config.amountKobo,
+          config.amount,
           { destinationAccount: config.destinationAccount, destinationBank: config.destinationBank },
           { type: "advance_recurring_next_run_at", recurringConfigId: config.id }
         );
@@ -148,9 +148,9 @@ async function enqueueLeg(pot: Pot, leg: ScheduledPayoutLeg): Promise<"fired" | 
   const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
   const balance = await LedgerService.getBalance(potAccount.id);
 
-  if (balance < leg.amountKobo) {
+  if (balance < leg.amount) {
     console.warn(
-      `Scheduled leg ${leg.id} (pot ${pot.id}, sequence ${leg.sequenceOrder}) due but underfunded (balance=${balance}, needs=${leg.amountKobo}) — skipping, leg stays unfired`
+      `Scheduled leg ${leg.id} (pot ${pot.id}, sequence ${leg.sequenceOrder}) due but underfunded (balance=${balance}, needs=${leg.amount}) — skipping, leg stays unfired`
     );
     return "skipped";
   }
@@ -159,7 +159,7 @@ async function enqueueLeg(pot: Pot, leg: ScheduledPayoutLeg): Promise<"fired" | 
     await postFixedAmountDisbursement(
       pot,
       "payout",
-      leg.amountKobo,
+      leg.amount,
       { destinationAccount: leg.destinationAccount, destinationBank: leg.destinationBank },
       { type: "mark_scheduled_leg_fired", scheduledLegId: leg.id }
     );

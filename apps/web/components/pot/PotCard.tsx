@@ -22,7 +22,7 @@ export function PotCard({ pot }: PotCardProps) {
           <StatusBadge status={pot.status} className="shrink-0" />
         </div>
         <div className="mt-3 flex items-end justify-between gap-3">
-          <Money kobo={pot.balanceKobo} size="lg" className="font-semibold" />
+          <Money kobo={pot.balance} size="lg" className="font-semibold" />
           <div className="flex items-center gap-1.5 text-text-secondary">
             <PayoutModeIcon mode={pot.payoutMode} className="h-4 w-4" />
             <Text size="xs" color="secondary">

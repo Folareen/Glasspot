@@ -22,8 +22,8 @@ export function potToWizardState(pot: PotResponse): WizardState {
     description: pot.description ?? "",
     potType: pot.potType,
     refundType: pot.refundType,
-    minContributionKobo: toNaira(pot.minContributionKobo),
-    maxContributionKobo: toNaira(pot.maxContributionKobo ?? undefined),
+    minContribution: toNaira(pot.minContribution),
+    maxContribution: toNaira(pot.maxContribution ?? undefined),
     payoutMode: pot.payoutMode,
   };
 
@@ -34,7 +34,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       targetDestinationAccount: config.destinationAccount,
       targetDestinationBank: config.destinationBank,
       targetDate: toDateInput(config.targetDate),
-      targetAmountNaira: toNaira(config.targetAmountKobo),
+      targetAmountNaira: toNaira(config.targetAmount),
     };
   }
 
@@ -53,7 +53,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       ...base,
       recurringDestinationAccount: config.destinationAccount,
       recurringDestinationBank: config.destinationBank,
-      recurringAmountNaira: toNaira(config.amountKobo),
+      recurringAmountNaira: toNaira(config.amount),
       recurringIntervalDays: String(config.intervalDays),
       recurringNextRunAt: toDateInput(config.nextRunAt),
     };
@@ -66,7 +66,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       scheduledOrdered: config.ordered,
       scheduledLegs: config.legs.map((leg) => ({
         ...leg,
-        amountKobo: toNaira(leg.amountKobo),
+        amount: toNaira(leg.amount),
         scheduledDate: toDateInput(leg.scheduledDate),
       })),
     };

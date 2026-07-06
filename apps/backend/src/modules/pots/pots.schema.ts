@@ -33,11 +33,11 @@ export const targetBasedPayoutConfigSchema = z
   .object({
     ...destinationSchema,
     targetDate: z.coerce.date().optional(),
-    targetAmountKobo: koboAmount.optional(),
+    targetAmount: koboAmount.optional(),
   })
   .refine(
-    (c) => c.targetDate !== undefined || c.targetAmountKobo !== undefined,
-    { message: "At least one of targetDate or targetAmountKobo is required" }
+    (c) => c.targetDate !== undefined || c.targetAmount !== undefined,
+    { message: "At least one of targetDate or targetAmount is required" }
   );
 
 // Manual mode's destination is optional at creation time, unlike
@@ -62,7 +62,7 @@ export const manualPayoutConfigSchema = z
 
 export const recurringPayoutConfigSchema = z.object({
   ...destinationSchema,
-  amountKobo: koboAmount,
+  amount: koboAmount,
   intervalDays: z.number().int().min(1), // see koboAmount comment above re: .positive()
   nextRunAt: z.coerce.date(),
 });
@@ -70,7 +70,7 @@ export const recurringPayoutConfigSchema = z.object({
 const scheduledLegSchema = z.object({
   ...destinationSchema,
   sequenceOrder: z.number().int().nonnegative(),
-  amountKobo: koboAmount,
+  amount: koboAmount,
   scheduledDate: z.coerce.date(),
 });
 
@@ -86,7 +86,7 @@ export const scheduledPayoutConfigSchema = z.object({
   legs: z.array(scheduledLegSchema).min(1),
 });
 
-// title/description/potType/refundType/min-maxContributionKobo are common
+// title/description/potType/refundType/min-maxContribution are common
 // to every payout mode — inlined into each of the 4 branches below rather
 // than composed via z.intersection()/.and(). zod-to-json-schema compiles
 // those to JSON Schema `allOf`, and Fastify's AJV runs with
@@ -103,8 +103,11 @@ const potCommonFields = {
   description: z.string().optional(),
   potType: z.enum(potTypeValues),
   refundType: z.enum(refundTypeValues),
-  minContributionKobo: koboAmount.optional(),
-  maxContributionKobo: koboAmount.optional(),
+  minContribution: koboAmount.optional(),
+  maxContribution: koboAmount.optional(),
+  // Display-only fundraising goal, independent of payoutMode — see
+  // pots.ts's goalAmount comment. Never read by any trigger logic.
+  goalAmount: koboAmount.optional(),
 };
 
 const createPotSchema = z.discriminatedUnion("payoutMode", [
@@ -140,8 +143,10 @@ const potResponseSchema = z.object({
   payoutMode: z.enum(payoutModeValues),
   refundType: z.enum(refundTypeValues),
   shareSlug: z.string(),
-  minContributionKobo: z.string(),
-  maxContributionKobo: z.string().nullable(),
+  minContribution: z.string(),
+  maxContribution: z.string().nullable(),
+  goalAmount: z.string().nullable(),
+  balance: z.string(),
   activatedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -170,8 +175,11 @@ const potListResponseSchema = z.array(potResponseSchema);
 const updatePotSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
-  minContributionKobo: koboAmount.optional(),
-  maxContributionKobo: koboAmount.optional(),
+  potType: z.enum(potTypeValues).optional(),
+  refundType: z.enum(refundTypeValues).optional(),
+  minContribution: koboAmount.optional(),
+  maxContribution: koboAmount.optional(),
+  goalAmount: koboAmount.optional(),
   payoutMode: z.enum(payoutModeValues).optional(),
   payoutConfig: z
     .union([
@@ -231,22 +239,27 @@ const messageResponseSchema = z.object({
 // Idempotency is enforced via the Idempotency-Key request header (see
 // pots.controller.ts / lib/idempotency.service.ts), not a body field.
 const contributeSchema = z.object({
-  amountKobo: koboAmount,
+  amount: koboAmount,
   anonymous: z.boolean().optional(),
   refundAccountNumber: z.string().min(1).optional(),
   refundBankCode: z.string().min(1).optional(),
 });
 
-// Same {accountNumber, bankCode} shape as destinationSchema — only
+// {accountNumber, bankCode}: same shape as destinationSchema — only
 // meaningful (and required) for payoutMode='manual', where the group's
 // agreed rule is that the destination is picked at the moment of payout,
 // not fixed at pot creation. PotsService.triggerPayout enforces it's
 // required/rejected based on the pot's actual payoutMode, since that
 // can't be expressed in this wire schema alone (would need the pot loaded
 // first — same reasoning as contributeSchema's refund fields above).
+//
+// amount: also manual-only. Omit for a full-balance payout (the only
+// behavior before this field existed); set it for a PARTIAL payout —
+// PotsService.triggerPayout rejects it as >balance and requires >0.
 const triggerPayoutSchema = z.object({
   destinationAccount: z.string().min(1).optional(),
   destinationBank: z.string().min(1).optional(),
+  amount: koboAmount.optional(),
 });
 
 const transactionResponseSchema = z.object({
@@ -255,7 +268,7 @@ const transactionResponseSchema = z.object({
   status: z.enum(["pending", "processing", "completed", "failed", "reversed"]),
   reference: z.string(),
   externalReference: z.string().nullable(),
-  amountKobo: z.string(),
+  amount: z.string(),
   createdAt: z.string(),
 });
 
@@ -271,10 +284,10 @@ const refundResponseSchema = z.array(transactionResponseSchema);
 const contributionResponseSchema = z.object({
   id: z.string().uuid(),
   potId: z.string().uuid(),
-  contributorUserId: z.string().uuid(),
+  contributorUserId: z.string().uuid().nullable(),
   virtualAccountRef: z.string(),
   virtualAccountNumber: z.string().nullable(),
-  expectedAmountKobo: z.string(),
+  expectedAmount: z.string(),
   status: z.enum(["pending", "funded", "underpaid", "failed", "reversed"]),
   anonymous: z.boolean(),
   refundAccountNumber: z.string().nullable(),

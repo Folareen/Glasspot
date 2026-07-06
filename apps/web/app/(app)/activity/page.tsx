@@ -74,7 +74,7 @@ function TransactionRow({ transaction }: { transaction: TransactionResponse }) {
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
         <Money
-          kobo={transaction.amountKobo}
+          kobo={transaction.amount}
           color={moneyColorFor(transaction.type)}
           className="font-medium"
         />

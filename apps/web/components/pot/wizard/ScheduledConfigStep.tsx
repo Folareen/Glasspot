@@ -16,7 +16,7 @@ export function ScheduledConfigStep({ state, onChange }: ScheduledConfigStepProp
       destinationAccount: "",
       destinationBank: "",
       sequenceOrder: 0,
-      amountKobo: "",
+      amount: "",
       scheduledDate: "",
       firedAt: null,
     },

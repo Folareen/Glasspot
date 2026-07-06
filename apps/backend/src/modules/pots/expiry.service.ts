@@ -5,7 +5,7 @@ import { TransferQueueService } from "../scheduler/transfer-queue.service";
 
 /**
  * Sweeps virtual accounts whose funding window has closed without
- * reaching expectedAmountKobo (see contributions.ts's expiresAt/status
+ * reaching expectedAmount (see contributions.ts's expiresAt/status
  * comments). For each: refunds every recorded contribution_payments row
  * individually to ITS OWN sender (not a single lump sum — two different
  * people may have each partially funded the same virtual account, and
@@ -35,7 +35,7 @@ import { TransferQueueService } from "../scheduler/transfer-queue.service";
 
 //       for (const payment of payments) {
 //         await nomba.transferToBankAccount({
-//           amount: Number(payment.amountKobo) / 100,
+//           amount: Number(payment.amount) / 100,
 //           accountNumber: payment.senderAccountNumber,
 //           accountName: payment.senderName,
 //           bankCode: payment.senderBankCode,
@@ -108,7 +108,7 @@ export const ExpiryService = {
             kind: "contribution_refund",
             contributionId: contribution.id,
             contributionPaymentId: payment.id,
-            amountKobo: payment.amountKobo.toString(),
+            amount: payment.amount.toString(),
             destinationAccount: payment.senderAccountNumber,
             destinationBank: payment.senderBankCode,
             reference: `expiry_refund_${payment.id}`,

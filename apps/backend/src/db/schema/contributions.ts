@@ -15,14 +15,14 @@ import { transactions } from './transactions';
  * status:
  *   pending  - virtual account created, no funding webhook received yet.
  *   underpaid - at least one payment received (see contribution-payments.ts),
- *              but SUM(contribution_payments.amountKobo) is still below
- *              expectedAmountKobo — a top-up, not a terminal state. The
+ *              but SUM(contribution_payments.amount) is still below
+ *              expectedAmount — a top-up, not a terminal state. The
  *              virtual account stays open for further transfers until
- *              either the total reaches expectedAmountKobo (-> funded) or
+ *              either the total reaches expectedAmount (-> funded) or
  *              expiresAt passes (-> failed, each payment refunded to its
  *              own sender — see ExpiryService).
- *   funded   - accumulated payments reached/exceeded expectedAmountKobo;
- *              ledger transaction posted for exactly expectedAmountKobo
+ *   funded   - accumulated payments reached/exceeded expectedAmount;
+ *              ledger transaction posted for exactly expectedAmount
  *              (never the received total — see system-rules.md); any
  *              excess on the payment that tipped it over is refunded via
  *              refundOverpayment(). transactionId set once posted.
@@ -54,6 +54,18 @@ import { transactions } from './transactions';
  * pattern used for every other payout/refund destination in this
  * codebase). Null for refundType='admin' pots, where the admin's own
  * profile destination is used instead (see users.ts).
+ *
+ * contributorUserId is nullable: a public pot accepts contributions from
+ * an unauthenticated caller too (spec.md: "public: anyone can view and
+ * contribute"), and there is then no users row to attach. An anonymous
+ * contributor to a refundType='contributors' pot MAY supply
+ * refundAccountNumber/refundBankCode at contribution time (see
+ * ContributionsService.create); if omitted, PotsService's
+ * postContributorsRefund falls back to refunding each of this
+ * contribution's actual funding payments to its own sender account
+ * instead. Each anonymous contribution is refunded as its OWN independent
+ * leg (see postContributorsRefund) — never grouped with another anonymous
+ * contribution, since there is no shared identity to group them by.
  */
 export const contributionStatusEnum = pgEnum('contribution_status', [
   'pending',
@@ -69,11 +81,10 @@ export const contributions = pgTable('contributions', {
     .notNull()
     .references(() => pots.id),
   contributorUserId: uuid('contributor_user_id')
-    .notNull()
     .references(() => users.id),
   virtualAccountRef: text('virtual_account_ref').unique().notNull(),
   virtualAccountNumber: text('virtual_account_number'),
-  expectedAmountKobo: bigint('expected_amount_kobo', { mode: 'bigint' }).notNull(),
+  expectedAmount: bigint('expected_amount', { mode: 'bigint' }).notNull(),
   status: contributionStatusEnum('status').notNull().default('pending'),
   anonymous: boolean('anonymous').notNull().default(false),
   refundAccountNumber: text('refund_account_number'),

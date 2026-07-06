@@ -19,7 +19,7 @@ export const CONTRIBUTION_EXPIRY_HOURS = 24;
  * ledger transaction, since we never trust a client-supplied amount for
  * execution (see docs/system-rules.md). The ledger only gets touched once
  * accumulated payments (see contribution-payments.ts) reach
- * expectedAmountKobo — see confirmFunding() below, called from the
+ * expectedAmount — see confirmFunding() below, called from the
  * webhook route. A virtual account accepts more than one transfer (a
  * top-up toward an underpaid contribution) until either fully funded or
  * expiresAt passes (see ExpiryService).
@@ -30,48 +30,71 @@ export const ContributionsService = {
    * status, resolves+validates a refund destination if the pot requires
    * one, then issues a dedicated Nomba virtual account for the contributor
    * to pay into. Returns the pending contribution row.
+   *
+   * userId is undefined for an anonymous contributor to a public pot (see
+   * pots.route.ts's optionalAuthenticate) — getViewablePotOrThrow still
+   * 404s a private pot in that case. An anonymous contributor to a
+   * refundType='contributors' pot MUST supply refundAccountNumber/
+   * refundBankCode (enforced below same as a logged-in contributor would),
+   * since there's no user profile to identify or refund otherwise.
    */
-  async create(potId: string, userId: string, input: ContributeInput): Promise<Contribution> {
+  async create(potId: string, userId: string | undefined, input: ContributeInput): Promise<Contribution> {
     const pot = await getViewablePotOrThrow(potId, userId);
 
     if (pot.status !== "open") {
       throw new PotError("Pot must be open to accept contributions", 409);
     }
 
-    const amountKobo = BigInt(input.amountKobo);
-    if (amountKobo < pot.minContributionKobo) {
-      throw new PotError(`Contribution must be at least ${pot.minContributionKobo} kobo`, 400);
+    const amount = BigInt(input.amount);
+    if (amount < pot.minContribution) {
+      throw new PotError(`Contribution must be at least ${pot.minContribution} kobo`, 400);
     }
-    if (pot.maxContributionKobo !== null && amountKobo > pot.maxContributionKobo) {
-      throw new PotError(`Contribution must not exceed ${pot.maxContributionKobo} kobo`, 400);
+    if (pot.maxContribution !== null && amount > pot.maxContribution) {
+      throw new PotError(`Contribution must not exceed ${pot.maxContribution} kobo`, 400);
     }
 
     // A per-contributor refund account only means anything for a pot that
     // actually refunds each contributor individually (see contributions.ts
-    // schema comment) — required there, and rejected outright everywhere
-    // else so we never silently store data that can't ever be used.
+    // schema comment) — optional there (if omitted, PotsService's
+    // postContributorsRefund falls back to whichever account each of this
+    // contribution's funding payments actually came from — see that
+    // function's comment), and rejected outright everywhere else so we
+    // never silently store data that can't ever be used.
     let refundAccountNumber: string | undefined;
     let refundAccountName: string | undefined;
     let refundBank: string | undefined;
 
     if (pot.refundType === "contributors") {
-      if (!input.refundAccountNumber || !input.refundBankCode) {
-        throw new PotError(
-          "refundAccountNumber and refundBankCode are required for a pot with refundType='contributors'",
-          400
-        );
+      if (input.refundAccountNumber || input.refundBankCode) {
+        if (!input.refundAccountNumber || !input.refundBankCode) {
+          throw new PotError("refundAccountNumber and refundBankCode must both be set or both omitted", 400);
+        }
+        const resolved = await nomba.lookupBankAccount(input.refundAccountNumber, input.refundBankCode);
+        refundAccountNumber = input.refundAccountNumber;
+        refundAccountName = resolved.accountName;
+        refundBank = input.refundBankCode;
       }
-      const resolved = await nomba.lookupBankAccount(input.refundAccountNumber, input.refundBankCode);
-      refundAccountNumber = input.refundAccountNumber;
-      refundAccountName = resolved.accountName;
-      refundBank = input.refundBankCode;
     } else if (input.refundAccountNumber || input.refundBankCode) {
       throw new PotError("This pot does not use per-contributor refunds — omit refundAccountNumber/refundBankCode", 400);
     }
 
-    const [contributor] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (!contributor) {
-      throw new PotError("Contributor not found", 404);
+    // accountName for the virtual account: the logged-in contributor's own
+    // name; for an anonymous contributor who DID supply a refund account,
+    // the verified bank-account holder name already resolved above (see
+    // docs/system-rules.md's validate-before-storing pattern); otherwise a
+    // generic placeholder (an anonymous contributor who omitted the
+    // refund account, or a refundType='admin' pot with no such field at
+    // all — see postContributorsRefund's sender-account fallback for how
+    // the omitted case still gets refunded correctly).
+    let accountName: string;
+    if (userId) {
+      const [contributor] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (!contributor) {
+        throw new PotError("Contributor not found", 404);
+      }
+      accountName = contributor.fullName;
+    } else {
+      accountName = refundAccountName ?? "Anonymous contributor";
     }
 
     // Request-level idempotency is enforced at the HTTP layer (see
@@ -89,8 +112,8 @@ export const ContributionsService = {
     // confirmed against developer.nomba.com: "YYYY-MM-DD HH:mm:ss".
     const virtualAccount = await nomba.createVirtualAccount({
       accountRef: virtualAccountRef,
-      accountName: contributor.fullName,
-      expectedAmount: Number(amountKobo) / 100,
+      accountName,
+      expectedAmount: Number(amount) / 100,
       expiryDate: formatNombaExpiryDate(expiresAt),
     });
 
@@ -101,7 +124,7 @@ export const ContributionsService = {
         contributorUserId: userId,
         virtualAccountRef,
         virtualAccountNumber: virtualAccount.bankAccountNumber,
-        expectedAmountKobo: amountKobo,
+        expectedAmount: amount,
         anonymous: input.anonymous ?? false,
         refundAccountNumber,
         refundAccountName,
@@ -119,11 +142,11 @@ export const ContributionsService = {
    * by Nomba's own transactionId, so a redelivered webhook for the SAME
    * transfer can't double-count it), then recomputes the accumulated
    * total across all payments for this contribution:
-   *   - total >= expectedAmountKobo: posts the ledger transaction for
-   *     exactly expectedAmountKobo (never the received total —
+   *   - total >= expectedAmount: posts the ledger transaction for
+   *     exactly expectedAmount (never the received total —
    *     system-rules.md), marks 'funded'. Any excess on THIS payment is
    *     refunded back to its own sender.
-   *   - total < expectedAmountKobo: marks/keeps 'underpaid' — the virtual
+   *   - total < expectedAmount: marks/keeps 'underpaid' — the virtual
    *     account stays open for a top-up, not a dead end (see
    *     ExpiryService for what happens if it never completes).
    * No-op once the contribution is already funded/failed/reversed — those
@@ -160,13 +183,13 @@ export const ContributionsService = {
       throw new Error("payment_success payload missing customer bank details");
     }
 
-    const amountKobo = BigInt(Math.round(payment.transaction.transactionAmount * 100));
+    const amount = BigInt(Math.round(payment.transaction.transactionAmount * 100));
 
     try {
       await db.insert(contributionPayments).values({
         contributionId: contribution.id,
         nombaTransactionId: payment.transaction.transactionId,
-        amountKobo,
+        amount,
         senderAccountNumber: payment.customer.accountNumber,
         senderBankCode: payment.customer.bankCode,
         senderName: payment.customer.senderName,
@@ -180,12 +203,12 @@ export const ContributionsService = {
     }
 
     const [{ total }] = await db
-      .select({ total: sql<string>`coalesce(sum(${contributionPayments.amountKobo}), 0)` })
+      .select({ total: sql<string>`coalesce(sum(${contributionPayments.amount}), 0)` })
       .from(contributionPayments)
       .where(eq(contributionPayments.contributionId, contribution.id));
-    const receivedTotalKobo = BigInt(total);
+    const receivedTotal = BigInt(total);
 
-    if (receivedTotalKobo < contribution.expectedAmountKobo) {
+    if (receivedTotal < contribution.expectedAmount) {
       await db.update(contributions).set({ status: "underpaid" }).where(eq(contributions.id, contribution.id));
       return;
     }
@@ -198,8 +221,8 @@ export const ContributionsService = {
       reference: `contribution_${contribution.id}`,
       externalReference: payment.transaction.transactionId,
       entries: [
-        { accountId: platformFloat.id, direction: "debit", amountKobo: contribution.expectedAmountKobo },
-        { accountId: potAccount.id, direction: "credit", amountKobo: contribution.expectedAmountKobo },
+        { accountId: platformFloat.id, direction: "debit", amount: contribution.expectedAmount },
+        { accountId: potAccount.id, direction: "credit", amount: contribution.expectedAmount },
       ],
       metadata: {
         potId: contribution.potId,
@@ -216,16 +239,16 @@ export const ContributionsService = {
       .set({ status: "funded", transactionId: transaction.id, fundedAt: new Date() })
       .where(eq(contributions.id, contribution.id));
 
-    const excessKobo = receivedTotalKobo - contribution.expectedAmountKobo;
-    if (excessKobo > 0n) {
+    const excess = receivedTotal - contribution.expectedAmount;
+    if (excess > 0n) {
       // refundOverpayment() computes the excess to send back as
       // transactionAmount - expectedAmount, so pass the portion of THIS
-      // payment that was actually needed to reach expectedAmountKobo —
-      // amountKobo minus however much of the total overshoot came from
-      // this payment (capped at amountKobo itself, since this payment
+      // payment that was actually needed to reach expectedAmount —
+      // amount minus however much of the total overshoot came from
+      // this payment (capped at amount itself, since this payment
       // can't be blamed for more excess than its own size).
-      const thisPaymentNeededKobo = amountKobo - excessKobo > 0n ? amountKobo - excessKobo : 0n;
-      await nomba.refundOverpayment(payment, Number(thisPaymentNeededKobo) / 100);
+      const thisPaymentNeeded = amount - excess > 0n ? amount - excess : 0n;
+      await nomba.refundOverpayment(payment, Number(thisPaymentNeeded) / 100);
     }
   },
 

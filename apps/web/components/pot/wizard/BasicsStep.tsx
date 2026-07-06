@@ -63,8 +63,8 @@ export function BasicsStep({ state, onChange }: BasicsStepProps) {
             type="number"
             inputMode="decimal"
             min={0}
-            value={state.minContributionKobo}
-            onChange={(e) => onChange({ minContributionKobo: e.target.value })}
+            value={state.minContribution}
+            onChange={(e) => onChange({ minContribution: e.target.value })}
             placeholder="1000"
           />
         </Field>
@@ -74,8 +74,8 @@ export function BasicsStep({ state, onChange }: BasicsStepProps) {
             type="number"
             inputMode="decimal"
             min={0}
-            value={state.maxContributionKobo}
-            onChange={(e) => onChange({ maxContributionKobo: e.target.value })}
+            value={state.maxContribution}
+            onChange={(e) => onChange({ maxContribution: e.target.value })}
             placeholder="No limit"
           />
         </Field>

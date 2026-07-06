@@ -16,6 +16,27 @@ import {
   UpdatePotInput,
 } from "./pots.schema";
 import { TransferQueueService } from "@/modules/scheduler/transfer-queue.service";
+import type { Pot } from "@/db";
+
+// potResponseSchema declares minContribution/maxContribution/
+// goalAmount as strings (JSON has no bigint), but Drizzle returns them
+// as real bigints — every handler that sends a pot row back to the client
+// must run it through here first, or AJV rejects the response with a 500
+// ("does not match schema definition") the moment any of them is a
+// non-null bigint. Also attaches the pot's current ledger balance (see
+// PotsService.getBalance) so callers can show amount contributed against
+// minContribution/maxContribution/goalAmount without a
+// separate request.
+async function serializePot(pot: Pot) {
+  const balance = await PotsService.getBalance(pot.id);
+  return {
+    ...pot,
+    minContribution: pot.minContribution.toString(),
+    maxContribution: pot.maxContribution?.toString() ?? null,
+    goalAmount: pot.goalAmount?.toString() ?? null,
+    balance: balance.toString(),
+  };
+}
 
 
 // Catches PotError as well as errors from collaborating modules this
@@ -70,11 +91,7 @@ export async function createPotHandler(
   try {
     const userId = requireUserId(request);
     const pot = await PotsService.create(userId, request.body);
-    return reply.code(201).send({ 
-      ...pot, 
-      minContributionKobo: pot.minContributionKobo.toString(),
-      maxContributionKobo: pot.maxContributionKobo?.toString() ?? null, 
-    });
+    return reply.code(201).send(await serializePot(pot));
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -84,7 +101,7 @@ export async function createPotHandler(
 export async function listPotsHandler(request: FastifyRequest, reply: FastifyReply) {
   try {
     const pots = await PotsService.list(currentUserId(request));
-    return reply.code(200).send(pots);
+    return reply.code(200).send(await Promise.all(pots.map(serializePot)));
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -97,7 +114,7 @@ export async function getPotHandler(
 ) {
   try {
     const pot = await getViewablePotOrThrow(request.params.id, currentUserId(request));
-    return reply.code(200).send(pot);
+    return reply.code(200).send(await serializePot(pot));
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -111,7 +128,7 @@ export async function updatePotHandler(
   try {
     const userId = requireUserId(request);
     const pot = await PotsService.update(request.params.id, userId, request.body);
-    return reply.code(200).send(pot);
+    return reply.code(200).send(await serializePot(pot));
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -125,7 +142,7 @@ export async function activatePotHandler(
   try {
     const userId = requireUserId(request);
     const pot = await PotsService.activate(request.params.id, userId);
-    return reply.code(200).send(pot);
+    return reply.code(200).send(await serializePot(pot));
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -139,7 +156,7 @@ export async function closePotHandler(
   try {
     const userId = requireUserId(request);
     const pot = await PotsService.close(request.params.id, userId);
-    return reply.code(200).send(pot);
+    return reply.code(200).send(await serializePot(pot));
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -170,7 +187,8 @@ export async function triggerPayoutHandler(
         request.body?.destinationAccount && request.body?.destinationBank
           ? { destinationAccount: request.body.destinationAccount, destinationBank: request.body.destinationBank }
           : undefined;
-      await PotsService.triggerPayout(request.params.id, userId, destination);
+      const amount = request.body?.amount !== undefined ? BigInt(request.body.amount) : undefined;
+      await PotsService.triggerPayout(request.params.id, userId, destination, amount);
       return { statusCode: 202, body: undefined };
     });
     return reply.code(statusCode).send();
@@ -198,23 +216,23 @@ export async function triggerRefundHandler(
   }
 }
 
-/** Issues a virtual account for the authenticated requester to fund, idempotent per the Idempotency-Key header, and responds 201 with the pending contribution. */
+/** Issues a virtual account for the caller to fund, idempotent per the Idempotency-Key header, and responds 201 with the pending contribution. userId is undefined for an anonymous contributor to a public pot — see ContributionsService.create. */
 export async function contributeHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: ContributeInput }>,
   reply: FastifyReply
 ) {
   try {
-    const userId = requireUserId(request);
+    const userId = currentUserId(request);
     const key = requireIdempotencyKey(request);
     const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
     const { statusCode, body } = await withIdempotencyKey(key, requestHash, async () => {
       const contribution = await ContributionsService.create(request.params.id, userId, request.body);
       return {
               statusCode: 201,
-              body: { ...contribution, expectedAmountKobo: contribution.expectedAmountKobo.toString() },
+              body: { ...contribution, expectedAmount: contribution.expectedAmount.toString() },
             };
     });
-    return reply.code(statusCode).send({ ...body, expectedAmountKobo: body.expectedAmountKobo.toString() });
+    return reply.code(statusCode).send({ ...body, expectedAmount: body.expectedAmount.toString() });
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -301,7 +319,7 @@ export async function removeMemberHandler(
 //     destinationAccount: payoutDetails.destinationAccount,
 //     destinationBank: payoutDetails.destinationBank,
 //     accountName: payoutDetails.accountName,
-//     amountKobo: payoutDetails.amountKobo,
+//     amount: payoutDetails.amount,
 //     merchantTxRef: `admin-payout-${potId}-${Date.now()}`,
 //   });
 

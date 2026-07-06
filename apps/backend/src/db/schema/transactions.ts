@@ -14,9 +14,10 @@ import { pgTable, uuid, text, bigint, timestamp, pgEnum, jsonb } from 'drizzle-o
  * nullable since purely-internal transactions (a contribution moving
  * wallet -> pot) never touch Nomba at all.
  *
- * amountKobo is informational/gross only — the real truth of what moved
- * where is always the sum of this transaction's ledgerEntries, never this
- * column. Never derive a balance from it.
+ * amount (a kobo integer, per docs/system-rules.md) is informational/gross
+ * only — the real truth of what moved where is always the sum of this
+ * transaction's ledgerEntries, never this column. Never derive a balance
+ * from it.
  */
 export const transactionTypeEnum = pgEnum('transaction_type', [
   'funding',
@@ -41,7 +42,7 @@ export const transactions = pgTable('transactions', {
   status: transactionStatusEnum('status').notNull().default('pending'),
   reference: text('reference').unique().notNull(),
   externalReference: text('external_reference'),
-  amountKobo: bigint('amount_kobo', { mode: 'bigint' }).notNull(),
+  amount: bigint('amount', { mode: 'bigint' }).notNull(),
   metadata: jsonb('metadata'),
   initiatedAt: timestamp('initiated_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),

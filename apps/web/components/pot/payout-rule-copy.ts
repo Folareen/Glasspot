@@ -23,15 +23,15 @@ export function describePayoutRule(pot: PotResponse): string {
       if ("targetDate" in config && config.targetDate) {
         conditions.push(`the target date, ${formatDate(config.targetDate)}, arrives`);
       }
-      if ("targetAmountKobo" in config && config.targetAmountKobo) {
-        conditions.push(`the pot reaches ${formatNaira(config.targetAmountKobo)}`);
+      if ("targetAmount" in config && config.targetAmount) {
+        conditions.push(`the pot reaches ${formatNaira(config.targetAmount)}`);
       }
       if (conditions.length === 0) return "This pot pays out once its conditions are set.";
       return `This pot pays out once ${conditions.join(", or ")}.`;
     }
     case "recurring": {
-      if (!("amountKobo" in config)) return "This pot pays out on a fixed interval, repeating automatically.";
-      return `This pot pays out ${formatNaira(config.amountKobo)} every ${config.intervalDays} days, starting ${formatDate(config.nextRunAt)}.`;
+      if (!("amount" in config)) return "This pot pays out on a fixed interval, repeating automatically.";
+      return `This pot pays out ${formatNaira(config.amount)} every ${config.intervalDays} days, starting ${formatDate(config.nextRunAt)}.`;
     }
     case "scheduled": {
       if (!("legs" in config)) return "This pot pays out on a set schedule of legs.";

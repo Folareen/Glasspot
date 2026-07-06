@@ -18,8 +18,8 @@ export function ContributionRow({ contribution }: ContributionRowProps) {
         </Text>
         {contribution.status === "underpaid" ? (
           <Text size="xs" color="secondary">
-            Paid <Money kobo={contribution.paidAmountKobo} size="xs" color="secondary" /> of{" "}
-            <Money kobo={contribution.expectedAmountKobo} size="xs" color="secondary" />
+            Paid <Money kobo={contribution.paidAmount} size="xs" color="secondary" /> of{" "}
+            <Money kobo={contribution.expectedAmount} size="xs" color="secondary" />
           </Text>
         ) : (
           <Text size="xs" color="secondary">
@@ -28,7 +28,7 @@ export function ContributionRow({ contribution }: ContributionRowProps) {
         )}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-1">
-        <Money kobo={contribution.expectedAmountKobo} className="font-medium" />
+        <Money kobo={contribution.expectedAmount} className="font-medium" />
         <StatusBadge status={contribution.status} />
       </div>
     </div>

@@ -5,7 +5,7 @@ import { pots } from './pots';
 /**
  * Payout rule for a pot with payoutMode = 'target_based'. Pays out once to
  * a single destination when any configured condition is met (OR, not AND):
- * targetDate reached or targetAmountKobo reached. At least one condition
+ * targetDate reached or targetAmount reached. At least one condition
  * must be set — enforced below.
  *
  * No admin-manual-trigger option (deliberately removed) — a fixed
@@ -29,7 +29,7 @@ export const targetBasedPayoutConfigs = pgTable(
     destinationAccount: text('destination_account').notNull(),
     destinationBank: text('destination_bank').notNull(),
     targetDate: timestamp('target_date', { withTimezone: true }),
-    targetAmountKobo: bigint('target_amount_kobo', { mode: 'bigint' }),
+    targetAmount: bigint('target_amount', { mode: 'bigint' }),
     fired: boolean('fired').notNull().default(false),
     firedAt: timestamp('fired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -37,7 +37,7 @@ export const targetBasedPayoutConfigs = pgTable(
   (table) => ({
     atLeastOneConditionCheck: check(
       'chk_target_based_at_least_one_condition',
-      sql`${table.targetDate} IS NOT NULL OR ${table.targetAmountKobo} IS NOT NULL`
+      sql`${table.targetDate} IS NOT NULL OR ${table.targetAmount} IS NOT NULL`
     ),
   })
 );

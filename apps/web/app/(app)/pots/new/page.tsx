@@ -70,8 +70,8 @@ export default function NewPotPage() {
       description: state.description.trim() || undefined,
       potType: state.potType,
       refundType: state.refundType,
-      minContributionKobo: state.minContributionKobo ? toKobo(state.minContributionKobo) : undefined,
-      maxContributionKobo: state.maxContributionKobo ? toKobo(state.maxContributionKobo) : undefined,
+      minContribution: state.minContribution ? toKobo(state.minContribution) : undefined,
+      maxContribution: state.maxContribution ? toKobo(state.maxContribution) : undefined,
       payoutMode: state.payoutMode,
       payoutConfig: buildPayoutConfig(state),
     });

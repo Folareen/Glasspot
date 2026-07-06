@@ -7,7 +7,7 @@ import { TargetBasedPayoutService } from '@/modules/pots/target-based-payout.ser
 
 export class PayoutCronHandlers {
 /*
- Logic: targetDate <= now() OR targetAmountKobo <= pot.balance,
+ Logic: targetDate <= now() OR targetAmount <= pot.balance,
  filtered on fired = false, then mark fired = true, firedAt = now() transactionally with the transfer enqueue
  (so a crash between "fire" and "enqueue" can't double-pay or silently drop it — write the outbox row and flip fired
  in the same DB transaction, enqueue after commit).
@@ -49,7 +49,7 @@ export class PayoutCronHandlers {
     const dateFrom = new Date(dateTo.getTime() - hoursBack * 60 * 60 * 1000);
     
     const batch = await ReconciliationService.runForWindow(dateFrom, dateTo);
-    console.log(`runReconciliation: expected ${batch.expectedAmountKobo.toString()}, reportedAmountKobo ${batch.reportedAmountKobo?.toString()}, reference ${batch.batchReference}`);
+    console.log(`runReconciliation: expected ${batch.expectedAmount.toString()}, reportedAmount ${batch.reportedAmount?.toString()}, reference ${batch.batchReference}`);
 
     return batch;
   }
