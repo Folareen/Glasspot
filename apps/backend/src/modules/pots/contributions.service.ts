@@ -194,7 +194,31 @@ export const ContributionsService = {
     // 1999.5000000000002) — this credits the ledger with the amount
     // received, so it must never be inflated even by one kobo relative to
     // what Nomba actually reports (docs/system-rules.md: never round money up).
-    const amount = nairaStringToKobo(payment.transaction.transactionAmount.toFixed(2));
+    //
+    // transactionAmount is untrusted external input, unlike every other
+    // nairaStringToKobo call site in this codebase (those all run on data
+    // already validated by the nairaAmount zod/AJV schema at the wire
+    // boundary). A payment_success event should always carry a positive
+    // amount, but if Nomba ever sends something nairaStringToKobo can't
+    // parse (negative — toFixed(2) has no sign group in the regex — NaN,
+    // or scientific notation on an implausibly large float), throwing
+    // here would propagate uncaught through NombaWebhooksService.handle to
+    // the webhook route's catch block, which responds 401 without ever
+    // marking this providerEvent processed — Nomba then retries the exact
+    // same payload forever, permanently wedging this contribution. Log
+    // loudly and bail instead: the contribution stays pending/underpaid
+    // for manual investigation, and the event is marked processed so the
+    // retry loop stops.
+    let amount: bigint;
+    try {
+      amount = nairaStringToKobo(payment.transaction.transactionAmount.toFixed(2));
+    } catch (err) {
+      console.error(
+        `[contributions] payment_success for contribution ${contribution.id} (nombaTransactionId ${payment.transaction.transactionId}) has an unparseable transactionAmount: ${payment.transaction.transactionAmount} — skipping, needs manual review`,
+        err
+      );
+      return;
+    }
 
     try {
       await db.insert(contributionPayments).values({

@@ -36,6 +36,21 @@ export function formatNaira(naira: string): string {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(Number(naira));
 }
 
+/**
+ * Converts a wire-format naira string ("100.50") to a plain JS number, for
+ * the narrow cases that genuinely need one — an <Input type="number">'s
+ * min/max attributes, or a `<` / `>` bound comparison against a user-typed
+ * amount — rather than each component hand-rolling its own `Number(naira)`.
+ * Not for display (use formatNaira/<Money>) or for arithmetic between two
+ * naira values (use addNaira/subtractNaira, which stay in exact kobo
+ * bigints); this is just the single sanctioned Number() conversion point
+ * for wire naira strings, per docs/frontend-rules.md's "add it to
+ * lib/money.ts, don't inline it" rule.
+ */
+export function nairaAmountToNumber(naira: string): number {
+  return Number(naira);
+}
+
 // The two functions below exist only for lib/mock/store.tsx, which
 // simulates the backend's own ledger balance tracking locally (adding a
 // contribution to a pot's running balance, subtracting a payout, etc) —

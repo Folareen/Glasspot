@@ -4,6 +4,7 @@ import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
 import { nigerianBanks } from "@/lib/mock/fixtures";
+import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
 type TargetBasedConfigStepProps = {
@@ -12,7 +13,11 @@ type TargetBasedConfigStepProps = {
 };
 
 export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStepProps) {
-  const hasAtLeastOneCondition = Boolean(state.targetDate) || Boolean(state.targetAmountNaira);
+  // isPositiveAmount, not Boolean(): a target amount of "0" is truthy as a
+  // string but isConfigStepValid (wizard-helpers.ts) rejects it as not a
+  // real target — matching this warning to that same rule so the message
+  // doesn't silently disappear on a "0" the Next button still blocks.
+  const hasAtLeastOneCondition = Boolean(state.targetDate) || isPositiveAmount(state.targetAmountNaira);
 
   return (
     <div className="flex flex-col gap-5">
@@ -69,7 +74,11 @@ export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStep
           <div className="h-px flex-1 bg-border" />
         </div>
 
-        <Field label="Target amount" htmlFor="target-amount" helperText="In naira, optional">
+        <Field
+          label="Target amount"
+          htmlFor="target-amount"
+          helperText="In naira, optional. Leave blank to rely on the date instead — don't enter 0."
+        >
           <Input
             id="target-amount"
             type="number"

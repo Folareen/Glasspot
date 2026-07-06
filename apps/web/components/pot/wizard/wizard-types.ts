@@ -7,6 +7,7 @@ export type WizardState = {
   refundType: RefundType;
   minContribution: string;
   maxContribution: string;
+  goalAmount: string;
   payoutMode: PayoutMode | null;
 
   targetDestinationAccount: string;
@@ -34,6 +35,7 @@ export const initialWizardState: WizardState = {
   refundType: "contributors",
   minContribution: "",
   maxContribution: "",
+  goalAmount: "",
   payoutMode: null,
 
   targetDestinationAccount: "",

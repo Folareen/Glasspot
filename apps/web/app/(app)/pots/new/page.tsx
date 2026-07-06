@@ -18,7 +18,7 @@ import { RecurringConfigStep } from "@/components/pot/wizard/RecurringConfigStep
 import { ScheduledConfigStep } from "@/components/pot/wizard/ScheduledConfigStep";
 import { ReviewStep } from "@/components/pot/wizard/ReviewStep";
 import { initialWizardState, wizardSteps, type WizardState } from "@/components/pot/wizard/wizard-types";
-import { buildPayoutConfig, isConfigStepValid } from "@/components/pot/wizard/wizard-helpers";
+import { buildPayoutConfig, isConfigStepValid, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
 import { toNairaAmount } from "@/lib/money";
 
 const stepTitles: Record<(typeof wizardSteps)[number], string> = {
@@ -71,8 +71,9 @@ export default function NewPotPage() {
       description: state.description.trim() || undefined,
       potType: state.potType,
       refundType: state.refundType,
-      minContribution: state.minContribution ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
-      maxContribution: state.maxContribution ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
+      minContribution: isPositiveAmount(state.minContribution) ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
+      maxContribution: isPositiveAmount(state.maxContribution) ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
+      goalAmount: isPositiveAmount(state.goalAmount) ? (toNairaAmount(state.goalAmount) ?? undefined) : undefined,
       payoutMode: state.payoutMode,
       payoutConfig: buildPayoutConfig(state),
     });

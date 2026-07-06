@@ -49,6 +49,12 @@ export function ReviewStep({ state }: ReviewStepProps) {
             <Row label="Maximum contribution" value={<Money naira={toNairaAmount(state.maxContribution) ?? "0.00"} />} />
           </>
         )}
+        {state.goalAmount && (
+          <>
+            <Divider />
+            <Row label="Fundraising goal" value={<Money naira={toNairaAmount(state.goalAmount) ?? "0.00"} />} />
+          </>
+        )}
       </Card>
 
       <Card padding="md">
