@@ -574,10 +574,10 @@
                     "pots"
                   ]
                 },
-                "description": "payoutMode='target_based': payout fires automatically once targetDate and/or targetAmountKobo is met — purely rule-driven, no admin-manual-trigger option (that's manual mode's job instead, optionally with a fixed destination — see 'Create Pot — Manual (Fixed Destination)'). Sets potId on success.",
+                "description": "payoutMode='target_based': payout fires automatically once targetDate and/or targetAmount (inside payoutConfig) is met — purely rule-driven, no admin-manual-trigger option (that's manual mode's job instead, optionally with a fixed destination — see 'Create Pot — Manual (Fixed Destination)'). goalAmount here is a SEPARATE, display-only figure (e.g. a bigger publicly-stated goal than the actual trigger amount) — it never affects when payout fires. Sets potId on success.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Rent Contribution\",\n  \"description\": \"Group pot to cover shared rent\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"maxContributionKobo\": 5000000,\n  \"payoutMode\": \"target_based\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"targetAmountKobo\": 10000000\n  }\n}",
+                  "raw": "{\n  \"title\": \"Rent Contribution\",\n  \"description\": \"Group pot to cover shared rent\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContribution\": 100000,\n  \"maxContribution\": 5000000,\n  \"goalAmount\": 10000000,\n  \"payoutMode\": \"target_based\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"targetAmount\": 10000000\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -620,7 +620,7 @@
                 "description": "payoutMode='manual', no fixed destination: an admin picks the destination at the moment they trigger POST /pots/:id/payout, every time — destinationAccount/destinationBank are then REQUIRED in that request's body. See 'Create Pot — Manual (Fixed Destination)' for the alternative where a default is set here instead.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Team Lunch Fund\",\n  \"description\": \"Manual payout, admin decides when and where\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContributionKobo\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {}\n}",
+                  "raw": "{\n  \"title\": \"Team Lunch Fund\",\n  \"description\": \"Manual payout, admin decides when and where\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContribution\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {}\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -663,7 +663,7 @@
                 "description": "payoutMode='manual' with a fixed default destination set at creation (manual_payout_configs) — the triggering admin can still fire it repeatedly, but the destination is pre-agreed and locked in, not chosen per-trigger. POST /pots/:id/payout can then be called with an empty body; any destinationAccount/destinationBank sent there is ignored in favor of this fixed one.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Team Lunch Fund (fixed destination)\",\n  \"description\": \"Manual payout, but always to the same pre-agreed account\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContributionKobo\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\"\n  }\n}",
+                  "raw": "{\n  \"title\": \"Team Lunch Fund (fixed destination)\",\n  \"description\": \"Manual payout, but always to the same pre-agreed account\",\n  \"potType\": \"private\",\n  \"refundType\": \"admin\",\n  \"minContribution\": 50000,\n  \"payoutMode\": \"manual\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -703,10 +703,10 @@
                     "pots"
                   ]
                 },
-                "description": "payoutMode='recurring': fixed amountKobo sent to one destination every intervalDays, starting at nextRunAt.",
+                "description": "payoutMode='recurring': fixed amount sent to one destination every intervalDays, starting at nextRunAt.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Monthly Savings Club\",\n  \"description\": \"Recurring payout on a fixed interval\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"payoutMode\": \"recurring\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"amountKobo\": 5000000,\n    \"intervalDays\": 30,\n    \"nextRunAt\": \"2026-08-01T00:00:00.000Z\"\n  }\n}",
+                  "raw": "{\n  \"title\": \"Monthly Savings Club\",\n  \"description\": \"Recurring payout on a fixed interval\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContribution\": 100000,\n  \"payoutMode\": \"recurring\",\n  \"payoutConfig\": {\n    \"destinationAccount\": \"{{destinationAccount}}\",\n    \"destinationBank\": \"{{destinationBank}}\",\n    \"amount\": 5000000,\n    \"intervalDays\": 30,\n    \"nextRunAt\": \"2026-08-01T00:00:00.000Z\"\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -749,7 +749,7 @@
                 "description": "payoutMode='scheduled', ordered=true: each leg pays out a different destination in sequenceOrder on its own scheduledDate, strictly in turn — classic Ajo/esusu rotation.",
                 "body": {
                   "mode": "raw",
-                  "raw": "{\n  \"title\": \"Ajo Rotation Group\",\n  \"description\": \"Each member takes a turn receiving the payout\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContributionKobo\": 100000,\n  \"payoutMode\": \"scheduled\",\n  \"payoutConfig\": {\n    \"ordered\": true,\n    \"legs\": [\n      {\n        \"destinationAccount\": \"{{destinationAccount}}\",\n        \"destinationBank\": \"{{destinationBank}}\",\n        \"sequenceOrder\": 0,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-08-01T00:00:00.000Z\"\n      },\n      {\n        \"destinationAccount\": \"{{memberDestinationAccount}}\",\n        \"destinationBank\": \"{{memberDestinationBank}}\",\n        \"sequenceOrder\": 1,\n        \"amountKobo\": 5000000,\n        \"scheduledDate\": \"2026-09-01T00:00:00.000Z\"\n      }\n    ]\n  }\n}",
+                  "raw": "{\n  \"title\": \"Ajo Rotation Group\",\n  \"description\": \"Each member takes a turn receiving the payout\",\n  \"potType\": \"private\",\n  \"refundType\": \"contributors\",\n  \"minContribution\": 100000,\n  \"payoutMode\": \"scheduled\",\n  \"payoutConfig\": {\n    \"ordered\": true,\n    \"legs\": [\n      {\n        \"destinationAccount\": \"{{destinationAccount}}\",\n        \"destinationBank\": \"{{destinationBank}}\",\n        \"sequenceOrder\": 0,\n        \"amount\": 5000000,\n        \"scheduledDate\": \"2026-08-01T00:00:00.000Z\"\n      },\n      {\n        \"destinationAccount\": \"{{memberDestinationAccount}}\",\n        \"destinationBank\": \"{{memberDestinationBank}}\",\n        \"sequenceOrder\": 1,\n        \"amount\": 5000000,\n        \"scheduledDate\": \"2026-09-01T00:00:00.000Z\"\n      }\n    ]\n  }\n}",
                   "options": {
                     "raw": {
                       "language": "json"
@@ -828,10 +828,10 @@
                 "{{potId}}"
               ]
             },
-            "description": "Admin-only. Only works while the pot is still status='draft' — activate() locks the config in. Can update title/description/min-maxContributionKobo/payoutMode/payoutConfig together or independently.",
+            "description": "Admin-only. Only works while the pot is still status='draft' — activate() locks the config in. Can update title/description/potType/refundType/min-maxContribution/goalAmount/payoutMode/payoutConfig together or independently. goalAmount is a display-only fundraising goal available on any payout mode — distinct from target_based's own targetAmount, which actually fires the payout.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"title\": \"Rent Contribution (updated)\",\n  \"minContributionKobo\": 200000\n}",
+              "raw": "{\n  \"title\": \"Rent Contribution (updated)\",\n  \"minContribution\": 200000,\n  \"goalAmount\": 12000000\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -881,10 +881,47 @@
                 "contributions"
               ]
             },
-            "description": "Any authenticated caller can contribute to an 'open' pot. Returns a pending virtual-account funding intent — the ledger only updates once Nomba's funding webhook confirms the transfer landed. Requires Idempotency-Key header (auto-filled with {{$guid}}). For refundType='contributors' pots, also pass refundAccountNumber/refundBankCode.",
+            "description": "Any authenticated caller can contribute to an 'open' pot (private pots also require membership, enforced same as GET /pots/:id). Returns a pending virtual-account funding intent — the ledger only updates once Nomba's funding webhook confirms the transfer landed. Requires Idempotency-Key header (auto-filled with {{$guid}}). For refundType='contributors' pots, also pass refundAccountNumber/refundBankCode.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"amountKobo\": 500000,\n  \"anonymous\": false\n}",
+              "raw": "{\n  \"amount\": 500000,\n  \"anonymous\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Contribute to Pot — Anonymous, No Auth",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/contributions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "contributions"
+              ]
+            },
+            "description": "A public pot accepts a contribution with NO bearer token at all — contributorUserId is stored null. Only works against a public pot (a private pot 404s an unauthenticated caller, same visibility rule as GET /pots/:id). For refundType='contributors' pots, refundAccountNumber/refundBankCode are still required here since there's no user profile to fall back on.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 500000,\n  \"anonymous\": true,\n  \"refundAccountNumber\": \"{{destinationAccount}}\",\n  \"refundBankCode\": \"{{destinationBank}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -915,7 +952,7 @@
                 "payout"
               ]
             },
-            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank in this body are ONLY read for payoutMode='manual' pots that were created WITHOUT a fixed destination (see 'Create Pot — Manual' vs 'Create Pot — Manual (Fixed Destination)') — omit the body entirely for target_based/recurring/scheduled pots, and for a manual pot that already has a fixed destination (this body is ignored in that case, not merged). Responds 202 with no body: the transfer is only ENQUEUED here, not completed — the actual Nomba call and ledger posting happen later in a background worker once the queued job is processed.",
+            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank in this body are ONLY read for payoutMode='manual' pots that were created WITHOUT a fixed destination (see 'Create Pot — Manual' vs 'Create Pot — Manual (Fixed Destination)') — omit the body entirely for target_based/recurring/scheduled pots, and for a manual pot that already has a fixed destination (this body is ignored in that case, not merged). amount is also manual-only and optional: omit it to disburse the pot's FULL current balance (original behavior); set it for a PARTIAL payout, leaving the rest in the pot — must be >0 and <= the pot's current balance. Responds 202 with no body: the transfer is only ENQUEUED here, not completed — the actual Nomba call and ledger posting happen later in a background worker once the queued job is processed.",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\"\n}",
@@ -933,6 +970,51 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"Payout accepted for processing (202)\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trigger Payout — Partial Amount",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/payout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "payout"
+              ]
+            },
+            "description": "Manual mode only. Sends amount instead of the pot's full balance — must be >0 and <= the pot's current balance (409 if it exceeds it). Leaves the remainder in the pot for a later trigger.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\",\n  \"amount\": 1000000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Partial payout accepted for processing (202)\", () => pm.response.to.have.status(202));"
                 ]
               }
             }
