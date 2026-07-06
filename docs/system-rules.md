@@ -10,4 +10,5 @@ Money in flight is tagged, not just counted. Once payout is triggered or pending
 Never blind-retry a transfer call on timeout. If a payout call to Nomba times out, you don't know if it executed. Query transaction status first; only retry if confirmed not-executed. Blind retry on timeout is how you double-pay someone.
 Audit log separate from the ledger. Who approved, when, what action, what context — for dispute resolution, not for balance math. Cheap to add (one table, append-only), expensive to reconstruct after the fact if you skip it.
 No silent failures. A failed transfer or refund must surface somewhere — alert, dashboard flag, anything — not just sit as a stuck row nobody notices.
+Admin-triggered money movement needs a second factor, not just a valid session. Manual payout trigger and admin refund trigger both require a one-time email code first (request it, then trigger with the code) — a stolen/hijacked admin session alone shouldn't be enough to move money out. The code is bound to the exact request context (destination/amount) it was issued for, so it can't be replayed against a retry with different parameters.
 

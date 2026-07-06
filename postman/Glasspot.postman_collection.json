@@ -931,6 +931,46 @@
           }
         },
         {
+          "name": "Request Payout OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/payout/otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "payout",
+                "otp"
+              ]
+            },
+            "description": "Admin-only. Sends a 6-digit confirmation code to the requesting admin's email, required before Trigger Payout will execute. Body must be the SAME destinationAccount/destinationBank/amount (if any) you intend to pass to Trigger Payout — the code is bound to this exact context and won't verify against a different one. Responds 200 { message }.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Confirmation code sent (200)\", () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Trigger Payout",
           "request": {
             "method": "POST",
@@ -952,10 +992,10 @@
                 "payout"
               ]
             },
-            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank in this body are ONLY read for payoutMode='manual' pots that were created WITHOUT a fixed destination (see 'Create Pot — Manual' vs 'Create Pot — Manual (Fixed Destination)') — omit the body entirely for target_based/recurring/scheduled pots, and for a manual pot that already has a fixed destination (this body is ignored in that case, not merged). amount is also manual-only and optional: omit it to disburse the pot's FULL current balance (original behavior); set it for a PARTIAL payout, leaving the rest in the pot — must be >0 and <= the pot's current balance. Responds 202 with no body: the transfer is only ENQUEUED here, not completed — the actual Nomba call and ledger posting happen later in a background worker once the queued job is processed.",
+            "description": "Admin-only, idempotent per Idempotency-Key. destinationAccount/destinationBank in this body are ONLY read for payoutMode='manual' pots that were created WITHOUT a fixed destination (see 'Create Pot — Manual' vs 'Create Pot — Manual (Fixed Destination)') — omit them entirely for target_based/recurring/scheduled pots, and for a manual pot that already has a fixed destination (this body is ignored in that case, not merged). amount is also manual-only and optional: omit it to disburse the pot's FULL current balance (original behavior); set it for a PARTIAL payout, leaving the rest in the pot — must be >0 and <= the pot's current balance. otpCode is required — call Request Payout OTP first with this SAME destination/amount and paste the emailed code here; it won't verify against a different destination/amount. Responds 202 with no body: the transfer is only ENQUEUED here, not completed — the actual Nomba call and ledger posting happen later in a background worker once the queued job is processed.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\"\n}",
+              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\",\n  \"otpCode\": \"{{otpCode}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -997,10 +1037,10 @@
                 "payout"
               ]
             },
-            "description": "Manual mode only. Sends amount instead of the pot's full balance — must be >0 and <= the pot's current balance (409 if it exceeds it). Leaves the remainder in the pot for a later trigger.",
+            "description": "Manual mode only. Sends amount instead of the pot's full balance — must be >0 and <= the pot's current balance (409 if it exceeds it). Leaves the remainder in the pot for a later trigger. otpCode must come from a Request Payout OTP call made with this SAME destination/amount.",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\",\n  \"amount\": 1000000\n}",
+              "raw": "{\n  \"destinationAccount\": \"{{destinationAccount}}\",\n  \"destinationBank\": \"{{destinationBank}}\",\n  \"amount\": 1000000,\n  \"otpCode\": \"{{otpCode}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1015,6 +1055,37 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test(\"Partial payout accepted for processing (202)\", () => pm.response.to.have.status(202));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Request Refund OTP",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/refund/otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "refund",
+                "otp"
+              ]
+            },
+            "description": "Admin-only. Sends a 6-digit confirmation code to the requesting admin's email, required before Trigger Refund will execute. No body. Responds 200 { message }."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Confirmation code sent (200)\", () => pm.response.to.have.status(200));"
                 ]
               }
             }
@@ -1042,7 +1113,16 @@
                 "refund"
               ]
             },
-            "description": "Admin-only, idempotent per Idempotency-Key. Drains the pot's full ledger balance — one leg for refundType='admin' (to the admin's refund profile account) or one per contributor for refundType='contributors'. Responds 202 with no body: every leg is only ENQUEUED here, not completed — the actual Nomba call(s) and ledger posting happen later in a background worker."
+            "description": "Admin-only, idempotent per Idempotency-Key. Drains the pot's full ledger balance — one leg for refundType='admin' (to the admin's refund profile account) or one per contributor for refundType='contributors'. otpCode is required — call Request Refund OTP first and paste the emailed code here. Responds 202 with no body: every leg is only ENQUEUED here, not completed — the actual Nomba call(s) and ledger posting happen later in a background worker.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"otpCode\": \"{{otpCode}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
           },
           "event": [
             {

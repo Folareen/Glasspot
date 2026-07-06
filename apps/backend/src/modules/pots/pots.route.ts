@@ -9,6 +9,8 @@ import {
   listMembersHandler,
   listPotsHandler,
   removeMemberHandler,
+  requestPayoutOtpHandler,
+  requestRefundOtpHandler,
   triggerPayoutHandler,
   triggerRefundHandler,
   updateMemberRoleHandler,
@@ -23,7 +25,9 @@ import {
   CreatePotInput,
   MemberParams,
   PotIdParams,
+  RequestPayoutOtpInput,
   TriggerPayoutInput,
+  TriggerRefundInput,
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
@@ -115,6 +119,19 @@ async function potsRoutes(server: FastifyInstance) {
     closePotHandler
   );
 
+  server.post<{ Params: PotIdParams; Body: RequestPayoutOtpInput }>(
+    "/:id/payout/otp",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        body: $ref("requestPayoutOtpSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    requestPayoutOtpHandler
+  );
+
   server.post<{ Params: PotIdParams; Body: TriggerPayoutInput }>(
     "/:id/payout",
     {
@@ -129,11 +146,24 @@ async function potsRoutes(server: FastifyInstance) {
   );
 
   server.post<{ Params: PotIdParams }>(
+    "/:id/refund/otp",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    requestRefundOtpHandler
+  );
+
+  server.post<{ Params: PotIdParams; Body: TriggerRefundInput }>(
     "/:id/refund",
     {
       preHandler: [server.authenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
+        body: $ref("triggerRefundSchema"),
         response: { 202: {} },
       },
     },

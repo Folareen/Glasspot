@@ -1,5 +1,6 @@
 export * from './users';
 export * from './otp-codes';
+export * from './action-otp-codes';
 export * from './pots';
 export * from './pot-members';
 export * from './contributions';

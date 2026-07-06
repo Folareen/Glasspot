@@ -4,6 +4,7 @@ import { PotMembersService } from "./pot-members.service";
 import { ContributionsService } from "./contributions.service";
 import { assertIsAdmin, getViewablePotOrThrow } from "./pot-authorization";
 import { PotError } from "./pots.errors";
+import { ActionOtpService } from "./action-otp.service";
 import { hashRequest, withIdempotencyKey } from "@/lib/idempotency.service";
 import {
   AddMemberInput,
@@ -11,7 +12,9 @@ import {
   CreatePotInput,
   MemberParams,
   PotIdParams,
+  RequestPayoutOtpInput,
   TriggerPayoutInput,
+  TriggerRefundInput,
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
@@ -163,6 +166,28 @@ export async function closePotHandler(
 }
 
 /**
+ * Sends a one-time confirmation code (admin-only) to the requesting
+ * admin's email, required to actually trigger a manual payout — see
+ * ActionOtpService.request and triggerPayoutHandler below. Body is the
+ * same destination/amount the admin intends to pay out with, hashed into
+ * the code's contextHash so it can't later be reused to approve a
+ * different destination/amount.
+ */
+export async function requestPayoutOtpHandler(
+  request: FastifyRequest<{ Params: PotIdParams; Body: RequestPayoutOtpInput }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    await assertIsAdmin(request.params.id, userId);
+    await ActionOtpService.request(userId, "trigger_payout", request.params.id, request.body);
+    return reply.code(200).send({ message: "Confirmation code sent" });
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/**
  * Manually triggers a payout for an eligible pot (admin-only), idempotent
  * per the Idempotency-Key header, and responds 202 with no body — the
  * disbursement is only enqueued here, not completed (see
@@ -170,9 +195,14 @@ export async function closePotHandler(
  * only matters for payoutMode='manual', where it carries the destination
  * the triggering admin is sending to this time — see PotsService.triggerPayout
  * and pots.schema.ts's triggerPayoutSchema. Included in the idempotency
- * hash (unlike activate/close/refund, which take no body) since two
+ * hash (unlike activate/close, which take no body) since two
  * manual-payout retries with the same key but different destinations must
  * not silently collapse to whichever one happened to run first.
+ *
+ * otpCode must match the code most recently sent by
+ * requestPayoutOtpHandler for this exact destination/amount — verified
+ * here, before PotsService.triggerPayout runs, so a stolen session alone
+ * can't move money out of the pot (see ActionOtpService.verify).
  */
 export async function triggerPayoutHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: TriggerPayoutInput }>,
@@ -180,9 +210,12 @@ export async function triggerPayoutHandler(
 ) {
   try {
     const userId = requireUserId(request);
+    await assertIsAdmin(request.params.id, userId);
     const key = requireIdempotencyKey(request);
     const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
     const { statusCode } = await withIdempotencyKey(key, requestHash, async () => {
+      const { otpCode, ...otpContext } = request.body;
+      await ActionOtpService.verify(userId, "trigger_payout", request.params.id, otpContext, otpCode);
       const destination =
         request.body?.destinationAccount && request.body?.destinationBank
           ? { destinationAccount: request.body.destinationAccount, destinationBank: request.body.destinationBank }
@@ -197,16 +230,46 @@ export async function triggerPayoutHandler(
   }
 }
 
-/** Manually triggers a refund, draining the pot's full balance (admin-only), idempotent per the Idempotency-Key header, and responds 202 with no body — the disbursement(s) are only enqueued here, not completed (see PotsService.triggerRefund). */
-export async function triggerRefundHandler(
+/**
+ * Sends a one-time confirmation code (admin-only) to the requesting
+ * admin's email, required to actually trigger a refund — see
+ * ActionOtpService.request and triggerRefundHandler below. No body to
+ * bind (refund takes none), so the code's contextHash is just
+ * hashActionContext(undefined).
+ */
+export async function requestRefundOtpHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
+    await assertIsAdmin(request.params.id, userId);
+    await ActionOtpService.request(userId, "trigger_refund", request.params.id, undefined);
+    return reply.code(200).send({ message: "Confirmation code sent" });
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/**
+ * Manually triggers a refund, draining the pot's full balance
+ * (admin-only), idempotent per the Idempotency-Key header, and responds
+ * 202 with no body — the disbursement(s) are only enqueued here, not
+ * completed (see PotsService.triggerRefund). otpCode must match the code
+ * most recently sent by requestRefundOtpHandler — see triggerPayoutHandler's
+ * equivalent comment above.
+ */
+export async function triggerRefundHandler(
+  request: FastifyRequest<{ Params: PotIdParams; Body: TriggerRefundInput }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    await assertIsAdmin(request.params.id, userId);
     const key = requireIdempotencyKey(request);
     const requestHash = hashRequest({ method: "POST", path: request.url, userId });
     const { statusCode } = await withIdempotencyKey(key, requestHash, async () => {
+      await ActionOtpService.verify(userId, "trigger_refund", request.params.id, undefined, request.body.otpCode);
       await PotsService.triggerRefund(request.params.id, userId);
       return { statusCode: 202, body: undefined };
     });

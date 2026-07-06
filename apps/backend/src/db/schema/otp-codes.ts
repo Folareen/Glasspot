@@ -7,10 +7,9 @@ import { users } from './users';
  * a single code tied to one user and one purpose, with its own attempt
  * counter and expiry.
  *
- * Not used for money-action approvals — that will be a separate
- * action_otp_codes table later (Milestone 2/4), bound to
- * {userId, action, targetId, contextHash} rather than just "valid code
- * for this user".
+ * Not used for money-action approvals — see action-otp-codes.ts's
+ * actionOtpCodes table for that, bound to {userId, action, potId,
+ * contextHash} rather than just "valid code for this user".
  */
 export const otpPurposeEnum = pgEnum('otp_purpose', [
   'signup_verification',
@@ -28,10 +27,6 @@ export const otpCodes = pgTable('otp_codes', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   consumedAt: timestamp('consumed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-
-  // FOR FUTURE REFERENCE:
-  // A separate `actionOtpCodes` table/file will be needed once payout/refund
-  // approvals go live (Milestone 2/4).
 });
 
 // index.ts / migration note: add a composite index on (user_id, purpose, consumed_at)

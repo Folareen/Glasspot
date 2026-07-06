@@ -256,10 +256,31 @@ const contributeSchema = z.object({
 // amount: also manual-only. Omit for a full-balance payout (the only
 // behavior before this field existed); set it for a PARTIAL payout —
 // PotsService.triggerPayout rejects it as >balance and requires >0.
+//
+// otpCode: the 6-digit code from POST /:id/payout/otp, required to
+// actually execute the payout — see ActionOtpService.verify. Bound to
+// the rest of this body via hashActionContext, so a code issued for one
+// destination/amount can't be replayed against a retry with different
+// ones (see pots.controller.ts's triggerPayoutHandler).
 const triggerPayoutSchema = z.object({
   destinationAccount: z.string().min(1).optional(),
   destinationBank: z.string().min(1).optional(),
   amount: koboAmount.optional(),
+  otpCode: z.string().length(6),
+});
+
+// Body for POST /:id/payout/otp — the same destination/amount fields the
+// admin intends to trigger the payout with, minus otpCode (there is none
+// yet). ActionOtpService hashes this body as the code's contextHash, so
+// the code that gets emailed is only valid for triggering a payout with
+// these exact parameters — see triggerPayoutSchema's otpCode comment.
+const requestPayoutOtpSchema = triggerPayoutSchema.omit({ otpCode: true });
+
+// POST /:id/refund takes no other body, so its otpCode is the only
+// field — no destination/amount to bind into the code's contextHash
+// (ActionOtpService.hashActionContext(undefined) for the /otp request).
+const triggerRefundSchema = z.object({
+  otpCode: z.string().length(6),
 });
 
 const transactionResponseSchema = z.object({
@@ -307,6 +328,8 @@ export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
 export type ContributeInput = z.infer<typeof contributeSchema>;
 export type TriggerPayoutInput = z.infer<typeof triggerPayoutSchema>;
+export type RequestPayoutOtpInput = z.infer<typeof requestPayoutOtpSchema>;
+export type TriggerRefundInput = z.infer<typeof triggerRefundSchema>;
 
 // Response types — the wire contract, safe for apps/web to import
 // directly. Money/date fields are string here (JSON has no bigint/Date);
@@ -335,6 +358,8 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     messageResponseSchema,
     contributeSchema,
     triggerPayoutSchema,
+    requestPayoutOtpSchema,
+    triggerRefundSchema,
     transactionResponseSchema,
     refundResponseSchema,
     contributionResponseSchema,

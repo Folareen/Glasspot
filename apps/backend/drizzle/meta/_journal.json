@@ -141,6 +141,13 @@
       "when": 1783327511081,
       "tag": "0019_rename_kobo_suffix_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783335670940,
+      "tag": "0020_faulty_excalibur",
+      "breakpoints": true
     }
   ]
 }
