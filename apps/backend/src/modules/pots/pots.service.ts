@@ -32,19 +32,10 @@ import {
 import { TransferQueueService } from "../scheduler/transfer-queue.service";
 import { DisbursementOnSuccess, DisbursementJobData } from "../scheduler/disbursement-job.types";
 
-// A self-contained payoutMode + matching payoutConfig pair, as a real
-// discriminated union (not derived via Pick<CreatePotInput, ...> — that
-// collapses z.infer's union in a way that loses the payoutMode <->
-// payoutConfig correlation switch (input.payoutMode) below relies on).
-// This is what insertPayoutConfig actually needs, regardless of whether
-// it originated from a full create payload or was assembled from a
-// partial update payload in PotsService.update. CreatePotInput already
-// has this shape (its discriminated union guarantees the pairing);
-// update() must build one explicitly since updatePotSchema is a flat,
-// permissive object where payoutConfig's shape is NOT guaranteed to
-// match payoutMode by the wire schema alone (see pots.schema.ts's
-// updatePotSchema comment for why that union was deliberately dropped) —
-// validated by validatePayoutModeConfig below.
+// A self-contained payoutMode + matching payoutConfig pair, as a real discriminated union (not
+// derived via Pick<CreatePotInput, ...>, which loses the payoutMode <-> payoutConfig correlation
+// the switch below relies on). CreatePotInput already has this shape; update() must build one
+// explicitly via validatePayoutModeConfig since updatePotSchema doesn't guarantee the pairing.
 type PayoutModeConfigPair =
   | { payoutMode: "target_based"; payoutConfig: z.infer<typeof targetBasedPayoutConfigSchema> }
   | { payoutMode: "manual"; payoutConfig: z.infer<typeof manualPayoutConfigSchema> }
@@ -56,38 +47,14 @@ function generateShareSlug(): string {
   return randomBytes(8).toString("base64url");
 }
 
-/**
- * pots.schema.ts's z.coerce.date() fields (targetDate, nextRunAt,
- * scheduledDate) are typed as `Date` after z.infer, but nothing in this
- * request pipeline actually calls Zod's .parse()/coerce logic — Fastify
- * validates request.body against the compiled JSON Schema via AJV only
- * (nothing here re-parses through Zod itself). A
- * JSON Schema date-time field validates a raw ISO string, so request.body's
- * date fields are still plain strings at
- * runtime despite what the type claims. Drizzle's timestamp columns need
- * a real Date (they call .toISOString() on the value), so every date
- * field from request.body must be explicitly re-wrapped here before it
- * reaches an insert/update call.
- */
+// pots.schema.ts's z.coerce.date() fields are typed `Date` after z.infer, but Fastify validates
+// request.body via AJV only (Zod's coerce never runs), so they're still plain ISO strings at
+// runtime. Drizzle needs a real Date, so re-wrap explicitly before any insert/update.
 function toDate(value: Date): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
-/**
- * Inserts the one payout config row matching input.payoutMode into its
- * mode-specific table. Only ever one of these four runs per call. Callers
- * must guarantee payoutConfig already matches payoutMode's shape —
- * PotsService.create gets that for free from createPotSchema's
- * discriminated union; PotsService.update calls validatePayoutModeConfig
- * first since updatePotSchema does not guarantee it (see that schema's
- * comment for why).
- *
- * Every destination account/bank pair is resolved via verifyAccountDetails()
- * (Nomba name-enquiry) before it's written — never trust a client-supplied
- * destination without confirming it resolves to a real account (see
- * docs/system-rules.md). Throws AccountVerificationError (400) if Nomba
- * can't resolve a destination, before any row is inserted.
- */
+/** Inserts the one payout config row matching input.payoutMode; every destination is resolved via verifyAccountDetails() (Nomba name-enquiry) before being written. */
 async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
   switch (input.payoutMode) {
     case "target_based": {
@@ -161,21 +128,7 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
   }
 }
 
-/**
- * Confirms a { payoutMode, payoutConfig } pair pulled from an
- * UpdatePotInput actually correspond to each other, and narrows it into a
- * real PayoutModeConfigPair. updatePotSchema's wire validation only
- * confirms payoutConfig matches ONE of the 4 possible shapes — not
- * necessarily the one matching payoutMode (see that schema's comment for
- * why the two fields can't be tied together at the wire-schema level).
- *
- * payoutMode itself is already known (not being inferred here), so this
- * re-validates payoutConfig against that ONE specific mode's own Zod
- * schema via safeParse — much simpler and more correct than trying to
- * structurally distinguish all 4 shapes from each other, which isn't
- * reliable in general (a target_based config with no optional fields set
- * would otherwise be indistinguishable from another mode's empty shape).
- */
+/** Confirms a { payoutMode, payoutConfig } pair from UpdatePotInput actually correspond (updatePotSchema alone only guarantees payoutConfig matches SOME mode, not necessarily this one), and narrows it into a real PayoutModeConfigPair. */
 function validatePayoutModeConfig(
   payoutMode: CreatePotInput["payoutMode"],
   payoutConfig: NonNullable<UpdatePotInput["payoutConfig"]>
@@ -405,29 +358,11 @@ export const PotsService = {
   },
 
   /**
-   * Manual payout trigger — only applicable to payoutMode='manual'.
-   * target_based/recurring/scheduled pots have no manual trigger at all;
-   * they fire exclusively via their own cron sweeps (see
-   * TargetBasedPayoutService/PayoutSchedulerService) and rejecting them
-   * here (see this method's bottom) is deliberate, not a gap.
-   *
-   * Validates authorization + pot/mode eligibility, then posts the
-   * internal leg (debit pot_account, credit platform_float) and calls
-   * Nomba to disburse to the destination — see postDisbursement() for the
-   * full in-flight-lock + transfer-call shape.
-   *
-   * destination (the parameter) is only read when the pot has no fixed
-   * destination on file (manual_payout_configs) — see the branch below
-   * and pots.schema.ts's triggerPayoutSchema comment. A destination passed
-   * alongside a pot that DOES have one fixed is ignored, not merged in, so
-   * there is exactly one source of truth once a default is set.
-   *
-   * amount is optional — omit it for the original full-balance
-   * behavior, or set it to disburse only PART of the pot's current
-   * balance, leaving the rest in the pot for a later trigger. Must be
-   * >0 and <=balance; re-checked against a freshly-read balance right
-   * before claiming the lock in postFixedAmountDisbursement's caller here,
-   * same re-read-after-lock-risk pattern as postDisbursement.
+   * Manual payout trigger — only applicable to payoutMode='manual' (other modes fire exclusively
+   * via their own cron sweeps). If the pot has a fixed destination on file it wins over the
+   * caller-supplied `destination`, which is ignored rather than merged. `amount` is optional:
+   * omit for full-balance payout, or set to disburse only part, leaving the rest for a later
+   * trigger — must be >0 and <=balance.
    */
   async triggerPayout(
     potId: string,
@@ -499,21 +434,12 @@ export const PotsService = {
   },
 
   /**
- * Manual refund trigger. refundType='admin' hands off a single-destination
- * disbursement to the triggering admin's own defaultRefundAccount/
- * defaultRefundBank on file (spec-mvp.md: refunds "to whoever triggers
- * it"), set via PATCH /auth/me/refund-profile. refundType='contributors'
- * fans out to every contributor pro-rata instead — see
- * postContributorsRefund().
- *
- * Returns void, not Transaction[] — no Transaction exists yet at the
- * point this returns, for either branch. Both now only ENQUEUE the
- * disbursement(s); the actual ledger posting + Nomba call happen later,
- * in the worker, once each job is processed (see
- * postFixedAmountDisbursement/postContributorsRefund's own comments).
- * The caller (refund route/controller) must respond "accepted for
- * processing," not with a completed transaction — see pots.route.ts.
- */
+   * Manual refund trigger. refundType='admin' disburses to the triggering admin's own
+   * defaultRefundAccount/Bank on file; refundType='contributors' fans out to every contributor
+   * pro-rata (see postContributorsRefund). Both only enqueue the disbursement(s) — the ledger
+   * posting + Nomba call happen later in the worker — so the caller must respond "accepted for
+   * processing," not with a completed transaction.
+   */
   async triggerRefund(potId: string, userId: string): Promise<void> {
     await assertIsAdmin(potId, userId);
     const pot = await getPotOrThrow(potId);
@@ -542,22 +468,10 @@ export const PotsService = {
   },
 
   /**
-   * Resolves a payout/refund transaction left 'processing' after a
-   * PENDING_BILLING transfer call, once Nomba's payout_success or
-   * payout_failed/payout_refund webhook reports the outcome — see
-   * nomba-webhooks module, the only caller. Matched by
-   * transaction.merchantTxRef == transactions.reference, which carries
-   * potId in its metadata (see postDisbursement/postContributorsRefund). A
-   * no-op if the transaction is already resolved (idempotent — see
-   * docs/system-rules.md's at-least-once delivery requirement) or unknown.
-   *
-   * Decrements pendingOperationLegCount rather than unconditionally
-   * clearing pendingOperation — a fan-out refund (refundType='contributors')
-   * has N independent in-flight legs, and the pot-level lock must only
-   * release once every leg has resolved, not the first one (see
-   * postContributorsRefund and pots.ts's pendingOperationLegCount comment).
-   * A single-destination payout/admin-refund starts with legCount=1, so
-   * this same decrement-to-zero logic clears it on its one resolution.
+   * Resolves a payout/refund transaction left 'processing' after a PENDING_BILLING transfer,
+   * once Nomba's webhook reports the outcome. Idempotent — a no-op if already resolved or
+   * unknown. Decrements pendingOperationLegCount rather than unconditionally clearing the lock,
+   * since a fan-out refund has N independent legs that must all resolve before it releases.
    */
   async resolvePendingTransfer(transactionReference: string, outcome: "success" | "failed"): Promise<void> {
     const [transaction] = await db.select().from(transactions).where(eq(transactions.reference, transactionReference));
@@ -581,24 +495,7 @@ export const PotsService = {
   },
 };
 
-/**
- * Shared disbursement path for both payout and refund. Claims
- * pots.pendingOperation atomically first (locking out a second concurrent
- * trigger — see docs/system-rules.md's "two members approving in the same
- * instant must not both trigger the payout call"), then hands off to
- * postFixedAmountDisbursement with the pot's FULL current balance —
- * unlike PayoutSchedulerService, which passes a fixed amount for
- * recurring/scheduled, this path always disburses everything currently in
- * the pot (manual/target_based payout, admin refund).
- *
- * Returns void, not a Transaction — see postFixedAmountDisbursement's own
- * comment: no Transaction exists yet at the point this returns, since the
- * actual Nomba call and ledger posting now happen later, in the worker,
- * once the enqueued job is processed. Callers of THIS function (triggerPayout,
- * triggerRefund) must respond to their own callers as "accepted for
- * processing," not "completed" — see pots.route.ts's /:id/payout using
- * 202 with no body.
- */
+/** Shared disbursement path for payout and refund: disburses the pot's FULL current balance via postFixedAmountDisbursement (unlike PayoutSchedulerService, which passes a fixed amount for recurring/scheduled). */
 async function postDisbursement(
   pot: Pot,
   kind: "payout" | "refund",
@@ -614,64 +511,17 @@ async function postDisbursement(
 }
 
 /**
- * Core single-leg disbursement: claims pots.pendingOperation atomically
- * (locking out a second concurrent trigger — see docs/system-rules.md's
- * "two members approving in the same instant must not both trigger the
- * payout call"), then hands the actual disbursement off to the
- * rate-limited `transfers` BullMQ queue and returns — it does NOT call
- * Nomba, post any ledger entries, or resolve the lock itself anymore.
- * See worker.ts's transfersWorker (processLedgerDisbursement/callNomba)
- * for where that work now actually happens, in a separate process, once
- * this job reaches the front of the queue.
- *
- * This function claims the lock but never releases it — release only
- * happens in the worker, once the transfer's real outcome is known (see
- * that file's releaseLock/clearPendingOperation/decrementPendingOperationLeg).
- * If this function returns without throwing, the lock is held and WILL be
- * released later by the worker; it is never left claimed with nothing
- * downstream able to clear it, because enqueueing only fails before the
- * lock is claimed (Redis unreachable, etc.) or after (in which case the
- * caller's catch block is responsible for releasing it — see
- * PayoutSchedulerService/TargetBasedPayoutService's try/catch around this
- * call, which treat an enqueue failure as "retry next sweep," not
- * "money moved."
- *
- * amount is EXACTLY what gets disbursed, not necessarily the pot's
- * full balance — see postDisbursement, which passes the full balance for
- * manual/target_based payout and admin refund, vs PayoutSchedulerService,
- * which passes a FIXED amount for recurring/scheduled.
- *
- * onSuccess is how this function tells the worker what to do ONLY once
- * the transfer has actually succeeded — e.g. mark a target_based config
- * fired, advance a recurring config's nextRunAt, or mark a scheduled leg
- * fired (see DisbursementOnSuccess / worker.ts's applyOnSuccess). This
- * exists because the four call sites (triggerPayout,
- * PayoutSchedulerService x2, TargetBasedPayoutService) each need a
- * different follow-up action, and the worker has no direct knowledge of
- * any of those call sites — onSuccess is the caller declaring its own
- * follow-up without the worker importing from every domain service.
- * Never applied by this function itself, and never applied on
- * PENDING_BILLING or failure — only on confirmed transfer success, so a
- * config can never be marked fired/advanced for money that didn't
- * actually move (see system-rules.md's "no silent failures" — the
- * inverse failure mode, silently marking success, is guarded against the
- * same way).
- *
- * contributorUserId, when set, tells the worker this leg belongs to a
- * fan-out refund (postContributorsRefund) with N independent legs sharing
- * one pot-level lock — the worker decrements pendingOperationLegCount on
- * resolution instead of clearing the lock outright, since the other
- * legs may still be in flight (see decrementPendingOperationLeg).
- * Omitted for a single-leg payout/admin-refund, where legCount is always 1
- * and resolution simply clears the lock.
- *
- * Returns void, not a Transaction: no Transaction exists yet at the
- * point this function returns — LedgerService.postTransaction no longer
- * runs here, only inside the worker once the job is actually processed.
- * Callers that previously read a returned Transaction (e.g. to respond
- * to an HTTP request with it) can no longer do so synchronously; the
- * caller must respond as "accepted for processing," not "completed"
- * (see pots.route.ts's /:id/payout using 202, not returning a body).
+ * Core single-leg disbursement: claims pots.pendingOperation atomically (locking out a second
+ * concurrent trigger), then enqueues the actual work onto the rate-limited `transfers` BullMQ
+ * queue and returns — does NOT call Nomba, post ledger entries, or release the lock itself; that
+ * happens later in the worker once the transfer's real outcome is known.
+ * `amount` is exactly what gets disbursed (not necessarily the full pot balance — see
+ * postDisbursement vs PayoutSchedulerService's fixed-amount callers).
+ * `onSuccess` runs only on confirmed transfer success (never on PENDING_BILLING or failure) so
+ * config state (target_based fired, recurring nextRunAt, scheduled leg fired) is never advanced
+ * for money that didn't move.
+ * `contributorUserId`, when set, marks this leg as part of a fan-out refund sharing one
+ * pot-level lock — the worker decrements pendingOperationLegCount instead of clearing outright.
  */
 export async function postFixedAmountDisbursement(
   pot: Pot,
@@ -722,32 +572,12 @@ export async function clearPendingOperation(potId: string): Promise<void> {
 }
 
 /**
- * refundType='contributors' disbursement: refunds every contributor who
- * has a 'funded' contribution to this pot their pro-rata share of the
- * pot's CURRENT balance (not their original contribution amount outright
- * — if a payout already drained part of the pot, each contributor's
- * share shrinks proportionally rather than the trigger being blocked).
- * Contributors with multiple funded contributions are refunded once, as
- * their combined total.
- *
- * Unlike postDisbursement, this enqueues ONE INDEPENDENT transfer job
- * PER CONTRIBUTOR rather than a single shared transaction — if one
- * contributor's transfer fails, only THEIR leg is reversed (by the
- * worker); the others' successful transfers stand (see
- * docs/system-rules.md — a failed bank transfer to one recipient has no
- * bearing on money already correctly delivered to another).
- * pendingOperationLegCount tracks how many of the N legs are still
- * outstanding; the pot-level lock only clears once every leg resolves
- * (see resolvePendingTransfer and worker.ts's releaseLock). Each leg is
- * a normal `pot_refund` job on the shared transfers queue — same
- * rate-limiting and failed_jobs tracking as every other disbursement
- * path, unlike the old inline-Nomba-call version of this function.
- *
- * Integer-kobo pro-rata division leaves a small remainder (less than the
- * number of contributors) uncollected in the pot — left there
- * deliberately rather than distributed unevenly; an admin can drain it
- * with one more small manual operation before closing (see pots.ts
- * status semantics: balance must be zero to close).
+ * refundType='contributors' disbursement: refunds every contributor with a 'funded' contribution
+ * their pro-rata share of the pot's CURRENT balance (shrinks proportionally if a payout already
+ * drained part of the pot). Contributors with multiple funded contributions are refunded once,
+ * combined. Enqueues one independent transfer job per contributor — if one fails, only that leg
+ * is reversed; the others stand. Integer-kobo division truncates down, deliberately leaving a
+ * small remainder (less than contributor count) uncollected rather than distributed unevenly.
  */
 async function postContributorsRefund(pot: Pot): Promise<void> {
   const funded = await db

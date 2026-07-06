@@ -1,11 +1,4 @@
-/**
- * Singleton Nomba client, initialized from env.ts.
- * Import `nomba` anywhere you need it - Node's module cache ensures this
- * file (and therefore the client, and its in-memory token cache) only
- * runs once per process.
- */
-
-
+/** Singleton Nomba client, initialized from env.ts; import `nomba` anywhere you need it, since Node's module cache ensures this file (and its in-memory token cache) only runs once per process. */
 import { NombaClient } from "@/integrations/nomba/nomba.client";
 import env from "@/config/env";
 import { RedisWebhookIdStore } from "@/integrations/nomba/webhooks";

@@ -1,53 +1,25 @@
 /**
- * Nomba API client (simplified)
- * ----------------------------------------------------------------
- * Covers:
- *   - POST /v1/auth/token/issue      obtain access token
- *   - POST /v1/auth/token/refresh    refresh an expired token
- *   - GET  /v1/transfers/banks       fetch bank codes and names
- *   - POST /v1/transfers/bank/lookup bank account lookup
- *   - POST /v2/transfers/bank/{subAccountId}   bank transfer, sourced from the configured sub-account (never the parent)
- *   - POST /v1/accounts/virtual/{subAccountId} create virtual account under the configured sub-account
- *   - GET  /v1/transactions/accounts list transactions (for reconciliation)
- *   - webhook signature verification + a nightly reconciliation helper
+ * Nomba API client. Covers auth token issue/refresh, bank list + account lookup, bank transfer
+ * and virtual account creation (both sourced from the configured sub-account, never the parent),
+ * transaction listing for reconciliation, and webhook signature verification. Requires Node 18+
+ * (global fetch); token is cached in memory and refreshed at the 55-minute mark.
  *
- * Requires Node 18+ (global fetch). Token is cached in memory and refreshed
- * at the 55-minute mark
- *
- * UNITS: every amount field this client sends to or reads from Nomba is
- * NAIRA (decimal), never kobo — see each field's own comment in
- * nomba.types.ts (amountNaira, expectedAmountNaira, transactionAmount,
- * Transaction.amount). Everywhere else in this codebase money is a kobo
- * bigint (docs/system-rules.md) — convert via koboToNairaString /
- * nairaStringToKobo (apps/backend/src/lib/money.ts) right at the call
+ * UNITS: every amount field this client sends to/reads from Nomba is NAIRA (decimal), never kobo
+ * (docs/system-rules.md) — convert via koboToNairaString/nairaStringToKobo right at the call
  * site, never earlier, and never store the naira value.
  *
- * * REFUNDS: Nomba does not expose a dedicated "refund" endpoint for virtual
- * account overpayments. The correct mechanism - confirmed via Nomba's docs -
- * is to send the excess back to the sender as a normal outbound transfer
- * using the bank details included in the payment webhook. refundOverpayment()
- * below wraps that.
+ * REFUNDS: Nomba has no dedicated refund endpoint for virtual account overpayments — the correct
+ * mechanism is an outbound transfer back to the sender's bank details from the payment webhook
+ * (see refundOverpayment()).
  *
- * WEBHOOKS: confirmed against developer.nomba.com/docs/api-basics/webhook
- * (2026-07). Six event_types exist, all sharing one payload envelope (see
- * WebhookTransactionData in nomba.types.ts):
- *   payment_success / payment_failed / payment_reversal  — virtual account
- *     funding; transaction.aliasAccountNumber/aliasAccountType identify
- *     which virtual account was paid into. No merchantTxRef (we didn't
- *     initiate these).
- *   payout_success / payout_failed / payout_refund       — outcome of our
- *     own transferToBankAccount() calls; transaction.merchantTxRef echoes
- *     back the reference we sent, the correlation key to our own
- *     transaction. No aliasAccountNumber.
- * Nomba does not echo back the expectedAmount you set when creating a
- * virtual account, so compare transaction.transactionAmount against your
- * own stored expectation (e.g. looked up by aliasAccountNumber).
+ * WEBHOOKS: six event_types share one payload envelope. payment_success/failed/reversal are
+ * virtual-account funding, identified by transaction.aliasAccountNumber, no merchantTxRef.
+ * payout_success/failed/refund are outcomes of our own transferToBankAccount() calls, correlated
+ * via transaction.merchantTxRef. Nomba doesn't echo back a virtual account's expectedAmount, so
+ * compare transaction.transactionAmount against your own stored expectation.
  *
- * SIGNATURE VERIFICATION does NOT hash the raw request body. It hashes a
- * constructed colon-delimited string pulled out of specific payload
- * fields, keyed with the webhook secret, HMAC-SHA256, Base64-encoded (not
- * hex) — see handleWebhook()'s doc comment for the exact field order.
- * Requires the `nomba-timestamp` header as one of the hashed inputs.
+ * SIGNATURE VERIFICATION does not hash the raw body — see handleWebhook()'s doc comment for the
+ * exact field order it hashes instead.
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
@@ -105,7 +77,7 @@ export class NombaClient {
   // ---------------------------------------------------------------
   // Auth
   // ---------------------------------------------------------------
- 
+
   /**
    * Returns a cached token, refreshing at the 55-minute mark instead of on
    * every call. Concurrent callers share a single in-flight request instead
@@ -115,21 +87,21 @@ export class NombaClient {
     if (this.cachedToken && Date.now() < this.cachedToken.refreshAt) {
       return this.cachedToken.accessToken;
     }
- 
+
     if (!this.inFlightTokenRequest) {
       this.inFlightTokenRequest = this.fetchNewToken().finally(() => {
         this.inFlightTokenRequest = null;
       });
     }
- 
+
     const token = await this.inFlightTokenRequest;
     return token.accessToken;
   }
- 
+
   /** Obtains a fresh access token: refreshes the cached refresh_token if one exists, falling back to a full client_credentials login if the refresh itself fails. */
   private async fetchNewToken() {
     let data: { access_token: string; refresh_token: string; expiresAt: string };
- 
+
     if (this.cachedToken) {
       try {
         data = await this.post("/v1/auth/token/refresh", {
@@ -153,7 +125,7 @@ export class NombaClient {
         client_secret: this.config.clientSecret,
       });
     }
- 
+
     // Tokens are valid 60 minutes; refresh 5 minutes early. If expiresAt is
     // ever missing/malformed, Date.parse returns NaN and every subsequent
     // "is it still valid" check fails safe (treats it as already expired)
@@ -165,7 +137,7 @@ export class NombaClient {
     };
     return this.cachedToken;
   }
- 
+
   // ---------------------------------------------------------------
   // Banks / lookup / transfer
   // ---------------------------------------------------------------
@@ -209,30 +181,13 @@ export class NombaClient {
   }
 
   /**
-   * POST /v2/transfers/bank/{subAccountId}
-   * Sourced from the configured sub-account, never the parent account - the
-   * parent's `accountId` still goes out as a header (Nomba requires both),
-   * but `subAccountId` in the path is what actually gets debited.
-   * Returns immediately. `status` may be:
-   *   - "SUCCESS"         settled
-   *   - "PENDING_BILLING" accepted but not yet settled - rely on the
-   *                        payout_success / payout_failed / payout_refund
-   *                        webhook for the final outcome; do not retry with
-   *                        a new reference
-   *   - a failure code (see TransferStatus) - on failure Nomba auto-refunds
-   *     your account and status becomes "REFUND"; you may safely retry with
-   *     a brand-new merchantTxRef in that case
-   *
-   * RATE LIMIT (confirmed via the Nomba dashboard's own notice on this
-   * endpoint): capped at 5 transfers to the SAME recipient (accountNumber +
-   * bankCode) per minute - separate from and narrower than any general
-   * per-subaccount/per-second limit. This client does not enforce that
-   * limit itself; callers going through the transfers worker get it for
-   * free via RedisTransferThrottle (src/integrations/nomba/transfer-throttle.ts,
-   * wired in src/workers/worker.ts) - a caller bypassing that worker (e.g.
-   * a script calling this method directly) must throttle per-recipient
-   * itself or risk Nomba rejecting the 6th rapid transfer to the same
-   * account.
+   * POST /v2/transfers/bank/{subAccountId} — sourced from the configured sub-account, never the
+   * parent. Returns immediately: "SUCCESS" (settled), "PENDING_BILLING" (accepted but not yet
+   * settled — rely on the payout_success/failed/refund webhook, never retry with a new
+   * reference), or a failure code (Nomba auto-refunds and status becomes "REFUND"; safe to retry
+   * with a new merchantTxRef). Nomba caps transfers to the SAME recipient at 5/minute; callers
+   * going through the transfers worker get this for free via RedisTransferThrottle — a caller
+   * bypassing that worker must throttle per-recipient itself.
    */
   async transferToBankAccount(params: TransferParams): Promise<TransferResult> {
     // Nomba's wire field is "amount" (see developer.nomba.com) — params.amountNaira
@@ -246,20 +201,8 @@ export class NombaClient {
     });
   }
 
-  
-  /**
-   * Refund an overpayment on a virtual account back to the sender.
-   *
-   * Nomba has no dedicated refund endpoint for this - the correct mechanism
-   * is a normal outbound transfer to the account that overpaid, using the
-   * sender's bank details from the payment webhook. `merchantTxRef` is
-   * derived from the original transactionId so a retried webhook can't
-   * trigger a duplicate refund.
-   *
-   * @param payment             `data` from a payment_success webhook (virtual account funding)
-   * @param expectedAmountNaira the amount, in naira, you were expecting for this payment
-   * @throws if the payment isn't actually an overpayment, or is missing the sender's bank details
-   */
+
+  /** Refunds an overpayment on a virtual account back to the sender via outbound transfer; merchantTxRef is derived from the original transactionId so a retried webhook can't double-refund. */
   async refundOverpayment(
     payment: WebhookTransactionData,
     expectedAmountNaira: number,
@@ -287,13 +230,7 @@ export class NombaClient {
   // Virtual accounts
   // ---------------------------------------------------------------
 
-  /**
-   * POST /v1/accounts/virtual/{subAccountId} — issues a dedicated NUBAN for a
-   * customer or invoice, after validating accountRef/accountName length
-   * against Nomba's constraints. Funds collected on this virtual account
-   * land in the configured sub-account, not the parent (same accountId
-   * header + subAccountId-in-path pattern as transferToBankAccount()).
-   */
+  /** POST /v1/accounts/virtual/{subAccountId} — issues a dedicated NUBAN after validating accountRef/accountName length; funds land in the configured sub-account, not the parent. */
   async createVirtualAccount(params: CreateVirtualAccountParams): Promise<VirtualAccount> {
     if (params.accountRef.length < 16 || params.accountRef.length > 64) {
       throw new RangeError("accountRef must be 16-64 characters");
@@ -313,16 +250,7 @@ export class NombaClient {
     });
   }
 
-  /**
-   * DELETE /v1/accounts/virtual/{accountRef} — releases a virtual account
-   * once we're done with it (past its own expiry window and either fully
-   * funded or abandoned — see ExpiryService). Each user is capped at 2
-   * virtual accounts on Nomba's side, so an account left un-expired
-   * indefinitely blocks that contributor from starting new contributions;
-   * this is how that slot gets freed. `accountRef` is the SAME value
-   * passed as accountRef to createVirtualAccount(), not Nomba's
-   * bankAccountNumber.
-   */
+  /** DELETE /v1/accounts/virtual/{accountRef} — releases a virtual account (past expiry, funded or abandoned); frees the contributor's 2-account cap slot on Nomba's side. accountRef is the same value passed to createVirtualAccount(), not Nomba's bankAccountNumber. */
   async expireVirtualAccount(accountRef: string): Promise<{ expired: boolean }> {
     return this.del(`/v1/accounts/virtual/${encodeURIComponent(accountRef)}`);
   }
@@ -344,19 +272,14 @@ export class NombaClient {
     return this.get(`/v1/transactions/accounts?${query.toString()}`);
   }
 
-  
+
   /**
-   * Nightly reconciliation: pulls every Nomba transaction in the window and
-   * diffs it against local ledger, matched by merchantTxRef (never
-   * Nomba's internal id, which can rotate on retries). Returns a structured
-   * report with per-transaction line items and a per-customer rollup, so you
-   * can both alert on individual drift and see which customers are affected.
-   *
-   *  - "orphan":          Nomba has the transaction, we don't
-   *  - "overpaid" / "underpaid": both sides have it, amounts differ
-   *  - "matched":          both sides agree
-   *  - "missing_on_nomba": our ledger expected a payment that never landed
-   *                         on Nomba (only reported if `listExpectedRefs` is given)
+   * Nightly reconciliation: pulls every Nomba transaction in the window and diffs it against the
+   * local ledger, matched by merchantTxRef (never Nomba's internal id, which can rotate on
+   * retries). Returns a structured report with per-transaction line items and a per-customer
+   * rollup: "orphan" (Nomba has it, we don't), "overpaid"/"underpaid" (both have it, amounts
+   * differ), "matched", or "missing_on_nomba" (expected but never landed, only if
+   * `listExpectedRefs` is given).
    */
   async reconcile(params: {
     dateFrom: string;
@@ -371,7 +294,7 @@ export class NombaClient {
   }): Promise<ReconciliationReport> {
     const lineItems: ReconciliationLineItem[] = [];
     const seenRefs = new Set<string>();
- 
+
     let cursor: string | undefined;
     let pageCount = 0;
 
@@ -382,17 +305,17 @@ export class NombaClient {
         status: params.status,
         cursor,
       });
- 
+
       for (const tx of page.results) {
         if (!tx.merchantTxRef) continue;
         seenRefs.add(tx.merchantTxRef);
- 
+
         const local = await params.findLocalByRef(tx.merchantTxRef);
         const item = this.buildLineItem(tx.merchantTxRef, tx, local);
         lineItems.push(item);
         await params.onLineItem?.(item);
       }
- 
+
       cursor = page.cursor;
       pageCount++;
       if (pageCount > MAX_RECONCILE_PAGES) {
@@ -401,7 +324,7 @@ export class NombaClient {
         );
       }
     } while (cursor);
- 
+
     if (params.listExpectedRefs) {
       const expectedRefs = await params.listExpectedRefs();
       for (const ref of expectedRefs) {
@@ -417,7 +340,7 @@ export class NombaClient {
         await params.onLineItem?.(item);
       }
     }
- 
+
     return this.buildReport(params.dateFrom, params.dateTo, lineItems);
   }
 
@@ -440,32 +363,11 @@ export class NombaClient {
       nombaTransaction: tx,
     };
   }
- 
-  /**
-   * Turns the flat list of per-transaction line items from reconcile() into
-   * per-customer totals and status counts.
-   *
-   * Example: given
-   *   lineItems = [
-   *     { customerId: "alice", status: "matched",  localAmount: 5000, nombaAmount: 5000, difference: 0 },
-   *     { customerId: "bob",   status: "overpaid", localAmount: 5000, nombaAmount: 6000, difference: 1000 },
-   *     { customerId: "bob",   status: "underpaid",localAmount: 5000, nombaAmount: 3000, difference: -2000 },
-   *     { customerId: undefined, status: "orphan", nombaAmount: 1000 },
-   *   ]
-   * this produces:
-   *   - matchedCount: 1, overpaidCount: 1, underpaidCount: 1, orphanCount: 1
-   *   - byCustomer:
-   *       alice:   expectedTotal 5000, receivedTotal 5000
-   *       bob:     expectedTotal 10000, receivedTotal 9000, overpaidTotal 1000, underpaidTotal 2000
-   *       unknown: receivedTotal 1000 (the orphan, which has no customerId to attach to)
-   *
-   * Without this step, every caller of reconcile() would have to re-filter
-   * and re-sum the same flat list themselves just to answer "does Bob owe us
-   * money?" - doing it once here guarantees a consistent answer everywhere.
-   */
+
+  /** Turns the flat list of per-transaction line items from reconcile() into per-customer totals and status counts, so callers don't each re-filter/re-sum the same list themselves. */
   private buildReport(dateFrom: string, dateTo: string, lineItems: ReconciliationLineItem[]): ReconciliationReport {
     const byCustomerMap = new Map<string, CustomerReconciliationSummary>();
- 
+
     for (const item of lineItems) {
       const key = item.customerId ?? "unknown";
       let summary = byCustomerMap.get(key);
@@ -486,9 +388,9 @@ export class NombaClient {
       if (item.status === "overpaid" && item.difference != null) summary.overpaidTotal += item.difference;
       if (item.status === "underpaid" && item.difference != null) summary.underpaidTotal += -item.difference;
     }
- 
+
     const count = (status: ReconciliationStatus) => lineItems.filter((i) => i.status === status).length;
- 
+
     return {
       dateFrom,
       dateTo,
@@ -509,34 +411,13 @@ export class NombaClient {
   // ---------------------------------------------------------------
 
   /**
-   * Verifies the "nomba-signature" header, checks for duplicate delivery,
-   * then calls `handler` with the parsed event - so routes stay a few
-   * lines, e.g.:
-   *
-   *   app.post("/webhooks/nomba", express.raw({ type: "application/json" }), (req, res) => {
-   *     nomba
-   *       .handleWebhook(req.body, req.header("nomba-signature"), req.header("nomba-timestamp"), async (event) => {
-   *         // business logic here
-   *       })
-   *       .then(() => res.sendStatus(200))
-   *       .catch((err) => res.status(401).send(err.message));
-   *   });
-   *
-   * SIGNATURE ALGORITHM (confirmed against developer.nomba.com/docs/api-basics/webhook,
-   * 2026-07 — NOT a hash of the raw body, despite that being the more
-   * common webhook pattern): pull nine fields out of the PARSED payload -
-   * event_type, requestId, data.merchant.userId, data.merchant.walletId,
-   * data.transaction.transactionId, data.transaction.type,
-   * data.transaction.time, data.transaction.responseCode (empty string if
-   * absent/"null"), and the `nomba-timestamp` header value - join with
-   * ":", HMAC-SHA256 with the webhook secret, Base64-encode (not hex),
-   * compare case-insensitively against the `nomba-signature` header.
-   *
-   * `rawBody` must be the exact raw request body (a Buffer or string from
-   * a raw-body parser, before JSON.parse) so it can be parsed once here;
-   * `nombaTimestamp` is the `nomba-timestamp` header, required as a
-   * signature input. Duplicate deliveries (event.requestId already seen)
-   * are silently skipped without calling `handler` again.
+   * Verifies the "nomba-signature" header, checks for duplicate delivery (event.requestId
+   * already seen is silently skipped), then calls `handler` with the parsed event.
+   * SIGNATURE ALGORITHM is NOT a hash of the raw body: nine fields from the parsed payload
+   * (event_type, requestId, merchant.userId/walletId, transaction.transactionId/type/time,
+   * responseCode — "" if absent/"null" — and the nomba-timestamp header) are joined with ":",
+   * HMAC-SHA256'd with the webhook secret, and Base64-encoded (not hex).
+   * `rawBody` must be the exact raw request body (pre-JSON.parse).
    */
   async handleWebhook(
     rawBody: Buffer | string,
@@ -622,16 +503,16 @@ export class NombaClient {
       if (needsAuth) {
         headers.Authorization = `Bearer ${await this.getAccessToken()}`;
       }
- 
+
       const res = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(this.requestTimeoutMs),
       });
- 
+
       const json = await res.json().catch(() => ({}));
- 
+
       // 201 on the transfer endpoint means "processing", not an error.
       if (!res.ok && res.status !== 201) {
         throw new NombaApiError(
@@ -641,7 +522,7 @@ export class NombaClient {
           json
         );
       }
- 
+
       return json.data ?? json;
     } catch (err) {
       // Already normalized - e.g. a non-2xx response above, or a nested
@@ -657,13 +538,7 @@ export class NombaClient {
   }
 }
 
-/**
- * Rebuilds the exact colon-delimited string Nomba signs and HMAC-SHA256 +
- * Base64-encodes it with the webhook secret — see handleWebhook's doc
- * comment for the field order/source, confirmed against Nomba's own
- * reference JS implementation. responseCode is treated as "" when absent
- * or the literal string "null", matching that reference implementation.
- */
+/** Rebuilds the exact colon-delimited string Nomba signs and HMAC-SHA256 + Base64-encodes it with the webhook secret — see handleWebhook's doc comment for the field order. */
 function computeWebhookSignature(
   event: WebhookEvent<WebhookTransactionData>,
   nombaTimestamp: string,
@@ -696,71 +571,3 @@ function safeEqualCaseInsensitive(a: string, b: string): boolean {
   const bufB = Buffer.from(b.toLowerCase());
   return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
-
-// -----------------------------------------------------------------
-// Usage
-// -----------------------------------------------------------------
-//
-// import { nomba } from "./nomba"; // singleton, see nomba.ts
-//
-// // --- Transact: create a virtual account for an invoice ---
-// // invoice.total is a kobo bigint internally — convert via koboToNairaString
-// // (apps/backend/src/lib/money.ts) right at this call, never earlier.
-// const account = await nomba.createVirtualAccount({
-//   accountRef: `invoice_${invoiceId}`,
-//   accountName: customer.fullName,
-//   expectedAmountNaira: Number(koboToNairaString(invoice.total)),
-// });
-//
-// // --- Transact: pay out to a bank account (always lookup first) ---
-// const resolved = await nomba.lookupBankAccount("0554772814", "058");
-// // show resolved.accountName to the user for confirmation, then:
-// await nomba.transferToBankAccount({
-//   amountNaira: 3500,
-//   accountNumber: "0554772814",
-//   accountName: resolved.accountName,
-//   bankCode: "058",
-//   merchantTxRef: `payout_${payoutId}`,
-//   senderName: "Acme Inc",
-// });
-//
-// // --- Webhooks + refund on overpayment ---
-// app.post("/webhooks/nomba", express.raw({ type: "application/json" }), (req, res) => {
-//   nomba
-//     .handleWebhook(req.body, req.header("nomba-signature"), req.header("nomba-timestamp"), async (event) => {
-//       if (event.event_type !== "payment_success") return;
-//       const payment = event.data; // WebhookTransactionData
-//       if (payment.transaction.aliasAccountType !== "VIRTUAL") return;
-//
-//       const invoice = await db.invoices.findOne({ virtualAccountNumber: payment.transaction.aliasAccountNumber });
-//       // invoice.total is kobo internally — convert to naira for this comparison/call only.
-//       const expectedAmountNaira = invoice ? Number(koboToNairaString(invoice.total)) : undefined;
-//       const verdict = NombaClient.evaluatePayment(payment.transaction.transactionAmount, expectedAmountNaira);
-//
-//       if (verdict === "overpaid") {
-//         await nomba.refundOverpayment(payment, expectedAmountNaira!);
-//       } else if (verdict === "underpaid") {
-//         await notifyCustomer(invoice, "short payment received");
-//       } else if (verdict === "exact") {
-//         await db.invoices.markPaid(invoice!.id);
-//       }
-//     })
-//     .then(() => res.sendStatus(200))
-//     .catch((err) => res.status(401).send(err.message));
-// });
-//
-// // --- Nightly reconciliation with a customer-level report ---
-// const report = await nomba.reconcile({
-//   dateFrom: "2026-03-01",
-//   dateTo: "2026-03-31",
-//   status: "success",
-//   findLocalByRef: (ref) => db.payments.findOne({ ref }),
-//   listExpectedRefs: () => db.payments.listExpectedRefsForWindow("2026-03-01", "2026-03-31"),
-//   onLineItem: (item) => {
-//     if (item.status !== "matched") alertOps(item.status, item);
-//   },
-// });
-// console.log(`${report.overpaidCount} overpaid, ${report.underpaidCount} underpaid, ${report.orphanCount} orphans`);
-// for (const customer of report.byCustomer) {
-//   console.log(customer.customerId, customer.receivedTotal, "received vs", customer.expectedTotal, "expected");
-// }

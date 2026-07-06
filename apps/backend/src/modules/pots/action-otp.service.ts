@@ -43,13 +43,7 @@ function actionLabel(action: ActionOtpAction): string {
 }
 
 export const ActionOtpService = {
-  /**
-   * Generates a code, stores its hash bound to {userId, action, potId,
-   * contextHash}, and emails the raw code to the admin. Rate-limited per
-   * user+action+pot the same way auth.service.ts's login/signup OTPs are,
-   * to stop an admin (or an attacker with a stolen session) from spamming
-   * codes.
-   */
+  /** Generates a code bound to {userId, action, potId, contextHash}, emails it to the admin, and rate-limits per user+action+pot to stop code-spamming. */
   async request(userId: string, action: ActionOtpAction, potId: string, context: unknown): Promise<void> {
     const [admin] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (!admin) {
@@ -96,14 +90,7 @@ export const ActionOtpService = {
     await sendMail({ to: admin.email, subject, text, html });
   },
 
-  /**
-   * Validates `code` against the newest unconsumed action-OTP for this
-   * {userId, action, potId}, also requiring context to hash to the same
-   * contextHash the code was issued for — so a code issued for one
-   * destination/amount can't be reused to approve a different one.
-   * Marks the code consumed on success; bumps its attempt count and
-   * throws on failure.
-   */
+  /** Validates `code` against the newest unconsumed action-OTP for {userId, action, potId}, also requiring context to hash to the contextHash it was issued for; marks it consumed on success, else bumps attempt count and throws. */
   async verify(userId: string, action: ActionOtpAction, potId: string, context: unknown, code: string): Promise<void> {
     const [otp] = await db
       .select()

@@ -48,17 +48,7 @@ function assertBalanced(entries: LedgerEntryInput[]): void {
   }
 }
 
-/**
- * Locks `accountId`'s balance row (SELECT ... FOR UPDATE) inside the caller's
- * open DB transaction, applies one entry's effect on it, and returns the new
- * ledgerBalance — so concurrent postings against the same account (e.g. two
- * contributions hitting the same pot at once) serialize instead of racing
- * (see docs/system-rules.md's concurrency + locking requirement).
- *
- * Debit/credit sign is relative to the account's normalBalance: an entry in
- * the account's normal direction increases its balance, the opposite
- * direction decreases it (standard double-entry convention).
- */
+/** Locks accountId's balance row (SELECT ... FOR UPDATE) in the caller's open transaction, applies one entry, and returns the new ledgerBalance — serializes concurrent postings against the same account. */
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 async function applyEntryToBalance(
@@ -73,6 +63,8 @@ async function applyEntryToBalance(
     .for("update");
 
   const current = lockedBalance?.ledgerBalance ?? 0n;
+  // Sign relative to the account's normalBalance: an entry in the account's normal
+  // direction increases its balance, the opposite direction decreases it.
   const signedDelta = entry.direction === account.normalBalance ? entry.amount : -entry.amount;
   const next = current + signedDelta;
 
@@ -90,22 +82,13 @@ async function applyEntryToBalance(
 
 export const LedgerService = {
   /**
-   * The only way money ever moves (see docs/system-rules.md). Validates
-   * debits==credits, then in a single DB transaction: inserts the
-   * transactions row, locks + updates each affected account's balance, and
-   * inserts one immutable ledgerEntries row per entry with its
-   * post-entry balanceAfter snapshot. Whole thing rolls back on any
-   * failure — never partially posted.
-   *
-   * Idempotent by `reference`: if a transaction with this reference
-   * already exists, returns it as-is instead of re-posting — safe for a
-   * caller to retry the exact same logical operation twice.
-   *
-   * `executor` defaults to `db` but accepts an already-open transaction —
-   * reverseTransaction() passes its own tx so the reversal posting and its
-   * subsequent status update commit atomically together (see that
-   * method's comment).
+   * The only way money ever moves: validates debits==credits, then atomically inserts the
+   * transaction row, locks + updates each affected account's balance, and inserts one immutable
+   * ledgerEntries row per entry. Idempotent by `reference` — an existing transaction with the
+   * same reference is returned as-is rather than re-posted.
    */
+  // executor defaults to `db` but accepts an already-open transaction — reverseTransaction()
+  // passes its own tx so the reversal posting and its status update commit atomically together.
   async postTransaction(input: PostTransactionInput, executor: typeof db | DbTransaction = db): Promise<Transaction> {
     assertBalanced(input.entries);
 
@@ -190,13 +173,7 @@ export const LedgerService = {
     return row?.ledgerBalance ?? 0n;
   },
 
-  /**
-   * Posts a brand-new transaction with every original entry's direction
-   * flipped, referencing the original transaction's id in metadata. Never
-   * edits or deletes the original entries — reversal is forward-only (see
-   * docs/system-rules.md). `reference` must be a fresh idempotency key
-   * distinct from the original transaction's.
-   */
+  /** Posts a new transaction with every original entry's direction flipped; never edits/deletes the original — reversal is forward-only. `reference` must be a fresh idempotency key. */
   async reverseTransaction(originalTransactionId: string, reference: string): Promise<Transaction> {
     const [original] = await db.select().from(transactions).where(eq(transactions.id, originalTransactionId));
     if (!original) {
@@ -237,13 +214,7 @@ export const LedgerService = {
     });
   },
 
-  /**
-   * Marks a 'processing' transaction 'completed' — used when an external
-   * call that was left in-flight (e.g. a Nomba transfer returning
-   * PENDING_BILLING) later resolves successfully via webhook. Does not
-   * touch ledgerEntries or balances, which were already applied when the
-   * transaction was first posted.
-   */
+  /** Marks a 'processing' transaction 'completed' once an in-flight external call resolves via webhook; does not touch ledgerEntries/balances, already applied at posting time. */
   async markCompleted(transactionId: string): Promise<Transaction> {
     const [updated] = await db
       .update(transactions)

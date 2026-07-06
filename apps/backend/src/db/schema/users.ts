@@ -1,16 +1,10 @@
 import { pgTable, uuid, text, timestamp } from 'drizzle-orm/pg-core';
 
 /**
- * Every registered person on Glasspot. Holds login credentials, identity,
- * and — for today's simplified single-session setup — the refresh token
- * itself, folded directly into the row instead of a separate table.
- *
- * email/username stored as plain TEXT — normalize casing in the app layer
- * before insert/lookup if case-insensitivity matters.
- *
- * Refresh token reuse detection: on /auth/refresh, compare the presented
- * token's hash to refreshTokenHash. Match -> rotate (overwrite hash +
- * expiry). Mismatch -> null this out immediately, kill the session.
+ * Every registered person on Glasspot — credentials, identity, and (single-session setup) the
+ * refresh token folded directly into the row. email/username are plain TEXT, so normalize casing
+ * in the app layer. Refresh token reuse detection: on /auth/refresh, a hash match rotates the
+ * token; a mismatch nulls it out immediately and kills the session.
  */
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
@@ -24,10 +18,8 @@ export const users = pgTable('users', {
   refreshTokenHash: text('refresh_token_hash'),
   refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
 
-  // Destination for a refundType='admin' pot's real Nomba transfer when
-  // this user triggers the refund (spec-mvp.md: refunds "to whoever
-  // triggers it"). Nullable — only required at the moment of triggering an
-  // admin refund, not at signup; PotsService.triggerRefund throws if unset.
+  // Destination for a refundType='admin' pot's refund transfer to whoever triggers it. Nullable
+  // at signup; PotsService.triggerRefund throws if unset when actually needed.
   defaultRefundAccount: text('default_refund_account'),
   defaultRefundBank: text('default_refund_bank'),
 

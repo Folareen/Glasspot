@@ -1,10 +1,4 @@
-/**
- * Shared HTML/text template for one-time code emails (signup, login,
- * password reset, payout/refund confirmation). Centralized so every OTP
- * email looks and reads the same way, and so the code never appears in
- * the subject line (subject-line codes get shown on lock screens and
- * are a common phishing tell).
- */
+/** Shared HTML/text template for one-time code emails (signup, login, password reset, payout/refund confirmation); the code is deliberately kept out of the subject line, a common phishing tell on lock screens. */
 export function otpEmail(options: { code: string; intro: string; ttlMinutes: number }): {
   subject: string;
   text: string;

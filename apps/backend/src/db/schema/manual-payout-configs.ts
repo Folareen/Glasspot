@@ -3,18 +3,11 @@ import { sql } from 'drizzle-orm';
 import { pots } from './pots';
 
 /**
- * Optional payout rule for a pot with payoutMode = 'manual'. destinationAccount/
- * destinationBank are both nullable — if unset, the triggering admin names
- * the destination themselves at the moment of payout (see
- * PotsService.triggerPayout and pots.schema.ts's triggerPayoutSchema). If
- * set, they act as the default destination, matching target_based/recurring's
- * fixed-destination shape, while still allowing the triggering admin to
- * repeat the payout indefinitely (unlike target_based, which fires once).
- *
- * One row per pot (potId unique), and only inserted at all if a destination
- * was actually provided at creation — see PotsService.insertPayoutConfig's
- * 'manual' case. Set once while the pot is 'draft' and immutable once the
- * pot is 'open' — see pots.ts status semantics.
+ * Optional payout rule for payoutMode='manual'. destinationAccount/destinationBank are nullable
+ * — if unset, the triggering admin names a destination at payout time; if set, they act as a
+ * default while still allowing the admin to trigger payout repeatedly (unlike target_based's
+ * fire-once). One row per pot, only inserted if a destination was provided at creation; set
+ * during 'draft' and immutable once the pot is 'open'.
  */
 export const manualPayoutConfigs = pgTable(
   'manual_payout_configs',

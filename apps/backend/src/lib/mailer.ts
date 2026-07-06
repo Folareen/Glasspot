@@ -1,12 +1,7 @@
 import nodemailer from "nodemailer";
 import env from "@/config/env";
 
-/**
- * Singleton SMTP transporter, initialized from env.ts — same pattern as
- * config/redis.ts. Import `sendMail` anywhere email delivery is needed;
- * Node's module cache ensures the underlying connection pool is only
- * created once per process.
- */
+// Singleton SMTP transporter (same pattern as config/redis.ts); Node's module cache ensures it's created once per process.
 const transporter = nodemailer.createTransport({
   host: env.SMTP_HOST,
   port: env.SMTP_PORT,

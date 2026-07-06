@@ -1,24 +1,13 @@
 import { Bank } from "@/integrations/nomba/nomba.types";
 
-/**
- * Caches Nomba's bank list (rarely changes) across process restarts and
- * multiple instances. Unlike WebhookIdStore's entries, this cache has no
- * TTL by design — it only clears on an explicit refresh() call, since
- * there's no natural expiry for "the list of Nigerian banks."
- */
+/** Caches Nomba's bank list across process restarts and instances; unlike WebhookIdStore, has no TTL by design and only clears on an explicit refresh() call. */
 export interface BankStore {
   get(): Promise<Bank[] | null>;
   set(banks: Bank[]): Promise<void>;
   clear(): Promise<void>;
 }
 
-/**
- * Redis-backed bank list cache, one JSON blob under a single key — no TTL,
- * so it survives indefinitely until clear() is called (see routes/banks
- * for the refresh endpoint that does so). Works with any client exposing
- * this shape (ioredis, node-redis v4, etc), same pattern as
- * RedisWebhookIdStore in webhooks.ts.
- */
+/** Redis-backed BankStore, one JSON blob under a single key with no TTL, surviving indefinitely until clear() is called. */
 export class RedisBankStore implements BankStore {
   constructor(
     private redis: {

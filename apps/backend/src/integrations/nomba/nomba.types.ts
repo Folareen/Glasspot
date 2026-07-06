@@ -32,14 +32,7 @@ export interface TransferParams {
   narration?: string;
 }
 
-/**
- * SUCCESS / PENDING_BILLING are the two "everything is fine" outcomes (see
- * transferToBankAccount doc comment). FAILED/BAD_REQUEST/INSUFFICIENT_BALANCE/
- * ACCOUNT_NOT_FOUND/INVALID_TRANSACTION/WALLET_NOT_FOUND/BLACKLISTED are
- * documented failure codes. REFUND means the transfer failed and Nomba has
- * already auto-reversed it back to your account - safe to retry with a new
- * merchantTxRef.
- */
+/** SUCCESS/PENDING_BILLING are the "fine" outcomes; the rest are failure codes; REFUND means Nomba already auto-reversed it, safe to retry with a new merchantTxRef. */
 export type TransferStatus =
   | "SUCCESS"
   | "PENDING_BILLING"
@@ -94,14 +87,7 @@ export interface Transaction {
   [key: string]: unknown;
 }
 
-/**
- * Every event_type Nomba's webhook sends, confirmed against
- * developer.nomba.com/docs/api-basics/webhook (2026-07). All six share the
- * same { merchant, terminal, transaction, customer } envelope — there is
- * no per-event-type payload shape, only which transaction fields are
- * populated differs (e.g. payout events include merchantTxRef, payment
- * events include aliasAccountNumber).
- */
+/** Every event_type Nomba's webhook sends; all six share one { merchant, terminal, transaction, customer } envelope — only which transaction fields are populated differs. */
 export const NOMBA_WEBHOOK_EVENT_TYPES = [
   "payment_success",
   "payment_failed",
@@ -139,22 +125,11 @@ export interface NombaClientConfig {
 
 
 /**
- * The single `data` shape shared by ALL SIX webhook event types (see
- * NOMBA_WEBHOOK_EVENT_TYPES) — confirmed against real payload examples in
- * developer.nomba.com/docs/api-basics/webhook. Which transaction fields
- * are actually populated depends on event_type:
- *   - payment_success/payment_failed/payment_reversal (virtual account
- *     funding): aliasAccountNumber/aliasAccountName/aliasAccountType/
- *     aliasAccountReference are set, merchantTxRef is NOT (funding is
- *     provider-initiated, there's no client reference to echo back).
- *   - payout_success/payout_failed/payout_refund (our own transfer
- *     calls): merchantTxRef IS set — this is the reference we passed to
- *     transferToBankAccount(), the correlation key back to our own
- *     transaction (see resolvePendingTransfer). aliasAccount* fields are
- *     NOT set.
- * Every field below is therefore optional except the small core present
- * on every event; narrow by event_type at the call site, not by which
- * fields happen to be present.
+ * The single `data` shape shared by all six webhook event types. payment_success/failed/reversal
+ * (virtual account funding) set aliasAccountNumber/Name/Type/Reference, never merchantTxRef.
+ * payout_success/failed/refund (our own transfer calls) set merchantTxRef — the correlation key
+ * back to our own transaction — never aliasAccount*. Narrow by event_type at the call site, not
+ * by which fields happen to be present.
  */
 export interface WebhookTransactionData {
   merchant: { walletId: string; walletBalance: number; userId: string };

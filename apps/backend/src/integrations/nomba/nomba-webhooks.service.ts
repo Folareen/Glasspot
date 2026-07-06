@@ -5,17 +5,7 @@ import { ContributionsService } from "@/modules/pots/contributions.service";
 import { PotsService } from "@/modules/pots/pots.service";
 import { WebhookEvent, WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 
-/**
- * Business-logic dispatch for a verified, deduped Nomba webhook event —
- * called from the webhook route after NombaClient.handleWebhook has
- * already verified the signature and skipped a redelivered requestId (see
- * webhooks.ts). Persists to provider_events first (our OWN durable dedupe
- * + audit trail, independent of NombaClient's in-memory/Redis requestId
- * store — see provider-events.ts schema comment: insert first, then
- * process), then routes to the matching handler by event_type. All six
- * event_types (see NOMBA_WEBHOOK_EVENT_TYPES) share one payload envelope —
- * confirmed against developer.nomba.com/docs/api-basics/webhook.
- */
+/** Business-logic dispatch for a verified, deduped Nomba webhook event: persists to provider_events first (our own durable dedupe + audit trail, independent of NombaClient's requestId store), then routes to the matching handler by event_type. */
 export const NombaWebhooksService = {
   /** Records the event and dispatches it to the matching handler. */
   async handle(event: WebhookEvent<WebhookTransactionData>, signatureValid: boolean): Promise<void> {
@@ -90,7 +80,7 @@ export const NombaWebhooksService = {
   },
 };
 
-/** Resolves the payout/refund matching this transfer webhook's merchantTxRef (our own reference, echoed back — see WebhookTransactionData's doc comment). A no-op if merchantTxRef is missing, which should not happen for a payout event per Nomba's documented payload. */
+/** Resolves the payout/refund matching this transfer webhook's merchantTxRef (our own reference, echoed back); no-op if merchantTxRef is missing. */
 async function resolveTransfer(data: WebhookTransactionData, outcome: "success" | "failed") {
   const merchantTxRef = data.transaction.merchantTxRef;
   if (!merchantTxRef) {

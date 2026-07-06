@@ -9,34 +9,14 @@ import { nomba } from "@/integrations/nomba";
 import type { LocalPaymentRecord, ReconciliationLineItem, ReconciliationStatus } from "@/integrations/nomba/nomba.types";
 import { isValidNairaString, koboToNairaString, nairaStringToKobo } from "@/lib/money";
 
-/**
- * Converts a Nomba-reported naira amount (a native JS number, prone to
- * float representation error, e.g. 19.1 * 100 !== 1910) back to an exact
- * kobo bigint, or undefined if the value can't be represented as one.
- * toFixed(2) is the one safe place to touch a naira float in this
- * codebase — it's rounding a genuine currency value Nomba itself returned
- * (never a value we're constructing), to the same 2-decimal precision
- * Nomba's own API represents money in — then the naira/kobo split-and-
- * combine in nairaStringToKobo takes over so no further float arithmetic
- * touches the result.
- *
- * Takes `number | undefined` directly (matching ReconciliationLineItem's
- * optional localAmount/nombaAmount) and returns undefined for anything it
- * can't convert — missing, NaN/Infinity, or a magnitude toFixed(2) can't
- * render as "digits.digits" (e.g. scientific notation) — so every call
- * site degrades that one record to "unknown" instead of throwing.
- *
- * nairaStringToKobo's regex has no sign group (every other call site in
- * this codebase runs on a value already validated by the nairaAmount
- * zod/AJV schema, which only ever accepts a positive wire amount), but a
- * reconciliation line item is untrusted external data and a negative
- * figure is a real, legitimate case here (e.g. a reversal/adjustment row)
- * — so the sign is peeled off and reapplied around the unsigned
- * conversion rather than rejected.
- */
+/** Converts a Nomba-reported naira amount (a float, prone to representation error) to an exact kobo bigint, or undefined if unconvertible. */
 function nombaNairaToKobo(amount: number | undefined): bigint | undefined {
   if (!Number.isFinite(amount)) return undefined;
   const negative = amount! < 0;
+  // toFixed(2) is the one safe float touch here: rounding a genuine external currency value to
+  // Nomba's own 2-decimal precision, before nairaStringToKobo's exact string-based conversion
+  // takes over. Sign is peeled off first since nairaStringToKobo's regex only accepts unsigned
+  // input but a reconciliation line (e.g. a reversal) can legitimately be negative.
   const fixed = Math.abs(amount!).toFixed(2);
   if (!isValidNairaString(fixed)) return undefined;
   const kobo = nairaStringToKobo(fixed);
@@ -60,23 +40,11 @@ function toRecordStatus(
   }
 }
 
-/**
- * Wraps NombaClient.reconcile() with our own persistence: opens a
- * settlement_batches row for the window, feeds it every transaction we
- * expected in that window (matched by reference == Nomba's merchantTxRef,
- * per docs/system-rules.md's "provider's API state wins" principle), and
- * writes one reconciliation_records row per finding.
- */
+// Wraps NombaClient.reconcile() with our own persistence: opens a settlement_batches row for the
+// window, feeds it every transaction expected in that window, and writes one
+// reconciliation_records row per finding. Provider's API state wins, per system-rules.md.
 export const ReconciliationService = {
-  /**
-   * Runs one reconciliation pass for [dateFrom, dateTo) against Nomba's
-   * transaction API, covering every local transaction posted in the
-   * window that has an externalReference (contributions confirmed via
-   * webhook, and payout/refund transfers). Idempotent to re-run over the
-   * same window — creates a fresh batch + fresh finding rows each call
-   * rather than mutating a prior run's, per reconciliation-records.ts's
-   * append-only design.
-   */
+  /** Runs one reconciliation pass for [dateFrom, dateTo) against Nomba's transaction API; safe to re-run over the same window since each call creates a fresh batch + finding rows. */
   async runForWindow(dateFrom: Date, dateTo: Date): Promise<SettlementBatch> {
     const expectedInWindow = await db
       .select({ reference: transactions.reference, amount: transactions.amount })
@@ -116,11 +84,8 @@ export const ReconciliationService = {
           .from(transactions)
           .where(eq(transactions.reference, item.merchantTxRef));
 
-        // nombaNairaToKobo returns undefined for anything it can't convert
-        // (missing, NaN/Infinity, or an unrepresentable magnitude) instead
-        // of throwing — a null/undefined amount is expected (e.g. an
-        // orphan has no localAmount), and a bad one degrades to "unknown"
-        // for this one record rather than blowing up the whole batch.
+        // A null/undefined amount is expected (e.g. an orphan has no localAmount); an
+        // unconvertible one degrades to "unknown" for this record rather than aborting the batch.
         await db.insert(reconciliationRecords).values({
           settlementBatchId: batch.id,
           transactionId: transaction?.id,
@@ -132,14 +97,8 @@ export const ReconciliationService = {
       },
     });
 
-    // Convert each line item's naira amount to kobo individually, then sum
-    // as BigInt — summing report.byCustomer[].receivedTotal (a JS float
-    // accumulated across every transaction in the window before converting)
-    // can drift from the true integer-kobo total by a kobo or more and
-    // produce false "mismatched" statuses. nombaNairaToKobo returning
-    // undefined (missing/NaN/unrepresentable) degrades that one item's
-    // contribution to 0 rather than aborting the whole sum, same as the
-    // per-line-item insert above.
+    // Convert each line item to kobo individually then sum as bigint — summing the report's
+    // float total first can drift by a kobo or more and produce false "mismatched" statuses.
     const reportedAmount = report.lineItems.reduce(
       (sum, item) => sum + (nombaNairaToKobo(item.nombaAmount) ?? 0n),
       0n

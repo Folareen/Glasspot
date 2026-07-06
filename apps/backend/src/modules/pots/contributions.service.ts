@@ -15,30 +15,18 @@ import { ContributeInput } from "./pots.schema";
 /** How long a virtual account stays open for funding before ExpiryService sweeps it — see contributions.ts's expiresAt comment. */
 export const CONTRIBUTION_EXPIRY_HOURS = 24;
 
-/**
- * A contribution is funded via a one-time Nomba virtual account (see
- * spec-mvp.md). create() only reserves the intent — it never posts a
- * ledger transaction, since we never trust a client-supplied amount for
- * execution (see docs/system-rules.md). The ledger only gets touched once
- * accumulated payments (see contribution-payments.ts) reach
- * expectedAmount — see confirmFunding() below, called from the
- * webhook route. A virtual account accepts more than one transfer (a
- * top-up toward an underpaid contribution) until either fully funded or
- * expiresAt passes (see ExpiryService).
- */
+// A contribution is funded via a one-time Nomba virtual account. create() only reserves the
+// intent — it never posts a ledger transaction (never trust a client-supplied amount for
+// execution). The ledger is only touched once accumulated payments reach expectedAmount, in
+// confirmFunding() below. A virtual account accepts multiple transfers (a top-up toward an
+// underpaid contribution) until fully funded or expiresAt passes (see ExpiryService).
 export const ContributionsService = {
   /**
-   * Validates the requested amount against the pot's min/max and open
-   * status, resolves+validates a refund destination if the pot requires
-   * one, then issues a dedicated Nomba virtual account for the contributor
-   * to pay into. Returns the pending contribution row.
-   *
-   * userId is undefined for an anonymous contributor to a public pot (see
-   * pots.route.ts's optionalAuthenticate) — getViewablePotOrThrow still
-   * 404s a private pot in that case. An anonymous contributor to a
-   * refundType='contributors' pot MUST supply refundAccountNumber/
-   * refundBankCode (enforced below same as a logged-in contributor would),
-   * since there's no user profile to identify or refund otherwise.
+   * Validates the requested amount against the pot's min/max and open status, resolves+validates
+   * a refund destination if the pot requires one, then issues a dedicated Nomba virtual account
+   * for the contributor to pay into. userId is undefined for an anonymous contributor to a
+   * public pot; such a contributor to a refundType='contributors' pot must still supply
+   * refundAccountNumber/refundBankCode since there's no user profile to refund otherwise.
    */
   async create(potId: string, userId: string | undefined, input: ContributeInput): Promise<Contribution> {
     const pot = await getViewablePotOrThrow(potId, userId);
@@ -140,20 +128,12 @@ export const ContributionsService = {
   },
 
   /**
-   * Called from the Nomba webhook route on every payment_success event.
-   * Records this specific transfer as a contribution_payments row (keyed
-   * by Nomba's own transactionId, so a redelivered webhook for the SAME
-   * transfer can't double-count it), then recomputes the accumulated
-   * total across all payments for this contribution:
-   *   - total >= expectedAmount: posts the ledger transaction for
-   *     exactly expectedAmount (never the received total —
-   *     system-rules.md), marks 'funded'. Any excess on THIS payment is
-   *     refunded back to its own sender.
-   *   - total < expectedAmount: marks/keeps 'underpaid' — the virtual
-   *     account stays open for a top-up, not a dead end (see
-   *     ExpiryService for what happens if it never completes).
-   * No-op once the contribution is already funded/failed/reversed — those
-   * are terminal; only 'pending'/'underpaid' accept more payments.
+   * Called from the Nomba webhook on every payment_success event. Records the transfer as a
+   * contribution_payments row (keyed by Nomba's transactionId, so a redelivered webhook can't
+   * double-count it), then recomputes the accumulated total: >=expectedAmount posts the ledger
+   * transaction for exactly expectedAmount (never the received total) and marks 'funded',
+   * refunding any excess on this payment back to its sender; below that, marks/keeps 'underpaid'
+   * so the virtual account stays open for a top-up. No-op once already funded/failed/reversed.
    */
   async confirmFunding(payment: WebhookTransactionData): Promise<void> {
     if (!payment.transaction.aliasAccountNumber) {
@@ -186,29 +166,13 @@ export const ContributionsService = {
       throw new Error("payment_success payload missing customer bank details");
     }
 
-    // toFixed(2), not Math.round(transactionAmount * 100): Nomba's own API
-    // represents money as a 2-decimal-place naira number, so toFixed(2) is
-    // the exact bridge into nairaStringToKobo's split-and-combine parsing
-    // (see that function's own comment). Math.round(x * 100) can round
-    // UP on a float representation error (e.g. 19.995 * 100 evaluating to
-    // 1999.5000000000002) — this credits the ledger with the amount
-    // received, so it must never be inflated even by one kobo relative to
-    // what Nomba actually reports (docs/system-rules.md: never round money up).
-    //
-    // transactionAmount is untrusted external input, unlike every other
-    // nairaStringToKobo call site in this codebase (those all run on data
-    // already validated by the nairaAmount zod/AJV schema at the wire
-    // boundary). A payment_success event should always carry a positive
-    // amount, but if Nomba ever sends something nairaStringToKobo can't
-    // parse (negative — toFixed(2) has no sign group in the regex — NaN,
-    // or scientific notation on an implausibly large float), throwing
-    // here would propagate uncaught through NombaWebhooksService.handle to
-    // the webhook route's catch block, which responds 401 without ever
-    // marking this providerEvent processed — Nomba then retries the exact
-    // same payload forever, permanently wedging this contribution. Log
-    // loudly and bail instead: the contribution stays pending/underpaid
-    // for manual investigation, and the event is marked processed so the
-    // retry loop stops.
+    // toFixed(2), never Math.round(transactionAmount * 100): that can round UP on a float
+    // representation error, and this credits the ledger so it must never be inflated even by one
+    // kobo (system-rules.md: never round money up). transactionAmount is untrusted external
+    // input (unlike every other nairaStringToKobo call site), so if Nomba ever sends something
+    // unparseable, throwing here would propagate uncaught to the webhook route and Nomba would
+    // retry forever without the event ever being marked processed — log and bail instead, leaving
+    // the contribution pending/underpaid for manual review.
     let amount: bigint;
     try {
       amount = nairaStringToKobo(payment.transaction.transactionAmount.toFixed(2));
@@ -287,14 +251,7 @@ export const ContributionsService = {
     }
   },
 
-  /**
-   * Called from the Nomba webhook route on a payment_reversal event —
-   * money already credited to a pot (a 'funded' contribution) was clawed
-   * back out. Reverses the original ledger transaction and marks the
-   * contribution 'reversed'. A no-op if the contribution isn't 'funded'
-   * (nothing to reverse yet, or already reversed by a redelivered event —
-   * see docs/system-rules.md's at-least-once delivery requirement).
-   */
+  /** Called on a payment_reversal event — reverses the original ledger transaction and marks the contribution 'reversed'. No-op if not currently 'funded' (nothing to reverse, or already reversed). */
   async reverseFunding(payment: WebhookTransactionData): Promise<void> {
     if (!payment.transaction.aliasAccountNumber) {
       return;

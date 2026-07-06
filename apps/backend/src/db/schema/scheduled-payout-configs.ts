@@ -2,36 +2,14 @@ import { pgTable, uuid, text, bigint, integer, boolean, timestamp, unique } from
 import { pots } from './pots';
 
 /**
- * Payout rule for a pot with payoutMode = 'scheduled' — a sequence of
- * legs, each paying a fixed amount to its own destination on its own
- * scheduledDate, each firing exactly once. The same destination can repeat
- * across legs and amounts can differ per leg — e.g. ajo/esusu-style
- * rotating turns (each member gets one turn), or staged/installment
- * disbursements (the same or different destinations paid in stages).
- *
- * ordered controls firing behavior:
- *   true  - strictly sequential: only the lowest sequenceOrder unfired leg
- *           can fire, even if a later leg's own scheduledDate has also
- *           passed (ajo/esusu rotation semantics — "leg 2 cannot fire
- *           before leg 1").
- *   false - independent: every unfired leg fires on its own scheduledDate
- *           regardless of whether earlier legs have fired yet (staged
- *           disbursement semantics — e.g. pay vendor A Monday, vendor B
- *           Tuesday, with no dependency between them).
- *
- * Always a fixed, finite list of legs that completes once every leg has
- * fired — no cycle/round column exists to support indefinite repetition.
- * A pot that needs to keep paying out on an ongoing interval should use
- * payoutMode = 'recurring' instead.
- *
- * scheduledPayoutConfigs: one row per pot (potId unique), just the parent.
- * scheduledPayoutLegs: the legs themselves, sequenceOrder starting at 0 or
- * 1 (pick one convention at implementation time) — meaningful only when
- * ordered=true, but always stored so a pot can flip the ordered flag
- * without needing to re-enter every leg.
- *
- * Set once while the pot is 'draft' and immutable once the pot is 'open' —
- * see pots.ts status semantics.
+ * Payout rule for payoutMode='scheduled': a fixed, finite sequence of legs, each paying a fixed
+ * amount to its own destination on its own scheduledDate, each firing once (e.g. ajo/esusu
+ * rotating turns, or staged disbursements). ordered=true means strictly sequential (only the
+ * lowest unfired sequenceOrder can fire); ordered=false means every leg fires independently on
+ * its own date. No cycle/round column — indefinite repetition should use payoutMode='recurring'
+ * instead. scheduledPayoutConfigs is one row per pot (the parent); scheduledPayoutLegs holds the
+ * legs, sequenceOrder meaningful only when ordered=true. Set during 'draft', immutable once
+ * 'open'.
  */
 export const scheduledPayoutConfigs = pgTable('scheduled_payout_configs', {
   id: uuid('id').primaryKey().defaultRandom(),

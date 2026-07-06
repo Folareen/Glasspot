@@ -1,15 +1,7 @@
 import { pgTable, uuid, text, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
-/**
- * One-time codes gating a money-moving admin action on a pot (manual
- * payout trigger, admin refund trigger) — the action_otp_codes table
- * otp-codes.ts anticipated. Bound to {userId, action, potId, contextHash}
- * rather than just "valid code for this user": contextHash locks the code
- * to the exact request body (e.g. destination/amount) it was requested
- * for, so a code issued for one payout can't be replayed against a retry
- * with different parameters.
- */
+/** One-time codes gating a money-moving admin action (payout/refund trigger); contextHash binds a code to the exact request body it was issued for, so it can't be replayed against a retry with different parameters. */
 export const actionOtpActionEnum = pgEnum('action_otp_action', [
   'trigger_payout',
   'trigger_refund',

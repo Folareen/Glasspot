@@ -1,41 +1,14 @@
-/**
- * Tracks recent transfers per recipient (destinationAccount+destinationBank)
- * so the transfers worker can hold a job back before it hits Nomba's
- * documented per-recipient cap on POST /v2/transfers/bank — confirmed via
- * the Nomba dashboard's own rate-limit notice: 5 transfers to the SAME
- * recipient per minute. This is separate from and narrower than
- * env.ts's NOMBA_TRANSFER_RATE_LIMIT_MAX (a global cap across every
- * recipient, applied via BullMQ's Worker limiter) — a low-traffic app
- * easily stays under the global cap while still tripping this one, e.g. a
- * recurring payout config firing repeatedly to the same fixed destination,
- * or several pots paying out to the same bank account within the same
- * minute.
- */
+/** Tracks recent transfers per recipient so the transfers worker can hold a job back before hitting Nomba's per-recipient cap of 5 transfers/minute on POST /v2/transfers/bank — narrower than and separate from env.ts's global NOMBA_TRANSFER_RATE_LIMIT_MAX. */
 export interface TransferThrottle {
-  /**
-   * Atomically claims one of this recipient's transfer slots for the
-   * current window and reports whether the claim succeeded (true = go
-   * ahead and call Nomba now; false = already at the cap, don't call
-   * Nomba, and this reservation was NOT counted). A single atomic
-   * operation rather than a separate "check" + "record" pair — the
-   * transfersWorker runs with concurrency:5, so two jobs to the SAME
-   * recipient could otherwise both pass a read-only check before either
-   * recorded its own transfer, over-admitting past the cap.
-   */
+  // Must claim and record atomically, not check-then-record: transfersWorker runs with concurrency:5, so two jobs to the same recipient could otherwise both pass a read-only check before either recorded its transfer, over-admitting past the cap.
+  /** Atomically claims one of this recipient's transfer slots for the current window; returns true if claimed (go ahead and call Nomba), false if already at the cap (nothing was counted). */
   reserve(destinationAccount: string, destinationBank: string): Promise<boolean>;
 }
 
 const DEFAULT_LIMIT = 5;
 const DEFAULT_WINDOW_SECONDS = 60;
 
-/**
- * Redis-backed sliding-window counter, one sorted set per recipient
- * (score = timestamp, member = a unique id per transfer so retried calls
- * in the same millisecond don't collide). Works with any client exposing
- * this shape (ioredis, node-redis v4, etc), same minimal-interface pattern
- * as RedisBankStore/RedisWebhookIdStore in this same integrations/nomba
- * folder.
- */
+/** Redis-backed sliding-window counter, one sorted set per recipient (score = timestamp, member = a unique id per transfer so same-millisecond retries don't collide). */
 const RESERVE_SCRIPT = `
   redis.call('ZREMRANGEBYSCORE', KEYS[1], 0, ARGV[1])
   local count = redis.call('ZCARD', KEYS[1])
@@ -64,14 +37,7 @@ export class RedisTransferThrottle implements TransferThrottle {
     return `${this.keyPrefix}${destinationBank}:${destinationAccount}`;
   }
 
-  /**
-   * Evicts entries older than the window, checks the remaining count
-   * against `limit`, and — only if still under it — adds this reservation,
-   * all inside one EVAL so no other caller's reserve() can interleave
-   * between the check and the add (the race a separate isAllowed()+
-   * record() pair would have). Returns 1 (claimed) or 0 (at cap, nothing
-   * added) as ioredis's eval() return type, cast to boolean here.
-   */
+  /** Evicts entries older than the window, checks the count against `limit`, and adds this reservation only if still under it, all inside one EVAL so no other caller's reserve() can interleave between the check and the add. */
   async reserve(destinationAccount: string, destinationBank: string): Promise<boolean> {
     const key = this.key(destinationAccount, destinationBank);
     const now = Date.now();

@@ -14,20 +14,14 @@ interface BaseDisbursementJobData {
   reference: string;
 }
 
-/**
- * Payout or pot-level refund — money already recognized in the ledger.
- *
- * contributorUserId is metadata only (tags which real user a fan-out leg
- * belongs to, when there is one) — it is NOT the signal for whether this
- * job is one leg of a multi-leg fan-out refund, since an anonymous
- * contributor's leg has no contributorUserId at all but is still one of
- * N legs sharing a pot-level lock. isFanOutLeg carries that distinction
- * explicitly instead, so the worker's lock-release logic (decrement vs.
- * clear) can't misfire on an anonymous leg (see releaseLock in worker.ts).
- */
+/** Payout or pot-level refund — money already recognized in the ledger. */
 interface LedgerDisbursementJobData extends BaseDisbursementJobData {
   kind: "payout" | "pot_refund";
   potId: string;
+  // contributorUserId is metadata only (tags the real user a fan-out leg belongs to, if any) — NOT the signal for
+  // whether this is one leg of a multi-leg fan-out refund, since anonymous legs have no contributorUserId but are
+  // still one of N legs sharing a pot-level lock. isFanOutLeg carries that distinction so the worker's lock-release
+  // logic (decrement vs. clear) can't misfire on an anonymous leg (see releaseLock in worker.ts).
   contributorUserId?: string;
   isFanOutLeg?: boolean;
   onSuccess?: DisbursementOnSuccess;

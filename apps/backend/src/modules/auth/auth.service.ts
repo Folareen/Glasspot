@@ -207,15 +207,7 @@ export const AuthService = {
     await createOtp(user.id, user.email, purpose);
   },
 
-  /**
-   * Confirms the signup-verification code, marks the email verified, and
-   * immediately issues a token pair — verification doubles as login. Also
-   * activates any pending pot invites addressed to this email (see
-   * PotInvitesService.activateForEmail) — this is the point where the
-   * email is first confirmed to belong to this person, so it's the
-   * correct place to convert a placeholder invite into real pot_members
-   * rows, rather than doing it at registration before verification.
-   */
+  /** Confirms the signup-verification code, marks the email verified, issues a token pair (verification doubles as login), and activates any pending pot invites addressed to this email. */
   async verifyEmail(email: string, code: string, sign: SignFn) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -311,16 +303,7 @@ export const AuthService = {
       .where(eq(users.id, userId));
   },
 
-  /**
-   * Sets userId's default refund destination — the account a
-   * refundType='admin' pot's real Nomba transfer pays out to when this
-   * user triggers the refund (see users.ts schema comment). Confirms the
-   * account via verifyAccountDetails() first, the same
-   * validate-before-storing-a-destination pattern used everywhere else
-   * money can be sent in this codebase. users.ts has no column for the
-   * resolved account holder name (unlike the payout-config tables) — only
-   * accountNumber/bankCode are persisted here.
-   */
+  /** Sets userId's default refund destination for a refundType='admin' pot, confirming the account via verifyAccountDetails() first. */
   async updateRefundProfile(userId: string, input: UpdateRefundProfileInput) {
     await verifyAccountDetails(input.accountNumber, input.bankCode);
 

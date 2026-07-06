@@ -3,17 +3,7 @@ import { nomba } from "@/integrations/nomba";
 import { NombaWebhooksService } from "@/integrations/nomba/nomba-webhooks.service";
 import { WebhookEvent, WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 
-/**
- * Registers POST /webhooks/nomba. Overrides the default JSON body parser
- * for this route's encapsulation context only — Nomba's signature is
- * computed over specific PARSED payload fields, not the raw body (see
- * NombaClient.handleWebhook's doc comment), but parsing here as a buffer
- * and letting handleWebhook do the JSON.parse itself still avoids any
- * risk of Fastify's own body handling subtly altering field values (key
- * ordering, whitespace) before verification. Every other route in the app
- * keeps Fastify's normal JSON parsing; this override does not leak
- * outside this plugin.
- */
+/** Registers POST /webhooks/nomba, overriding the default JSON body parser for this route only so the raw buffer reaches handleWebhook unaltered before signature verification. */
 async function nombaWebhooksRoutes(server: FastifyInstance) {
   server.addContentTypeParser("application/json", { parseAs: "buffer" }, (_req, body, done) => {
     done(null, body);

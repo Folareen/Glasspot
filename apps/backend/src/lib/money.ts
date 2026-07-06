@@ -1,16 +1,7 @@
-/**
- * The one place naira-string <-> kobo-bigint conversion happens anywhere
- * in the backend (see docs/system-rules.md). Every wire boundary — request
- * body validation, response serialization — must go through these two
- * functions, never inline arithmetic on a naira value.
- *
- * Deliberately no Number()/parseFloat()/Math.round() on the combined
- * value: floating point can misrepresent a value like 19.999999999998 for
- * an input that should be exact, and money must never touch float
- * arithmetic (docs/system-rules.md). Instead the naira and kobo parts are
- * split on the decimal point as strings first, each parsed as an integer
- * independently, then combined with plain bigint arithmetic.
- */
+// The only naira-string <-> kobo-bigint conversion in the backend (docs/system-rules.md).
+// Every wire boundary must go through these two functions, never inline Number()/Math.round()
+// arithmetic — that risks float representation error; these split on the decimal point and
+// parse each part as a plain integer instead.
 
 const NAIRA_STRING_PATTERN = /^\d+\.\d{2}$/;
 
@@ -19,15 +10,7 @@ export function isValidNairaString(value: string): boolean {
   return NAIRA_STRING_PATTERN.test(value);
 }
 
-/**
- * Converts a wire-format naira string ("100.50") to its exact kobo bigint
- * (10050n). Splits on the decimal point first — the naira part and kobo
- * part are each parsed as plain integers, then combined as
- * nairaPart * 100n + koboPart, so the result is always exact regardless of
- * how many trailing/leading digits are involved. Throws if the input isn't
- * exactly "digits.digits{2}" (validate with isValidNairaString / the zod
- * schema before calling, so this only ever runs on an already-shaped value).
- */
+/** Converts a wire-format naira string ("100.50") to its exact kobo bigint (10050n); throws unless the input is already a valid "NN.NN" string. */
 export function nairaStringToKobo(naira: string): bigint {
   if (!isValidNairaString(naira)) {
     throw new Error(`nairaStringToKobo: "${naira}" is not a valid "NN.NN" naira string`);
@@ -36,13 +19,7 @@ export function nairaStringToKobo(naira: string): bigint {
   return BigInt(nairaPart) * 100n + BigInt(koboPart);
 }
 
-/**
- * Converts a kobo bigint (10050n) back to its wire-format naira string
- * ("100.50") — the exact inverse of nairaStringToKobo, via integer
- * division/modulo rather than dividing by 100 as a float. koboPart is
- * always padded to 2 digits (e.g. 5n -> "05") so the result always has
- * exactly two decimal places.
- */
+/** Converts a kobo bigint (10050n) to its wire-format naira string ("100.50"), the exact inverse of nairaStringToKobo. */
 export function koboToNairaString(kobo: bigint): string {
   const negative = kobo < 0n;
   const absKobo = negative ? -kobo : kobo;

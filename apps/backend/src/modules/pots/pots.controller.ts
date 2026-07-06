@@ -20,7 +20,6 @@ import {
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
-import { TransferQueueService } from "@/modules/scheduler/transfer-queue.service";
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import type { Pot } from "@/db";
 
@@ -169,14 +168,7 @@ export async function closePotHandler(
   }
 }
 
-/**
- * Sends a one-time confirmation code (admin-only) to the requesting
- * admin's email, required to actually trigger a manual payout — see
- * ActionOtpService.request and triggerPayoutHandler below. Body is the
- * same destination/amount the admin intends to pay out with, hashed into
- * the code's contextHash so it can't later be reused to approve a
- * different destination/amount.
- */
+/** Sends a one-time confirmation code (admin-only) required to trigger a manual payout, bound to this exact destination/amount so it can't be reused for a different one. */
 export async function requestPayoutOtpHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: RequestPayoutOtpInput }>,
   reply: FastifyReply
@@ -191,23 +183,7 @@ export async function requestPayoutOtpHandler(
   }
 }
 
-/**
- * Manually triggers a payout for an eligible pot (admin-only), idempotent
- * per the Idempotency-Key header, and responds 202 with no body — the
- * disbursement is only enqueued here, not completed (see
- * PotsService.triggerPayout/postFixedAmountDisbursement). request.body
- * only matters for payoutMode='manual', where it carries the destination
- * the triggering admin is sending to this time — see PotsService.triggerPayout
- * and pots.schema.ts's triggerPayoutSchema. Included in the idempotency
- * hash (unlike activate/close, which take no body) since two
- * manual-payout retries with the same key but different destinations must
- * not silently collapse to whichever one happened to run first.
- *
- * otpCode must match the code most recently sent by
- * requestPayoutOtpHandler for this exact destination/amount — verified
- * here, before PotsService.triggerPayout runs, so a stolen session alone
- * can't move money out of the pot (see ActionOtpService.verify).
- */
+/** Manually triggers a payout (admin-only, idempotent per Idempotency-Key), verifying the OTP from requestPayoutOtpHandler before enqueueing the disbursement — never completes it inline. */
 export async function triggerPayoutHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: TriggerPayoutInput }>,
   reply: FastifyReply
@@ -234,13 +210,7 @@ export async function triggerPayoutHandler(
   }
 }
 
-/**
- * Sends a one-time confirmation code (admin-only) to the requesting
- * admin's email, required to actually trigger a refund — see
- * ActionOtpService.request and triggerRefundHandler below. No body to
- * bind (refund takes none), so the code's contextHash is just
- * hashActionContext(undefined).
- */
+/** Sends a one-time confirmation code (admin-only) required to trigger a refund. */
 export async function requestRefundOtpHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
@@ -255,14 +225,7 @@ export async function requestRefundOtpHandler(
   }
 }
 
-/**
- * Manually triggers a refund, draining the pot's full balance
- * (admin-only), idempotent per the Idempotency-Key header, and responds
- * 202 with no body — the disbursement(s) are only enqueued here, not
- * completed (see PotsService.triggerRefund). otpCode must match the code
- * most recently sent by requestRefundOtpHandler — see triggerPayoutHandler's
- * equivalent comment above.
- */
+/** Manually triggers a full-balance refund (admin-only, idempotent per Idempotency-Key), verifying the OTP from requestRefundOtpHandler before enqueueing the disbursement(s). */
 export async function triggerRefundHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: TriggerRefundInput }>,
   reply: FastifyReply
@@ -325,13 +288,7 @@ export async function listMembersHandler(
   }
 }
 
-/**
- * Adds a member to a pot by email (admin-only invite). Responds 201 with
- * either the created pot_members row (email belongs to an already-
- * verified user — joined immediately) or the created pot_invites row
- * (status 'pending' — no matching verified user yet; resolved later by
- * AuthService.verifyEmail). See pots.schema.ts's addMemberSchema comment.
- */
+/** Adds a member to a pot by email (admin-only): joins immediately if the email belongs to a verified user, otherwise creates a pending invite resolved later on verification. */
 export async function addMemberHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: AddMemberInput }>,
   reply: FastifyReply
@@ -410,26 +367,3 @@ export async function removeMemberHandler(
     return handlePotError(e, reply);
   }
 }
-
-// export async function adminTriggerPayoutHandler(
-//   request: FastifyRequest<{ Params: PotIdParams }>,
-//   reply: FastifyReply
-// ) {
-//   const { id: potId } = request.params;
-
-//   // Resolve destination/amount/accountName from the pot's payout config —
-//   // mirrors what PayoutCronHandlers does for the scheduled sweeps, just
-//   // triggered manually here instead of by a cron condition.
-//   const payoutDetails = await PotPayoutService.resolvePayoutDetails(potId);
-
-//   const job = await TransferQueueService.enqueuePayout({
-//     potId,
-//     destinationAccount: payoutDetails.destinationAccount,
-//     destinationBank: payoutDetails.destinationBank,
-//     accountName: payoutDetails.accountName,
-//     amount: payoutDetails.amount,
-//     merchantTxRef: `admin-payout-${potId}-${Date.now()}`,
-//   });
-
-//   return reply.code(202).send();
-// }

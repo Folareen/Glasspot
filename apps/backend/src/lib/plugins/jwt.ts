@@ -4,22 +4,11 @@ import { FastifyReply, FastifyRequest } from "fastify";
 import env from "@/config/env";
 
 /**
- * Registers @fastify/jwt and wires up the things the rest of this
- * codebase relies on:
- *
- *  - `request.jwt` — a plain reference to the same signer/verifier
- *    instance living on `server.jwt`, so `auth.controller.ts` can do
- *    `request.jwt.sign(payload)` without touching `reply` at all (the
- *    default @fastify/jwt API signs via `reply.jwtSign`, which doesn't
- *    fit a service that just wants a signing function passed in).
- *  - `server.authenticate` — a preHandler that verifies the incoming
- *    Authorization header and populates `request.user` from the token
- *    payload. Rejects with 401 if missing/invalid.
- *  - `server.optionalAuthenticate` — same verification, but does not
- *    reject when the header is missing or invalid; `request.user` is
- *    simply left unset. For routes that behave differently for a logged
- *    in caller (e.g. private-pot visibility) but must also work
- *    anonymously (e.g. browsing public pots).
+ * Registers @fastify/jwt and adds: `request.jwt` (the signer/verifier, so services can call
+ * `.sign()` directly instead of via `reply.jwtSign`), `server.authenticate` (preHandler that
+ * verifies the Authorization header and populates `request.user`, 401s if missing/invalid), and
+ * `server.optionalAuthenticate` (same but leaves `request.user` unset instead of rejecting, for
+ * routes that behave differently when logged in but must also work anonymously).
  */
 export default fp(async (server) => {
   server.register(fjwt, {

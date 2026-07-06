@@ -1,16 +1,7 @@
 import { pgTable, uuid, text, integer, timestamp, pgEnum } from 'drizzle-orm/pg-core';
 import { users } from './users';
 
-/**
- * One-time codes used at two points in the auth flow: verifying a new
- * signup's email, and the second factor after password login. Each row is
- * a single code tied to one user and one purpose, with its own attempt
- * counter and expiry.
- *
- * Not used for money-action approvals — see action-otp-codes.ts's
- * actionOtpCodes table for that, bound to {userId, action, potId,
- * contextHash} rather than just "valid code for this user".
- */
+/** One-time codes for auth (signup email verification, login 2nd factor) — not for money-action approvals, see action-otp-codes.ts for that. */
 export const otpPurposeEnum = pgEnum('otp_purpose', [
   'signup_verification',
   'login',
@@ -29,10 +20,7 @@ export const otpCodes = pgTable('otp_codes', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-// index.ts / migration note: add a composite index on (user_id, purpose, consumed_at)
-// via drizzle-kit's `index()` helper if query patterns need it — omitted here since
-// Drizzle's declarative index syntax varies by version; add in the table's third
-// argument callback: (table) => ({ userPurposeIdx: index('idx_otp_user_purpose').on(table.userId, table.purpose, table.consumedAt) })
+// Consider a composite index on (user_id, purpose, consumed_at) if query patterns need it.
 
 export type OtpCode = typeof otpCodes.$inferSelect;
 export type NewOtpCode = typeof otpCodes.$inferInsert;

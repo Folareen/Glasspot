@@ -3,8 +3,8 @@ import { QueueEvents, Queue } from 'bullmq';
 import { db, failedJobs } from '@/db';
 import { eq } from 'drizzle-orm';
 
-export class FailedJobTracker {
-  static attach(queueName: string, connection: any) {
+export const FailedJobTracker = {
+  attach(queueName: string, connection: any) {
     const events = new QueueEvents(queueName, { connection });
     const queue = new Queue(queueName, { connection });
 
@@ -27,10 +27,10 @@ export class FailedJobTracker {
     });
 
     return { events, queue };
-  }
+  },
 
   /** Re-enqueue a specific failed job (e.g. from an admin endpoint) */
-  static async retry(failedJobRowId: string, connection: any) {
+  async retry(failedJobRowId: string, connection: any) {
     const [row] = await db.select().from(failedJobs).where(eq(failedJobs.id, failedJobRowId));
     if (!row || row.status !== 'pending') return null;
 
@@ -46,10 +46,10 @@ export class FailedJobTracker {
       .where(eq(failedJobs.id, row.id));
 
     return job;
-  }
+  },
 
   /** Marks a failed job row reviewed-but-not-retried (e.g. stale/duplicate) — no BullMQ interaction, just a status change. */
-  static async ignore(failedJobRowId: string) {
+  async ignore(failedJobRowId: string) {
     const [row] = await db.select().from(failedJobs).where(eq(failedJobs.id, failedJobRowId));
     if (!row || row.status !== 'pending') return null;
 
@@ -60,5 +60,5 @@ export class FailedJobTracker {
       .returning();
 
     return updated;
-  }
-}
+  },
+};

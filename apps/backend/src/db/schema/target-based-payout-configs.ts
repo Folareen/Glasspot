@@ -3,20 +3,11 @@ import { sql } from 'drizzle-orm';
 import { pots } from './pots';
 
 /**
- * Payout rule for a pot with payoutMode = 'target_based'. Pays out once to
- * a single destination when any configured condition is met (OR, not AND):
- * targetDate reached or targetAmount reached. At least one condition
- * must be set — enforced below.
- *
- * No admin-manual-trigger option (deliberately removed) — a fixed
- * destination with admin-discretion-only release is manual mode's job now
- * (see manual-payout-configs.ts). target_based is exclusively
- * date/amount-rule-driven; PotsService.triggerPayout has no branch for
- * this mode at all, since it only ever fires via
- * TargetBasedPayoutService's cron sweep.
- *
- * One row per pot (potId unique). Set once while the pot is 'draft' and
- * immutable once the pot is 'open' — see pots.ts status semantics.
+ * Payout rule for payoutMode='target_based': fires once to a single destination when targetDate
+ * OR targetAmount is met (at least one must be set, enforced below). No admin-manual-trigger
+ * option — that's manual mode's job now; this fires exclusively via
+ * TargetBasedPayoutService's cron sweep. One row per pot, set during 'draft', immutable once
+ * 'open'.
  */
 export const targetBasedPayoutConfigs = pgTable(
   'target_based_payout_configs',

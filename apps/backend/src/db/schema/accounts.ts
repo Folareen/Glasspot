@@ -1,24 +1,12 @@
 import { pgTable, uuid, text, timestamp, pgEnum, unique } from 'drizzle-orm/pg-core';
 
 /**
- * One row per ledger account — every pot and system bucket. There is no
- * per-user wallet account: money moves straight from a contributor's real
- * bank account (via a Nomba virtual account) into a pot, and straight from
- * a pot back out to a real bank account on payout/refund — a user never
- * holds a balance inside Glasspot. Never store a balance directly on pots;
- * balances are always derived from ledgerEntries (materialized in the
- * `balances` table). ownerId is nullable because platform-level accounts
- * (revenue, float, suspense) have no owner row to point at — ownerType
- * alone identifies them, and there is exactly one active row per platform
- * ownerType (enforced by the partial unique index below, not by
- * application convention).
- *
- * normalBalance mirrors standard accounting sign convention: a pot account
- * is a liability (credit increases it — we owe that money out).
- * platform_float/provider_settlement are assets (debit increases them —
- * real cash we hold). platform_revenue is credit-normal (revenue). suspense
- * is debit-normal by convention here since it's a holding/asset-like bucket
- * for unresolved funds.
+ * One row per ledger account (every pot + system bucket) — there's no per-user wallet; money
+ * moves directly between a contributor/payee's real bank account and a pot. normalBalance
+ * follows standard accounting sign convention: pot accounts and platform_revenue are
+ * credit-normal (liabilities/revenue), platform_float/provider_settlement/suspense are
+ * debit-normal (assets). ownerId is nullable for platform-level accounts, identified by
+ * ownerType alone (one active row per platform ownerType, enforced by the unique index below).
  */
 export const accountOwnerTypeEnum = pgEnum('account_owner_type', [
   'pot',
@@ -42,13 +30,9 @@ export const accounts = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    // A given user/pot gets exactly one account — enforced here rather
-    // than only "one row per create call" in application code. Platform
-    // accounts (ownerId null) are NOT covered by this constraint since a
-    // plain unique() treats every NULL as distinct; that's fine, platform
-    // account uniqueness is enforced separately at the service layer
-    // (getOrCreateSystemAccount checks-then-inserts under a query, and
-    // there's only ever one caller path that creates them).
+    // Enforces one account per user/pot; doesn't cover platform accounts (ownerId null,
+    // since unique() treats NULLs as distinct) — that uniqueness is handled in
+    // getOrCreateSystemAccount instead.
     ownerTypeOwnerIdUnique: unique('accounts_owner_type_owner_id_key').on(table.ownerType, table.ownerId),
   })
 );

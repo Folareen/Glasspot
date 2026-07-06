@@ -9,15 +9,7 @@ export class AccountVerificationError extends Error {
   }
 }
 
-/**
- * Resolves accountNumber/bankCode against Nomba before it's persisted as a
- * payout/refund destination or used for a transfer — the single place every
- * write path in this codebase should call instead of hitting
- * nomba.lookupBankAccount() inline (see docs/system-rules.md: never trust a
- * client-supplied destination without confirming it resolves to a real
- * account). Wraps any NombaApiError (account not found, bad bank code, etc)
- * into a 400 rather than letting a raw provider error escape.
- */
+/** Resolves accountNumber/bankCode against Nomba before it's persisted as a payout/refund destination, wrapping any NombaApiError into a 400 instead of letting a raw provider error escape; the single place every write path should call instead of hitting nomba.lookupBankAccount() inline. */
 export async function verifyAccountDetails(accountNumber: string, bankCode: string): Promise<{ accountName: string }> {
   try {
     const resolved = await nomba.lookupBankAccount(accountNumber, bankCode);
