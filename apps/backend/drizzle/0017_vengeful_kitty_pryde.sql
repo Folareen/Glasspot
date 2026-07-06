@@ -1,0 +1,1 @@
+ALTER TABLE "contributions" ALTER COLUMN "contributor_user_id" DROP NOT NULL;

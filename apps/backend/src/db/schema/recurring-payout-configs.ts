@@ -12,7 +12,7 @@ import { pots } from './pots';
  * Runs indefinitely until the pot is closed — no occurrence cap or end
  * date. No endsAt/maxOccurrences column.
  *
- * If pot balance is below amountKobo when nextRunAt hits: fail and wait —
+ * If pot balance is below amount when nextRunAt hits: fail and wait —
  * that occurrence must be satisfied before nextRunAt advances or any later
  * occurrence can fire. Not blind-retried; surfaced per system-rules.md's
  * "no silent failures". Execution/retry logic is Milestone 2 — no schema
@@ -26,7 +26,7 @@ export const recurringPayoutConfigs = pgTable('recurring_payout_configs', {
     .references(() => pots.id, { onDelete: 'cascade' }),
   destinationAccount: text('destination_account').notNull(),
   destinationBank: text('destination_bank').notNull(),
-  amountKobo: bigint('amount_kobo', { mode: 'bigint' }).notNull(),
+  amount: bigint('amount', { mode: 'bigint' }).notNull(),
   intervalDays: integer('interval_days').notNull(),
   nextRunAt: timestamp('next_run_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

@@ -8,9 +8,10 @@ import { contributions } from './contributions';
  * or two different people paying into the same account), and each
  * transfer has its own sender to refund if the contribution ultimately
  * expires unfunded — see contributions.ts's expiresAt/ContributionsService
- * comments. contributions.receivedAmountKobo does not exist as a stored
- * column; the running total is always SUM(amountKobo) over this table,
- * same "derive, never store" principle as ledger balances.
+ * comments. contributions.receivedAmount does not exist as a stored
+ * column; the running total is always SUM(amount) over this table (kobo
+ * integer, per docs/system-rules.md), same "derive, never store"
+ * principle as ledger balances.
  *
  * nombaTransactionId is Nomba's own transaction id for this specific
  * transfer (payment.transaction.transactionId on the funding webhook) and
@@ -26,7 +27,7 @@ export const contributionPayments = pgTable('contribution_payments', {
     .notNull()
     .references(() => contributions.id),
   nombaTransactionId: text('nomba_transaction_id').unique().notNull(),
-  amountKobo: bigint('amount_kobo', { mode: 'bigint' }).notNull(),
+  amount: bigint('amount', { mode: 'bigint' }).notNull(),
   senderAccountNumber: text('sender_account_number').notNull(),
   senderBankCode: text('sender_bank_code').notNull(),
   senderName: text('sender_name').notNull(),

@@ -1,0 +1,1 @@
+ALTER TABLE "pots" ADD COLUMN "goal_amount_kobo" bigint;

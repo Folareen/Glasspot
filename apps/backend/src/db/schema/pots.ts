@@ -71,10 +71,20 @@ export const pots = pgTable(
     payoutMode: payoutModeEnum('payout_mode').notNull(),
     refundType: refundTypeEnum('refund_type').notNull(),
     shareSlug: text('share_slug').unique().notNull(),
-    minContributionKobo: bigint('min_contribution_kobo', { mode: 'bigint' })
+    // Every amount/balance/goal field in this schema is a kobo integer —
+    // see docs/system-rules.md's money rule. No Kobo suffix on any of them.
+    minContribution: bigint('min_contribution', { mode: 'bigint' })
       .notNull()
       .default(sql`10000`),
-    maxContributionKobo: bigint('max_contribution_kobo', { mode: 'bigint' }),
+    maxContribution: bigint('max_contribution', { mode: 'bigint' }),
+    // Optional, display-only fundraising goal for ANY payout mode — purely
+    // informational ("raised X of Y"), never read by any trigger/payout
+    // logic. Distinct from target_based_payout_configs.targetAmount,
+    // which actually FIRES a payout once reached; a target_based pot can
+    // set both independently (e.g. a public goal of ₦200k shown to
+    // contributors, while the real trigger amount is configured
+    // separately, or left unset since payout might instead be date-driven).
+    goalAmount: bigint('goal_amount', { mode: 'bigint' }),
     pendingOperation: potPendingOperationEnum('pending_operation'),
     pendingOperationTransactionId: uuid('pending_operation_transaction_id').references(() => transactions.id),
     pendingOperationLegCount: integer('pending_operation_leg_count'),
@@ -90,7 +100,7 @@ export const pots = pgTable(
   (table) => ({
     maxGeMinCheck: check(
       'chk_max_ge_min',
-      sql`${table.maxContributionKobo} IS NULL OR ${table.maxContributionKobo} >= ${table.minContributionKobo}`
+      sql`${table.maxContribution} IS NULL OR ${table.maxContribution} >= ${table.minContribution}`
     ),
   })
 );

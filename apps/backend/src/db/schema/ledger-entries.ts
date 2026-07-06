@@ -9,7 +9,7 @@ import { accounts } from './accounts';
  * table (see docs/system-rules.md); correcting a mistake means posting a
  * new transaction with reversing entries, never editing history.
  *
- * amountKobo is always positive; direction alone carries the sign meaning
+ * amount (a kobo integer) is always positive; direction alone carries the sign meaning
  * (debit vs credit), same convention as the reference doc. balanceAfter is
  * a running-balance snapshot on this entry's account immediately after
  * this entry was applied — an audit trail column, not the read path for
@@ -36,12 +36,12 @@ export const ledgerEntries = pgTable(
       .notNull()
       .references(() => accounts.id),
     direction: ledgerDirectionEnum('direction').notNull(),
-    amountKobo: bigint('amount_kobo', { mode: 'bigint' }).notNull(),
+    amount: bigint('amount', { mode: 'bigint' }).notNull(),
     balanceAfter: bigint('balance_after', { mode: 'bigint' }).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({
-    amountPositiveCheck: check('chk_ledger_entries_amount_positive', sql`${table.amountKobo} > 0`),
+    amountPositiveCheck: check('chk_ledger_entries_amount_positive', sql`${table.amount} > 0`),
     transactionIdIdx: index('ledger_entries_transaction_id_idx').on(table.transactionId),
     accountIdIdx: index('ledger_entries_account_id_idx').on(table.accountId),
   })
