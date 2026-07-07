@@ -59,13 +59,17 @@ test("PotsService.triggerRefund — refundType='contributors' fan-out math", asy
     });
 
     // Balance is 80_001, not 100_000 — simulates a payout having already
-    // drained part of the pot before this refund fires. Deliberately not
-    // evenly divisible by 60/40 so truncation is actually exercised:
-    // A: floor(60000 * 80001 / 100000) = 48000
-    // B: floor(40000 * 80001 / 100000) = 32000
-    // sum = 80000, leaving exactly 1 kobo uncollected — matching
-    // postContributorsRefund's documented "integer-kobo division truncates
-    // down" behavior.
+    // drained part of the pot before this refund fires. Each of the 2 legs
+    // reserves its own flat ₦50 outbound fee (see fees.ts's OUTBOUND_FEE),
+    // so the distributable pool is 80_001 - 2*5000 = 70_001, deliberately
+    // not evenly divisible by 60/40 so truncation is actually exercised:
+    // A: floor(60000 * 70001 / 100000) = 42000
+    // B: floor(40000 * 70001 / 100000) = 28000
+    // sum = 70000, 1 kobo short — that remainder goes entirely to A (the
+    // largest share) via distributeExactly, so the legs still sum to the
+    // full 70_001 distributable pool and no kobo is ever stranded in the
+    // pot (see postContributorsRefund's doc comment — close() requires
+    // balance === 0n).
     await seedPotBalance(pot.id, 80_001n);
 
     await PotsService.triggerRefund(pot.id, admin.id);
@@ -79,15 +83,68 @@ test("PotsService.triggerRefund — refundType='contributors' fan-out math", asy
 
     assert.ok(jobA, "expected a leg to contributor A's refund account");
     assert.ok(jobB, "expected a leg to contributor B's refund account");
-    assert.equal(jobA!.data.amount, "48000");
-    assert.equal(jobB!.data.amount, "32000");
+    assert.equal(jobA!.data.amount, "42001");
+    assert.equal(jobB!.data.amount, "28000");
 
     const totalDisbursed = BigInt(jobA!.data.amount) + BigInt(jobB!.data.amount);
-    assert.equal(totalDisbursed, 80_000n); // 1 kobo short of the full 80_001 balance, by design
+    assert.equal(totalDisbursed, 70_001n); // exactly the distributable pool — no kobo left stranded
 
     const [updatedPot] = await db.select().from(pots).where(eq(pots.id, pot.id));
     assert.equal(updatedPot.pendingOperation, "refund");
     assert.equal(updatedPot.pendingOperationLegCount, 2);
+  });
+
+  await t.test("three-way split with an uneven remainder still sums to exactly the distributable balance", async () => {
+    const admin = await createTestUser();
+    const pot = await createTestPot(admin.id, { refundType: "contributors" });
+    await openPot(pot.id);
+
+    // 3 equal-thirds contributors against a balance not evenly divisible by
+    // 3 kobo — every leg truncates down (floor(10000 * 10 / 3) = 33333 each),
+    // sum = 99999, 1 kobo short of the 100000 pool. Regression test for the
+    // pot-can-never-close bug: previously that 1 kobo stayed stranded in the
+    // pot's ledger balance forever (close() requires balance === 0n exactly).
+    const contributorA = await createTestUser();
+    const contributorB = await createTestUser();
+    const contributorC = await createTestUser();
+    await createFundedContribution(pot.id, {
+      contributorUserId: contributorA.id,
+      expectedAmount: 100_000n,
+      refundAccountNumber: "6000000006",
+      refundAccountName: "Contributor A",
+      refundBank: "000018",
+    });
+    await createFundedContribution(pot.id, {
+      contributorUserId: contributorB.id,
+      expectedAmount: 100_000n,
+      refundAccountNumber: "7000000007",
+      refundAccountName: "Contributor B",
+      refundBank: "000019",
+    });
+    await createFundedContribution(pot.id, {
+      contributorUserId: contributorC.id,
+      expectedAmount: 100_000n,
+      refundAccountNumber: "8000000008",
+      refundAccountName: "Contributor C",
+      refundBank: "000020",
+    });
+
+    // Balance chosen so the ₦50-per-leg outbound fee reserve (3 legs * 5000
+    // kobo = 15000) leaves a distributable pool of 100_000, which doesn't
+    // split evenly three ways.
+    await seedPotBalance(pot.id, 115_000n);
+
+    await PotsService.triggerRefund(pot.id, admin.id);
+
+    const jobs = await getTransferQueueJobs();
+    const potJobs = jobs.filter((j) => "potId" in j.data && j.data.potId === pot.id);
+    assert.equal(potJobs.length, 3);
+
+    const totalDisbursed = potJobs.reduce((sum, j) => sum + BigInt(j.data.amount as string), 0n);
+    assert.equal(totalDisbursed, 100_000n); // exactly the distributable pool — no kobo left stranded
+
+    const amounts = potJobs.map((j) => BigInt(j.data.amount as string)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    assert.deepEqual(amounts, [33333n, 33333n, 33334n]); // one leg absorbs the 1-kobo remainder
   });
 
   await t.test("a contributor with no refund account on file is refunded per-payment, split proportionally to each payment", async () => {
@@ -117,9 +174,10 @@ test("PotsService.triggerRefund — refundType='contributors' fan-out math", asy
       senderName: "Payer Two",
     });
 
-    // Balance exactly equals total contributed, so this group's full
-    // share is the full 100_000 balance, split 60/40 across its two
-    // funding payments.
+    // Balance exactly equals total contributed. Each of the 2 legs (one per
+    // payment) reserves its own flat ₦50 outbound fee, so the distributable
+    // pool is 100_000 - 2*5000 = 90_000, split 60/40 across the two funding
+    // payments: 54_000 / 36_000 (both exact, no remainder).
     await seedPotBalance(pot.id, 100_000n);
 
     await PotsService.triggerRefund(pot.id, admin.id);
@@ -137,8 +195,8 @@ test("PotsService.triggerRefund — refundType='contributors' fan-out math", asy
 
     assert.ok(legToPayerOne);
     assert.ok(legToPayerTwo);
-    assert.equal(legToPayerOne!.data.amount, "60000");
-    assert.equal(legToPayerTwo!.data.amount, "40000");
+    assert.equal(legToPayerOne!.data.amount, "54000");
+    assert.equal(legToPayerTwo!.data.amount, "36000");
     // Anonymous group: contributorUserId must never be set on the job,
     // even though it belongs to a specific real bank sender.
     assert.equal("contributorUserId" in legToPayerOne!.data ? legToPayerOne!.data.contributorUserId : undefined, undefined);
@@ -185,7 +243,9 @@ test("PotsService.triggerRefund — refundType='contributors' fan-out math", asy
     const potJobs = jobs.filter((j) => "potId" in j.data && j.data.potId === pot.id);
     assert.equal(potJobs.length, 1);
     assert.equal(potJobs[0].data.destinationAccount, "5000000005");
-    assert.equal(potJobs[0].data.amount, "30000");
+    // postDisbursement nets the flat ₦50 outbound fee out of the balance (see fees.ts's
+    // OUTBOUND_FEE) rather than adding it on top: 30_000 - 5_000 = 25_000.
+    assert.equal(potJobs[0].data.amount, "25000");
   });
 
   await t.test("rejects an admin refund when the admin has no defaultRefundAccount on file", async () => {

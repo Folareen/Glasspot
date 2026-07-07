@@ -754,12 +754,41 @@ export async function clearPendingOperation(potId: string): Promise<void> {
 }
 
 /**
+ * Rescales every leg's `amount` to `(numerator * pool) / denominator` (each leg's own
+ * already-collapsed fraction of the whole pool — see the comment where per-payment legs build
+ * this ratio below), truncating down as before, EXCEPT the leg with the largest share, which
+ * instead gets whatever is left over (pool minus every other leg's truncated share). This makes
+ * the legs always sum to exactly `pool` — no kobo is ever left stranded in the pot's balance,
+ * which matters because pots.service.ts's close() requires balance === 0n exactly. Previously
+ * every leg truncated independently, leaving up to `legs.length - 1` kobo permanently stuck (the
+ * pot could never be closed after a fractional contributors refund — see README's refund-fix
+ * section). The remainder goes to the largest leg rather than a fixed array position so it's
+ * vanishingly unlikely to land on a leg that itself then rounds to zero and gets skipped.
+ * Mutates each leg's `amount` in place; legs.length must be >= 1.
+ */
+function distributeExactly(
+  legs: { numerator: bigint; denominator: bigint; amount: bigint }[],
+  pool: bigint
+): void {
+  let allocated = 0n;
+  let largestIndex = 0;
+  for (let i = 0; i < legs.length; i++) {
+    legs[i].amount = legs[i].denominator > 0n ? (legs[i].numerator * pool) / legs[i].denominator : 0n;
+    allocated += legs[i].amount;
+    if (legs[i].amount > legs[largestIndex].amount) largestIndex = i;
+  }
+  const remainder = pool - allocated;
+  legs[largestIndex].amount += remainder;
+}
+
+/**
  * refundType='contributors' disbursement: refunds every contributor with a 'funded' contribution
  * their pro-rata share of the pot's CURRENT balance (shrinks proportionally if a payout already
  * drained part of the pot). Contributors with multiple funded contributions are refunded once,
  * combined. Enqueues one independent transfer job per contributor — if one fails, only that leg
- * is reversed; the others stand. Integer-kobo division truncates down, deliberately leaving a
- * small remainder (less than contributor count) uncollected rather than distributed unevenly.
+ * is reversed; the others stand. Every leg's share is truncated down to the kobo except the
+ * largest, which absorbs the remainder (see distributeExactly) so the legs always sum to exactly
+ * the distributable pool — no kobo is ever left stranded in the pot's balance.
  */
 async function postContributorsRefund(pot: Pot): Promise<void> {
   const funded = await db
@@ -923,9 +952,7 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
       409
     );
   }
-  for (const leg of legs) {
-    leg.amount = (leg.numerator * distributable) / leg.denominator;
-  }
+  distributeExactly(legs, distributable);
 
   const claimed = await db
     .update(pots)
@@ -950,8 +977,10 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
   const freshBalance = await LedgerService.getBalance(potAccount.id);
   if (freshBalance !== balance) {
     const freshDistributable = freshBalance - feeReserve;
-    for (const leg of legs) {
-      leg.amount = freshDistributable > 0n ? (leg.numerator * freshDistributable) / leg.denominator : 0n;
+    if (freshDistributable > 0n) {
+      distributeExactly(legs, freshDistributable);
+    } else {
+      for (const leg of legs) leg.amount = 0n;
     }
   }
 
