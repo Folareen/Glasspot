@@ -238,16 +238,14 @@ export class NombaClient {
     if (params.accountName.length < 8 || params.accountName.length > 64) {
       throw new RangeError("accountName must be 8-64 characters");
     }
-    // Nomba's wire field is "expectedAmount" (see developer.nomba.com) —
-    // params.expectedAmountNaira is this client's own explicit name for the
-    // same value (see CreateVirtualAccountParams's comment); map it back to
-    // Nomba's actual field name here rather than renaming the whole request
-    // body.
-    const { expectedAmountNaira, ...rest } = params;
-    return this.post(`/v1/accounts/virtual/${encodeURIComponent(this.config.subAccountId)}`, {
-      ...rest,
-      expectedAmount: expectedAmountNaira,
-    });
+    // Deliberately NOT sending Nomba's "expectedAmount" wire field — confirmed in production it
+    // makes Nomba reject/fail the incoming transfer whenever the sender pays a different amount
+    // (over or under), even though our own bank rails don't enforce it either way (see
+    // evaluatePayment()'s doc comment). params.expectedAmountNaira is kept as an input purely so
+    // callers can still store their own expectation locally; it's intentionally dropped here
+    // rather than forwarded.
+    const { expectedAmountNaira: _expectedAmountNaira, ...rest } = params;
+    return this.post(`/v1/accounts/virtual/${encodeURIComponent(this.config.subAccountId)}`, rest);
   }
 
   /** DELETE /v1/accounts/virtual/{accountRef} — releases a virtual account (past expiry, funded or abandoned); frees the contributor's 2-account cap slot on Nomba's side. accountRef is the same value passed to createVirtualAccount(), not Nomba's bankAccountNumber. */
