@@ -31,6 +31,21 @@ export function toNairaAmount(rawInput: string): string | null {
   return `${Number(wholePart)}.${kobo}`;
 }
 
+/**
+ * Sanitizes raw keystrokes from an amount <Input type="text"> down to digits and at most one
+ * decimal point, e.g. "10,0000" -> "100000", "12.5.6" -> "12.56". Every amount field in the app
+ * uses type="text" (not type="number") for exactly this reason: a native type="number" input
+ * silently resets its value to "" the instant an invalid character like a comma is typed — a real
+ * incident where a user typing "100,000" out of habit ended up with a shorter, wrong number
+ * because everything typed after the comma rebuilt from empty. type="text" never does that; this
+ * function is what keeps the value numeric instead.
+ */
+export function sanitizeAmountInput(raw: string): string {
+  const digitsAndDots = raw.replace(/[^\d.]/g, "");
+  const [wholePart, ...rest] = digitsAndDots.split(".");
+  return rest.length > 0 ? `${wholePart}.${rest.join("")}` : wholePart;
+}
+
 /** Formats a wire-format naira string ("100.50") for display as Nigerian currency ("₦100.50"), via Intl.NumberFormat — never dividing by 100, since the value is already naira. */
 export function formatNaira(naira: string): string {
   return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN" }).format(Number(naira));

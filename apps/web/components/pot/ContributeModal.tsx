@@ -11,7 +11,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { ApiError, contribute } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
+import { formatNaira, nairaAmountToNumber, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
 import type { ContributionResponse, PotResponse } from "@/lib/types";
 
 type ContributeModalProps = {
@@ -79,13 +79,11 @@ export function ContributeModal({ open, onClose, pot, onContributed }: Contribut
         >
           <Input
             id="contribute-amount"
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={minNaira}
-            max={maxNaira ?? undefined}
             value={amount}
             onChange={(e) => {
-              setAmount(e.target.value);
+              setAmount(sanitizeAmountInput(e.target.value));
               setAmountError("");
             }}
             placeholder={String(minNaira)}

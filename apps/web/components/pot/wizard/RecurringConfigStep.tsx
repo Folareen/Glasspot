@@ -5,6 +5,7 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
+import { sanitizeAmountInput } from "@/lib/money";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -97,11 +98,10 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
       >
         <Input
           id="recurring-amount"
-          type="number"
+          type="text"
           inputMode="decimal"
-          min={0}
           value={state.recurringAmountNaira}
-          onChange={(e) => onChange({ recurringAmountNaira: e.target.value })}
+          onChange={(e) => onChange({ recurringAmountNaira: sanitizeAmountInput(e.target.value) })}
           placeholder="1000"
           error={Boolean(amountError)}
         />
@@ -117,11 +117,10 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
       >
         <Input
           id="recurring-interval"
-          type="number"
+          type="text"
           inputMode="numeric"
-          min={1}
           value={state.recurringIntervalDays}
-          onChange={(e) => onChange({ recurringIntervalDays: e.target.value })}
+          onChange={(e) => onChange({ recurringIntervalDays: e.target.value.replace(/\D/g, "") })}
           error={Boolean(intervalError)}
         />
       </Field>

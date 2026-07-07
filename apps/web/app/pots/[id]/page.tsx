@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { use } from "react";
-import { LogOut, Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
+import { Check, Link2, LogOut, Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
@@ -51,6 +51,7 @@ import { RefundConfirmModal } from "@/components/pot/RefundConfirmModal";
 import { CloseConfirmModal } from "@/components/pot/CloseConfirmModal";
 import { PayoutDestinationModal } from "@/components/pot/PayoutDestinationModal";
 import { PayoutAmountModal } from "@/components/pot/PayoutAmountModal";
+import { RulesTab } from "@/components/pot/RulesTab";
 import type { ContributionResponse, PotResponse, TransactionType } from "@/lib/types";
 
 const activityFilters: { id: string; label: string; types?: TransactionType[] }[] = [
@@ -60,7 +61,7 @@ const activityFilters: { id: string; label: string; types?: TransactionType[] }[
   { id: "refund", label: "Refunds", types: ["refund", "reversal"] },
 ];
 
-const memberFilters = [
+const allMemberFilters = [
   { id: "all", label: "Members" },
   { id: "pending", label: "Pending" },
   { id: "admins", label: "Admins" },
@@ -99,6 +100,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const [activityFullscreen, setActivityFullscreen] = useState(false);
   const [memberFilter, setMemberFilter] = useState("all");
   const [membersFullscreen, setMembersFullscreen] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   const isAdmin = memberRows.some(
     (m) => m.kind === "member" && m.userId === currentUser?.id && m.role === "admin"
@@ -186,13 +188,15 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   // goalAmount is a display-only fundraising goal available on any payout
   // mode, distinct from target_based's payoutConfig.targetAmount (which
-  // actually fires the payout). Only shown when there's no payout-triggering
-  // target already occupying the progress bar, so the two concepts never
-  // compete for the same space.
-  const goalProgress =
-    !targetAmount && pot.goalAmount
-      ? Math.round((Number(pot.balance) / Number(pot.goalAmount)) * 100)
-      : null;
+  // actually fires the payout) — a target_based pot can set both at once, so
+  // this always renders whenever goalAmount is set, alongside (not instead
+  // of) the target progress bar above. Previously this was suppressed
+  // whenever a target amount was also set, which is the bug a QA tester
+  // reported: the goal silently never showed on target_based pots, so only
+  // the target amount was visible and got mistaken for the goal.
+  const goalProgress = pot.goalAmount
+    ? Math.round((Number(pot.balance) / Number(pot.goalAmount)) * 100)
+    : null;
 
   // Only manual mode can be triggered on demand — target_based fires
   // exclusively via its own automatic rule (target date/amount reached),
@@ -316,6 +320,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   }
 
   function renderMembersFilters() {
+    const memberFilters = isAdmin ? allMemberFilters : allMemberFilters.filter((f) => f.id !== "pending");
     return (
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
@@ -461,10 +466,33 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
               </Button>
             )}
             {pot.status === "open" && (
-              <Button className="w-full" onClick={() => setContributeOpen(true)}>
-                <Plus className="h-4 w-4" strokeWidth={1.5} />
-                Contribute
-              </Button>
+              <div className="flex gap-2">
+                <Button className="flex-1" onClick={() => setContributeOpen(true)}>
+                  <Plus className="h-4 w-4" strokeWidth={1.5} />
+                  Contribute
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="w-12 px-0"
+                  aria-label="Copy contribution link"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(window.location.href);
+                      setLinkCopied(true);
+                      showToast("Link copied", "success");
+                      setTimeout(() => setLinkCopied(false), 2000);
+                    } catch {
+                      showToast("Couldn't copy the link", "error");
+                    }
+                  }}
+                >
+                  {linkCopied ? (
+                    <Check className="h-10 w-10" strokeWidth={1.5} />
+                  ) : (
+                    <Link2 className="h-10 w-10" strokeWidth={1.5} />
+                  )}
+                </Button>
+              </div>
             )}
           </div>
         </Card>
@@ -472,6 +500,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         <Tabs
           variant="underline"
           tabs={[
+            { id: "rules", label: "Rules" },
             { id: "activity", label: "Activity" },
             { id: "members", label: "Members" },
             ...(hasActions ? [{ id: "actions", label: "Actions" }] : []),
@@ -479,6 +508,8 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         >
           {(activeTabId) => (
             <>
+              {activeTabId === "rules" && <RulesTab pot={pot} />}
+
               {activeTabId === "activity" && (
                 <div>
                   {renderActivityFilters()}

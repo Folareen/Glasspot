@@ -12,7 +12,7 @@ import { OtpStep } from "@/components/pot/OtpStep";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { requestPayoutOtp, triggerPayout } from "@/lib/api";
-import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
+import { formatNaira, nairaAmountToNumber, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
 
 type PayoutDestinationModalProps = {
   open: boolean;
@@ -161,13 +161,11 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
           >
             <Input
               id="payout-destination-amount"
-              type="number"
+              type="text"
               inputMode="decimal"
-              min={0}
-              max={balanceNaira}
               value={amount}
               onChange={(e) => {
-                setAmount(e.target.value);
+                setAmount(sanitizeAmountInput(e.target.value));
                 setErrors((prev) => ({ ...prev, amount: undefined }));
               }}
               placeholder={String(balanceNaira)}
