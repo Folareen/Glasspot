@@ -13,7 +13,7 @@ export const PotMembersService = {
         potId: potMembers.potId,
         userId: potMembers.userId,
         role: potMembers.role,
-        invitedByUserId: potMembers.invitedByUserId,
+        addedByUserId: potMembers.addedByUserId,
         joinedAt: potMembers.joinedAt,
         fullName: users.fullName,
         username: users.username,
@@ -24,9 +24,18 @@ export const PotMembersService = {
       .where(eq(potMembers.potId, potId));
   },
 
-  // Adding a member is now PotInvitesService.create (email-addressed, see
-  // pots.schema.ts's addMemberSchema comment) — this service only manages
-  // rows that already exist in pot_members.
+  // Adding a member is now PendingMembersService.create (email-addressed,
+  // see pots.schema.ts's addMemberSchema comment) — this service only
+  // manages rows that already exist in pot_members.
+
+  /**
+   * A member leaving of their own accord — same last-admin protection as remove() below (an
+   * admin can't leave if they're the only one; they must promote someone else first), but no
+   * assertIsAdmin check at the controller level since this is self-service, not admin-managed.
+   */
+  async leave(potId: string, userId: string) {
+    return this.remove(potId, userId);
+  },
 
   /** Blocks demoting the last admin — a pot must always keep at least one. */
   async updateRole(potId: string, targetUserId: string, input: UpdateMemberRoleInput) {

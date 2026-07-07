@@ -2,7 +2,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { DataTableGridRow, type DataTableColumn } from "@/components/ui/DataTable";
 import { Text } from "@/components/ui/Text";
-import type { InviteResponse, MemberResponse } from "@/lib/types";
+import type { PendingMemberResponse, MemberResponse } from "@/lib/types";
 
 export const memberColumns: DataTableColumn[] = [
   { key: "member", label: "Member", width: "2fr" },
@@ -10,13 +10,15 @@ export const memberColumns: DataTableColumn[] = [
   { key: "status", label: "Status", width: "1fr", align: "right" },
 ];
 
-// A real pot_members row (active) or a still-pending pot_invites row — two separate backend
-// resources (GET /pots/:id/members vs GET /pots/:id/invites) unified here for display, since the
-// pot detail page's member list shows both together. See docs comment on
-// apps/backend/src/modules/pots/pot-invites.ts for why they're split server-side.
+// A real pot_members row (active) or a still-pending pot_pending_members row — two separate
+// backend resources (GET /pots/:id/members vs GET /pots/:id/pending-members) unified here for
+// display, since the pot detail page's member list shows both together. A pending row isn't
+// something the person can accept or decline — they've already been added by email, this row
+// just tracks that they'll become a real member automatically once they sign up and verify. See
+// docs comment on apps/backend/src/modules/pots/pot-pending-members.ts.
 export type MemberListRow =
   | ({ kind: "member" } & MemberResponse)
-  | ({ kind: "invite" } & Pick<InviteResponse, "id" | "potId" | "email" | "role">);
+  | ({ kind: "pending" } & Pick<PendingMemberResponse, "id" | "potId" | "email" | "role">);
 
 type PotMemberRowProps = {
   row: MemberListRow;
@@ -24,7 +26,7 @@ type PotMemberRowProps = {
 };
 
 export function PotMemberRow({ row, action }: PotMemberRowProps) {
-  const isPending = row.kind === "invite";
+  const isPending = row.kind === "pending";
   const displayName = isPending ? row.email : row.fullName;
 
   return (
@@ -38,7 +40,7 @@ export function PotMemberRow({ row, action }: PotMemberRowProps) {
               {displayName}
             </Text>
             <Text size="xs" color="secondary" className="truncate">
-              {isPending ? "Invited — pending signup" : `@${row.username}`}
+              {isPending ? "Waiting for signup to join automatically" : `@${row.username}`}
             </Text>
           </div>
         </div>
@@ -60,7 +62,7 @@ export function PotMemberRow({ row, action }: PotMemberRowProps) {
                 {displayName}
               </Text>
               <Text size="xs" color="secondary" className="truncate">
-                {isPending ? "Invited" : `@${row.username}`}
+                {isPending ? "Waiting for signup" : `@${row.username}`}
               </Text>
             </div>
           </div>,

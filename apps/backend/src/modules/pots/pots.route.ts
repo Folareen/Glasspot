@@ -2,12 +2,13 @@ import { FastifyInstance } from "fastify";
 import {
   activatePotHandler,
   addMemberHandler,
-  cancelInviteHandler,
+  removePendingMemberHandler,
   closePotHandler,
   contributeHandler,
   createPotHandler,
   getPotHandler,
-  listInvitesHandler,
+  leavePotHandler,
+  listPendingMembersHandler,
   listMembersHandler,
   listPotsHandler,
   listTransactionsHandler,
@@ -24,7 +25,7 @@ import {
   AddMemberInput,
   ContributeInput,
   CreatePotInput,
-  InviteIdParams,
+  PendingMemberParams,
   ListPotsQuery,
   MemberParams,
   PotIdParams,
@@ -219,27 +220,27 @@ async function potsRoutes(server: FastifyInstance) {
   );
 
   server.get<{ Params: PotIdParams }>(
-    "/:id/invites",
+    "/:id/pending-members",
     {
       preHandler: [server.authenticate],
       schema: {
         params: $ref("potIdParamsSchema"),
-        response: { 200: $ref("inviteListResponseSchema") },
+        response: { 200: $ref("pendingMemberListResponseSchema") },
       },
     },
-    listInvitesHandler
+    listPendingMembersHandler
   );
 
-  server.delete<{ Params: InviteIdParams }>(
-    "/:id/invites/:inviteId",
+  server.delete<{ Params: PendingMemberParams }>(
+    "/:id/pending-members/:pendingId",
     {
       preHandler: [server.authenticate],
       schema: {
-        params: $ref("inviteIdParamsSchema"),
+        params: $ref("pendingMemberParamsSchema"),
         response: { 200: $ref("messageResponseSchema") },
       },
     },
-    cancelInviteHandler
+    removePendingMemberHandler
   );
 
   server.patch<{ Params: MemberParams; Body: UpdateMemberRoleInput }>(
@@ -265,6 +266,20 @@ async function potsRoutes(server: FastifyInstance) {
       },
     },
     removeMemberHandler
+  );
+
+  // Self-service leave (no assertIsAdmin) — distinct from removeMemberHandler above, which is
+  // admin-managed removal of someone else.
+  server.post<{ Params: PotIdParams }>(
+    "/:id/leave",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    leavePotHandler
   );
 
   server.post<{ Body: { amount?: string } }>("/transfers/test-payout", async (request, reply) => {

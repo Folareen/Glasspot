@@ -11,7 +11,7 @@ import { ApiError, addMember } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { PotMemberRole } from "@/lib/types";
 
-type InviteMemberModalProps = {
+type AddMemberModalProps = {
   open: boolean;
   onClose: () => void;
   potId: string;
@@ -20,7 +20,7 @@ type InviteMemberModalProps = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function InviteMemberModal({ open, onClose, potId, onAdded }: InviteMemberModalProps) {
+export function AddMemberModal({ open, onClose, potId, onAdded }: AddMemberModalProps) {
   const { showToast } = useToast();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<PotMemberRole>("member");
@@ -40,7 +40,7 @@ export function InviteMemberModal({ open, onClose, potId, onAdded }: InviteMembe
       const isPending = "status" in result && result.status === "pending";
       showToast(
         isPending
-          ? `Invite sent to ${trimmedEmail} — they'll join once they sign up`
+          ? `${trimmedEmail} added — they'll join automatically once they sign up`
           : `${trimmedEmail} added to the pot`,
         "success"
       );
@@ -59,9 +59,9 @@ export function InviteMemberModal({ open, onClose, potId, onAdded }: InviteMembe
   return (
     <Modal open={open} onClose={onClose} title="Add a member">
       <div className="flex flex-col gap-4">
-        <Field label="Email address" htmlFor="invite-email" required error={emailError || undefined}>
+        <Field label="Email address" htmlFor="add-member-email" required error={emailError || undefined}>
           <Input
-            id="invite-email"
+            id="add-member-email"
             type="email"
             value={email}
             onChange={(e) => {
@@ -72,8 +72,8 @@ export function InviteMemberModal({ open, onClose, potId, onAdded }: InviteMembe
             error={Boolean(emailError)}
           />
         </Field>
-        <Field label="Role" htmlFor="invite-role">
-          <Select id="invite-role" value={role} onChange={(e) => setRole(e.target.value as PotMemberRole)}>
+        <Field label="Role" htmlFor="add-member-role">
+          <Select id="add-member-role" value={role} onChange={(e) => setRole(e.target.value as PotMemberRole)}>
             <option value="member">Member</option>
             <option value="admin">Admin</option>
           </Select>

@@ -12,10 +12,17 @@ import { useAuth } from "@/lib/auth";
 // navigate to. Logged-in visitors (the normal "open one of my pots" flow via
 // PotCard) still get the full AppShell chrome; only an anonymous visitor
 // gets the minimal logo + log-in header instead.
+//
+// Defaults to the minimal layout while auth is still resolving (isLoading),
+// not AppShell — an anonymous visitor to a public pot link is the common
+// case for this specific route, and defaulting to AppShell first meant
+// every anonymous visitor saw a flash of the Sidebar/BottomNav chrome
+// before it swapped to the plain header once getMe() resolved. A real
+// logged-in session still upgrades to AppShell the moment isLoading clears.
 export default function PotDetailLayout({ children }: { children: React.ReactNode }) {
   const { currentUser, isLoading } = useAuth();
 
-  if (currentUser || isLoading) {
+  if (currentUser && !isLoading) {
     return <AppShell>{children}</AppShell>;
   }
 

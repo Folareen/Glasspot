@@ -17,7 +17,7 @@ export const potMembers = pgTable(
     potId: uuid('pot_id').notNull().references(() => pots.id, { onDelete: 'cascade' }),
     userId: uuid('user_id').notNull().references(() => users.id),
     role: potMemberRoleEnum('role').notNull().default('member'),
-    invitedByUserId: uuid('invited_by_user_id').references(() => users.id),
+    addedByUserId: uuid('added_by_user_id').references(() => users.id),
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

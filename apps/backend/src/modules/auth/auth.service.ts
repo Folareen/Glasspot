@@ -8,7 +8,7 @@ import { otpEmail } from "@/lib/otp-email";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { AuthError, RateLimitError } from "./auth.errors";
 import { RegisterInput, ResetPasswordInput } from "./auth.schema";
-import { PotInvitesService } from "@/modules/pots/pot-invites.service";
+import { PendingMembersService } from "@/modules/pots/pending-members.service";
 import type { UpdateRefundProfileInput } from "@/modules/me/me.schema";
 
 type OtpPurposeValue = "signup_verification" | "login" | "password_reset";
@@ -221,7 +221,7 @@ export const AuthService = {
     await verifyOtp(user.id, "signup_verification", code);
 
     await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, user.id));
-    await PotInvitesService.activateForEmail(user.id, user.email);
+    await PendingMembersService.activateForEmail(user.id, user.email);
 
     const tokens = await issueTokenPair(user.id, sign);
     return { ...tokens, user: toPublicUser(user) };

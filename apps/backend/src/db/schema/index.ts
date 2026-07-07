@@ -3,7 +3,7 @@ export * from './otp-codes';
 export * from './action-otp-codes';
 export * from './pots';
 export * from './pot-members';
-export * from './pot-invites';
+export * from './pot-pending-members';
 export * from './contributions';
 export * from './contribution-payments';
 export * from './target-based-payout-configs';

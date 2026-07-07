@@ -4,7 +4,7 @@ import type {
   BankLookupResult,
   ContributionResponse,
   CurrentUser,
-  InviteResponse,
+  PendingMemberResponse,
   MemberResponse,
   MeTransaction,
   PayoutConfigInput,
@@ -221,13 +221,13 @@ export function getPotMembers(potId: string) {
   return apiFetch<MemberResponse[]>(`/pots/${potId}/members`);
 }
 
-export function getPotInvites(potId: string) {
+export function getPendingMembers(potId: string) {
   // skipAuthRedirect: this route is authenticate-gated (not optionalAuthenticate like the rest of
   // the pot-detail reads), so a non-admin member gets an expected 403 but a fully anonymous
   // visitor to a public pot gets a 401 here — the caller (pots/[id]/page.tsx) already treats
-  // either as "just show members without invites," it must not also redirect the anonymous
+  // either as "just show members without pending rows," it must not also redirect the anonymous
   // visitor to /login for a call they never needed to succeed.
-  return apiFetch<InviteResponse[]>(`/pots/${potId}/invites`, { skipAuthRedirect: true });
+  return apiFetch<PendingMemberResponse[]>(`/pots/${potId}/pending-members`, { skipAuthRedirect: true });
 }
 
 export function addMember(potId: string, input: { email: string; role?: PotMemberRole }) {
@@ -248,8 +248,12 @@ export function removeMember(potId: string, userId: string) {
   return apiFetch<{ message: string }>(`/pots/${potId}/members/${userId}`, { method: "DELETE" });
 }
 
-export function cancelInvite(potId: string, inviteId: string) {
-  return apiFetch<{ message: string }>(`/pots/${potId}/invites/${inviteId}`, { method: "DELETE" });
+export function removePendingMember(potId: string, pendingId: string) {
+  return apiFetch<{ message: string }>(`/pots/${potId}/pending-members/${pendingId}`, { method: "DELETE" });
+}
+
+export function leavePot(potId: string) {
+  return apiFetch<{ message: string }>(`/pots/${potId}/leave`, { method: "POST" });
 }
 
 export function getPotTransactions(potId: string) {
