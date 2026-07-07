@@ -10,20 +10,23 @@ import { Card } from "@/components/ui/Card";
 import { Container } from "@/components/ui/Container";
 import { Heading } from "@/components/ui/Heading";
 import { Text } from "@/components/ui/Text";
-import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
+import { logout as apiLogout } from "@/lib/api";
 
 export default function ProfilePage() {
-  const { currentUser, logout } = useMockStore();
+  const { currentUser, setCurrentUser } = useAuth();
+  const { banks } = useBanks();
   const { showToast } = useToast();
   const router = useRouter();
 
-  const bank = nigerianBanks.find((b) => b.code === currentUser?.defaultRefundBank);
+  const bank = banks.find((b) => b.code === currentUser?.defaultRefundBank);
   const hasRefundAccount = Boolean(currentUser?.defaultRefundAccount && bank);
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await apiLogout();
+    setCurrentUser(null);
     showToast("Logged out");
     router.push("/login");
   }

@@ -1,12 +1,12 @@
-// Mirrors the wire response/input types from apps/backend's Zod schemas
-// (apps/backend/src/modules/{auth,pots}/*.schema.ts). apps/web has no
+// Wire response/input types, mirroring apps/backend's Zod schemas
+// (apps/backend/src/modules/{auth,me,banks,pots}/*.schema.ts). apps/web has no
 // dependency on apps/backend, so these are hand-copied rather than imported —
 // keep them in sync by hand if the backend schemas change shape.
 //
 // Every money field below (minContribution, maxContribution, goalAmount,
-// balance, amount, expectedAmount, targetAmount, paidAmount) is a naira
-// string with exactly two decimal places ("100.50"), never a kobo integer
-// — see docs/system-rules.md's money rule and lib/money.ts.
+// balance, amount, expectedAmount, targetAmount) is a naira string with
+// exactly two decimal places ("100.50"), never a kobo integer — see
+// docs/system-rules.md's money rule and lib/money.ts.
 
 export type PayoutMode = "target_based" | "manual" | "recurring" | "scheduled";
 export type PotType = "public" | "private";
@@ -37,30 +37,38 @@ export type Destination = {
 // "fixed destination, admin releases whenever" should pick manual mode
 // with a destination set instead — see ManualPayoutConfig below.
 export type TargetBasedPayoutConfig = Destination & {
-  targetDate?: string;
-  targetAmount?: string;
+  destinationAccountName: string;
+  targetDate: string | null;
+  targetAmount: string | null;
+  fired: boolean;
 };
 
-// Manual mode's destination is optional. If unset, the group's agreed
-// rule is that any admin can send the balance to whichever account they
-// choose at the moment they trigger it — the destination is recorded on
-// the resulting transaction instead, so it stays visible to everyone
-// after the fact even though it wasn't locked in at creation. If set, it
-// acts as a fixed default destination instead — repeatable indefinitely,
-// unlike target_based's single fire.
-export type ManualPayoutConfig = Partial<Destination>;
+// Manual mode's destination is optional. If unset (all three fields null),
+// the group's agreed rule is that any admin can send the balance to
+// whichever account they choose at the moment they trigger it — the
+// destination is recorded on the resulting transaction instead, so it
+// stays visible to everyone after the fact even though it wasn't locked in
+// at creation. If set, it acts as a fixed default destination instead —
+// repeatable indefinitely, unlike target_based's single fire.
+export type ManualPayoutConfig = {
+  destinationAccount: string | null;
+  destinationBank: string | null;
+  destinationAccountName: string | null;
+};
 
 export type RecurringPayoutConfig = Destination & {
+  destinationAccountName: string;
   amount: string;
   intervalDays: number;
   nextRunAt: string;
 };
 
 export type ScheduledLeg = Destination & {
+  destinationAccountName: string;
   sequenceOrder: number;
   amount: string;
   scheduledDate: string;
-  firedAt?: string | null;
+  fired: boolean;
 };
 
 export type ScheduledPayoutConfig = {
@@ -74,6 +82,41 @@ export type PayoutConfig =
   | RecurringPayoutConfig
   | ScheduledPayoutConfig;
 
+// Request-side shapes for POST /pots and PATCH /pots/:id — distinct from the response types
+// above (no destinationAccountName/fired, since those are server-computed/server-owned; dates are
+// sent as ISO strings and re-returned as ISO strings so no separate wire format is needed there).
+// Mirrors apps/backend/src/modules/pots/pots.schema.ts's targetBasedPayoutConfigSchema /
+// manualPayoutConfigSchema / recurringPayoutConfigSchema / scheduledPayoutConfigSchema.
+export type TargetBasedPayoutConfigInput = Destination & {
+  targetDate?: string;
+  targetAmount?: string;
+};
+
+export type ManualPayoutConfigInput = Partial<Destination>;
+
+export type RecurringPayoutConfigInput = Destination & {
+  amount: string;
+  intervalDays: number;
+  nextRunAt: string;
+};
+
+export type ScheduledLegInput = Destination & {
+  sequenceOrder: number;
+  amount: string;
+  scheduledDate: string;
+};
+
+export type ScheduledPayoutConfigInput = {
+  ordered: boolean;
+  legs: ScheduledLegInput[];
+};
+
+export type PayoutConfigInput =
+  | TargetBasedPayoutConfigInput
+  | ManualPayoutConfigInput
+  | RecurringPayoutConfigInput
+  | ScheduledPayoutConfigInput;
+
 export type PotResponse = {
   id: string;
   creatorId: string;
@@ -82,7 +125,10 @@ export type PotResponse = {
   potType: PotType;
   status: PotStatus;
   payoutMode: PayoutMode;
-  payoutConfig: PayoutConfig;
+  // null for manual mode with no fixed destination configured (no config row was ever inserted —
+  // see manualPayoutConfigs' comment); a real PayoutConfig object for every other case, including
+  // manual mode WITH a fixed destination. See PotsService.getPayoutConfig/serializePayoutConfig.
+  payoutConfig: PayoutConfig | null;
   refundType: RefundType;
   shareSlug: string;
   minContribution: string;
@@ -92,37 +138,39 @@ export type PotResponse = {
   // target_based's payoutConfig.targetAmount, which actually fires a
   // payout once reached.
   goalAmount: string | null;
+  balance: string;
+  pendingOperation: "payout" | "refund" | null;
   activatedAt: string | null;
   closedAt: string | null;
   createdAt: string;
   updatedAt: string;
-  // Both real wire fields: balance is the pot's current ledger
-  // balance (server-computed, see PotsService.getBalance), pendingOperation
-  // mirrors the pots.pending_operation column.
-  balance: string;
-  pendingOperation: "payout" | "refund" | null;
 };
 
-// status/email mirror pot_invites, not pot_members, on the backend —
-// pot_members.userId is NOT NULL there (no pending row possible on that
-// table). This mock layer folds both into one list for display simplicity:
-// status 'pending' + userId "" represents a pot_invites row (invited by
-// email, not yet a Glasspot user); 'active' represents a real pot_members
-// row. See docs comment on apps/backend's pot-invites.ts for the real split.
 export type MemberResponse = {
   id: string;
   potId: string;
   userId: string;
-  email: string;
   role: PotMemberRole;
-  status: "pending" | "active";
   invitedByUserId: string | null;
   joinedAt: string;
-  // Demo-only display fields. Empty string for a pending invite with no
-  // linked user yet.
   fullName: string;
   username: string;
+  email: string;
 };
+
+export type InviteResponse = {
+  id: string;
+  potId: string;
+  email: string;
+  role: PotMemberRole;
+  status: "pending" | "accepted" | "cancelled";
+  invitedByUserId: string;
+  acceptedUserId: string | null;
+  createdAt: string;
+  acceptedAt: string | null;
+};
+
+export type AddMemberResponse = MemberResponse | Omit<InviteResponse, "acceptedUserId" | "acceptedAt">;
 
 export type TransactionResponse = {
   id: string;
@@ -132,11 +180,11 @@ export type TransactionResponse = {
   externalReference: string | null;
   amount: string;
   createdAt: string;
-  // Demo-only display fields.
+};
+
+export type MeTransaction = TransactionResponse & {
   potId: string;
   potTitle: string;
-  destinationAccount?: string;
-  destinationBank?: string;
 };
 
 export type ContributionResponse = {
@@ -147,7 +195,6 @@ export type ContributionResponse = {
   virtualAccountRef: string;
   virtualAccountNumber: string | null;
   expectedAmount: string;
-  paidAmount: string;
   status: ContributionStatus;
   anonymous: boolean;
   refundAccountNumber: string | null;
@@ -157,8 +204,6 @@ export type ContributionResponse = {
   createdAt: string;
   expiresAt: string;
   fundedAt: string | null;
-  // Demo-only display fields.
-  contributorName: string;
 };
 
 export type CurrentUser = {
@@ -166,6 +211,18 @@ export type CurrentUser = {
   email: string;
   username: string;
   fullName: string;
+  phone: string | null;
   defaultRefundAccount: string | null;
   defaultRefundBank: string | null;
+};
+
+export type Bank = {
+  code: string;
+  name: string;
+};
+
+export type BankLookupResult = {
+  accountNumber: string;
+  bankCode: string;
+  accountName: string;
 };

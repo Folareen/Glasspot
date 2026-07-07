@@ -2,17 +2,18 @@ import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
 import { Money } from "@/components/ui/Money";
 import { Divider } from "@/components/ui/Divider";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
 import { payoutModeLabels } from "@/components/pot/PayoutModeIcon";
 import { toNairaAmount } from "@/lib/money";
+import type { Bank } from "@/lib/types";
 import type { WizardState } from "./wizard-types";
 
 type ReviewStepProps = {
   state: WizardState;
 };
 
-function bankName(code: string) {
-  return nigerianBanks.find((bank) => bank.code === code)?.name ?? code;
+function bankName(banks: Bank[], code: string) {
+  return banks.find((bank) => bank.code === code)?.name ?? code;
 }
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -27,6 +28,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export function ReviewStep({ state }: ReviewStepProps) {
+  const { banks } = useBanks();
   return (
     <div className="flex flex-col gap-4">
       <Card padding="md">
@@ -65,7 +67,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
             <Divider />
             <Row
               label="Payout account"
-              value={`${state.targetDestinationAccount || "Not set"} · ${bankName(state.targetDestinationBank)}`}
+              value={`${state.targetDestinationAccount || "Not set"} · ${bankName(banks, state.targetDestinationBank)}`}
             />
             {state.targetDate && (
               <>
@@ -89,7 +91,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
               label="Payout account"
               value={
                 state.manualDestinationAccount && state.manualDestinationBank
-                  ? `${state.manualDestinationAccount} · ${bankName(state.manualDestinationBank)}`
+                  ? `${state.manualDestinationAccount} · ${bankName(banks, state.manualDestinationBank)}`
                   : "Chosen by the admin when they trigger it"
               }
             />
@@ -101,7 +103,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
             <Divider />
             <Row
               label="Payout account"
-              value={`${state.recurringDestinationAccount || "Not set"} · ${bankName(state.recurringDestinationBank)}`}
+              value={`${state.recurringDestinationAccount || "Not set"} · ${bankName(banks, state.recurringDestinationBank)}`}
             />
             <Divider />
             <Row
@@ -132,7 +134,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
                   label={state.scheduledOrdered ? `Turn ${index + 1}` : `Payout ${index + 1}`}
                   value={
                     <div className="flex flex-col items-end gap-0.5">
-                      <span>{leg.destinationAccount || "Not set"} · {bankName(leg.destinationBank)}</span>
+                      <span>{leg.destinationAccount || "Not set"} · {bankName(banks, leg.destinationBank)}</span>
                       <span className="text-text-secondary">
                         {leg.amount ? (
                           <Money naira={toNairaAmount(leg.amount) ?? "0.00"} size="xs" color="secondary" />

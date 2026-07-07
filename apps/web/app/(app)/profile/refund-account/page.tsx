@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Button } from "@/components/ui/Button";
@@ -10,25 +10,62 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Text } from "@/components/ui/Text";
-import { nigerianBanks } from "@/lib/mock/fixtures";
-import { useMockStore } from "@/lib/mock/store";
+import { Spinner } from "@/components/ui/Spinner";
+import { useBanks } from "@/lib/useBanks";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
+import { ApiError, lookupBankAccount, updateRefundProfile } from "@/lib/api";
 
 const NUBAN_LENGTH = 10;
 
 export default function RefundAccountPage() {
-  const { currentUser, setRefundProfile } = useMockStore();
+  const { currentUser, setCurrentUser } = useAuth();
+  const { banks } = useBanks();
   const { showToast } = useToast();
   const router = useRouter();
 
   const [bankCode, setBankCode] = useState(currentUser?.defaultRefundBank ?? "");
   const [accountNumber, setAccountNumber] = useState(currentUser?.defaultRefundAccount ?? "");
   const [errors, setErrors] = useState<{ bankCode?: string; accountNumber?: string }>({});
+  // Tagged with the exact accountNumber/bankCode pair it was resolved for, so a lookup that
+  // resolves after the user has already changed either field is never shown as confirming the
+  // new (different) pair — avoids a synchronous "reset to null" at the top of the lookup effect.
+  const [confirmed, setConfirmed] = useState<{ accountNumber: string; bankCode: string; name: string } | null>(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const isComplete = bankCode !== "" && accountNumber.length === NUBAN_LENGTH;
-  const confirmedName = isComplete ? currentUser?.fullName.toUpperCase() : null;
+  const confirmedName =
+    confirmed && confirmed.accountNumber === accountNumber && confirmed.bankCode === bankCode
+      ? confirmed.name
+      : null;
 
-  function handleSubmit(event: React.FormEvent) {
+  useEffect(() => {
+    if (!isComplete) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- immediate loading indicator for the lookup this same effect kicks off; there's no external event to defer it to.
+    setIsLookingUp(true);
+    lookupBankAccount({ accountNumber, bankCode })
+      .then((result) => {
+        if (!cancelled) setConfirmed({ accountNumber, bankCode, name: result.accountName });
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setErrors((prev) => ({
+            ...prev,
+            accountNumber: e instanceof ApiError ? e.message : "Couldn't verify that account.",
+          }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLookingUp(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountNumber, bankCode, isComplete]);
+
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     const nextErrors: { bankCode?: string; accountNumber?: string } = {};
     if (!bankCode) {
@@ -42,9 +79,22 @@ export default function RefundAccountPage() {
       return;
     }
     setErrors({});
-    setRefundProfile(accountNumber, bankCode);
-    showToast("Refund account saved", "success");
-    router.push("/profile");
+    setIsSubmitting(true);
+    try {
+      const result = await updateRefundProfile({ accountNumber, bankCode });
+      if (currentUser) {
+        setCurrentUser({
+          ...currentUser,
+          defaultRefundAccount: result.defaultRefundAccount,
+          defaultRefundBank: result.defaultRefundBank,
+        });
+      }
+      showToast("Refund account saved", "success");
+      router.push("/profile");
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't save your refund account", "error");
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -71,7 +121,7 @@ export default function RefundAccountPage() {
               <option value="" disabled>
                 Select a bank
               </option>
-              {nigerianBanks.map((bank) => (
+              {banks.map((bank) => (
                 <option key={bank.code} value={bank.code}>
                   {bank.name}
                 </option>
@@ -96,13 +146,23 @@ export default function RefundAccountPage() {
             />
           </Field>
 
-          {confirmedName && (
+          {isLookingUp && (
+            <div className="flex items-center gap-2">
+              <Spinner size="sm" />
+              <Text size="sm" color="secondary">
+                Verifying account...
+              </Text>
+            </div>
+          )}
+
+          {confirmedName && !isLookingUp && (
             <Field label="Account name">
               <Text weight="medium">{confirmedName}</Text>
             </Field>
           )}
 
-          <Button type="submit" disabled={!isComplete} className="mt-2">
+          <Button type="submit" disabled={!isComplete || !confirmedName || isSubmitting} className="mt-2">
+            {isSubmitting && <Spinner size="sm" />}
             Save refund account
           </Button>
         </form>

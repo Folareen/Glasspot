@@ -9,18 +9,21 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { OtpStep } from "@/components/pot/OtpStep";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
+import { requestPayoutOtp, triggerPayout } from "@/lib/api";
 import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 
 type PayoutDestinationModalProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: (destination: { account: string; bank: string }, amount?: string) => void;
+  potId: string;
+  onConfirmed: () => void;
   /** Pot's current balance, wire-format naira string — shown as the amount field's placeholder/cap. */
   balance: string;
 };
 
-export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: PayoutDestinationModalProps) {
+export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, balance }: PayoutDestinationModalProps) {
+  const { banks } = useBanks();
   const [step, setStep] = useState<"destination" | "otp">("destination");
   const [account, setAccount] = useState("");
   const [bank, setBank] = useState("");
@@ -29,6 +32,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
   const [errors, setErrors] = useState<{ account?: string; bank?: string; amount?: string }>({});
 
   const balanceNaira = nairaAmountToNumber(balance);
+  const wireAmount = amount ? (toNairaAmount(amount) ?? undefined) : undefined;
 
   function handleClose() {
     setStep("destination");
@@ -63,11 +67,19 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
     setStep("otp");
   }
 
-  function handleVerified() {
+  async function handleRequestCode() {
+    await requestPayoutOtp(potId, { destinationAccount: account, destinationBank: bank, amount: wireAmount });
+  }
+
+  async function handleVerify(otpCode: string) {
     setIsSubmitting(true);
-    onConfirm({ account, bank }, amount ? (toNairaAmount(amount) ?? undefined) : undefined);
-    setIsSubmitting(false);
-    handleClose();
+    try {
+      await triggerPayout(potId, { destinationAccount: account, destinationBank: bank, amount: wireAmount, otpCode });
+      onConfirmed();
+      handleClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -105,7 +117,7 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
               error={Boolean(errors.bank)}
             >
               <option value="">Select a bank</option>
-              {nigerianBanks.map((b) => (
+              {banks.map((b) => (
                 <option key={b.code} value={b.code}>
                   {b.name}
                 </option>
@@ -150,7 +162,8 @@ export function PayoutDestinationModal({ open, onClose, onConfirm, balance }: Pa
           description="Enter the code we sent to your email to confirm this payout."
           confirmLabel="Send payout"
           onBack={() => setStep("destination")}
-          onVerified={handleVerified}
+          onRequestCode={handleRequestCode}
+          onVerify={handleVerify}
         />
       )}
     </Modal>

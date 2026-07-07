@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/Spinner";
 type CloseConfirmModalProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
   /** Pot's current balance, wire-format naira string. */
   balance: string;
 };
@@ -23,15 +23,18 @@ export function CloseConfirmModal({ open, onClose, onConfirm, balance }: CloseCo
     onClose();
   }
 
-  function handleConfirm() {
+  async function handleConfirm() {
     if (Number(balance) !== 0) {
       setError("This pot still has a balance. Pay out or refund it down to zero before closing.");
       return;
     }
     setIsSubmitting(true);
-    onConfirm();
-    setIsSubmitting(false);
-    handleClose();
+    try {
+      await onConfirm();
+      handleClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (

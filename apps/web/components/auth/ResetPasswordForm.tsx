@@ -5,11 +5,12 @@ import { useRouter } from "next/navigation";
 import { OtpInput } from "@/components/auth/OtpInput";
 import { useResendTimer } from "@/components/auth/useResendTimer";
 import { Field } from "@/components/ui/Field";
-import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { useToast } from "@/lib/toast";
+import { ApiError, resendOtp, resetPassword } from "@/lib/api";
 
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -33,7 +34,7 @@ export function ResetPasswordForm({ email }: ResetPasswordFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<ResetPasswordFormErrors>({});
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const nextErrors: ResetPasswordFormErrors = {};
     if (code.length !== 6) {
@@ -53,16 +54,25 @@ export function ResetPasswordForm({ email }: ResetPasswordFormProps) {
     }
     setErrors({});
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      await resetPassword({ email, code, newPassword: password });
       showToast("Password reset. Please log in with your new password.", "success");
       router.push("/login");
-    }, 600);
+    } catch (e) {
+      setErrors({ code: e instanceof ApiError ? e.message : "Couldn't reset your password" });
+      setIsSubmitting(false);
+    }
   }
 
-  function handleResend() {
+  async function handleResend() {
     if (secondsLeft > 0) return;
-    reset();
-    showToast(`We sent a new code to ${email}. Check spam if you don't see it.`, "success");
+    try {
+      await resendOtp({ email, purpose: "password_reset" });
+      reset();
+      showToast(`We sent a new code to ${email}. Check spam if you don't see it.`, "success");
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't resend the code", "error");
+    }
   }
 
   return (
@@ -89,9 +99,8 @@ export function ResetPasswordForm({ email }: ResetPasswordFormProps) {
         error={errors.password}
         helperText={errors.password ? undefined : "At least 8 characters"}
       >
-        <Input
+        <PasswordInput
           id="password"
-          type="password"
           autoComplete="new-password"
           value={password}
           onChange={(e) => {
@@ -104,9 +113,8 @@ export function ResetPasswordForm({ email }: ResetPasswordFormProps) {
       </Field>
 
       <Field label="Confirm new password" htmlFor="confirmPassword" required error={errors.confirmPassword}>
-        <Input
+        <PasswordInput
           id="confirmPassword"
-          type="password"
           autoComplete="new-password"
           value={confirmPassword}
           onChange={(e) => {

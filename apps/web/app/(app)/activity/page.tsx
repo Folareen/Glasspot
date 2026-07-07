@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ArrowDownToLine,
@@ -15,11 +16,13 @@ import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Money } from "@/components/ui/Money";
+import { Spinner } from "@/components/ui/Spinner";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Tabs } from "@/components/ui/Tabs";
 import { Text } from "@/components/ui/Text";
-import { useMockStore } from "@/lib/mock/store";
-import type { TransactionResponse, TransactionType } from "@/lib/mock/types";
+import { ApiError, getMyTransactions } from "@/lib/api";
+import { useToast } from "@/lib/toast";
+import type { MeTransaction, TransactionType } from "@/lib/types";
 
 const filterTabs = [
   { id: "all", label: "All" },
@@ -53,7 +56,7 @@ function moneyColorFor(type: TransactionType) {
   return "primary" as const;
 }
 
-function TransactionRow({ transaction }: { transaction: TransactionResponse }) {
+function TransactionRow({ transaction }: { transaction: MeTransaction }) {
   const Icon = iconByType[transaction.type];
   const date = new Date(transaction.createdAt);
 
@@ -86,7 +89,25 @@ function TransactionRow({ transaction }: { transaction: TransactionResponse }) {
 }
 
 export default function ActivityPage() {
-  const { transactions } = useMockStore();
+  const { showToast } = useToast();
+  const [transactions, setTransactions] = useState<MeTransaction[] | null>(null);
+
+  useEffect(() => {
+    getMyTransactions()
+      .then(setTransactions)
+      .catch((e) => {
+        showToast(e instanceof ApiError ? e.message : "Couldn't load your activity", "error");
+        setTransactions([]);
+      });
+  }, [showToast]);
+
+  if (transactions === null) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner size="md" />
+      </div>
+    );
+  }
 
   const sorted = [...transactions].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()

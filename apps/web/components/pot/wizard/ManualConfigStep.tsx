@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
 import type { WizardState } from "./wizard-types";
 
 type ManualConfigStepProps = {
@@ -14,6 +14,7 @@ type ManualConfigStepProps = {
 };
 
 export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigStepProps) {
+  const { banks } = useBanks();
   // Both-or-neither, mirroring isConfigStepValid (wizard-helpers.ts): the
   // destination is optional, but if the user has started filling in one
   // half, flag the other half as the thing missing rather than staying
@@ -77,7 +78,7 @@ export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigSt
           error={Boolean(bankError)}
         >
           <option value="">Select a bank</option>
-          {nigerianBanks.map((bank) => (
+          {banks.map((bank) => (
             <option key={bank.code} value={bank.code}>
               {bank.name}
             </option>

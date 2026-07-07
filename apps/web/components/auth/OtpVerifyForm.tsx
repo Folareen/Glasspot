@@ -7,72 +7,91 @@ import { useResendTimer } from "@/components/auth/useResendTimer";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
-import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
+import { ApiError, createPot, resendOtp, verifyEmail, verifyLoginOtp } from "@/lib/api";
 import { getDraftPot, clearDraftPot } from "@/lib/draftPot";
 import { buildPayoutConfig, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
 import { toNairaAmount } from "@/lib/money";
 
 type OtpVerifyFormProps = {
   email: string;
+  mode: "login" | "signup";
   successMessage: string;
 };
 
-export function OtpVerifyForm({ email, successMessage }: OtpVerifyFormProps) {
+export function OtpVerifyForm({ email, mode, successMessage }: OtpVerifyFormProps) {
   const router = useRouter();
-  const { login, createPot } = useMockStore();
+  const { refresh } = useAuth();
   const { showToast } = useToast();
   const { secondsLeft, label, reset } = useResendTimer();
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showError, setShowError] = useState(false);
+  const [error, setError] = useState("");
 
   const isComplete = code.length === 6;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!isComplete) {
-      setShowError(true);
+      setError("Enter all 6 digits.");
       return;
     }
-    setShowError(false);
+    setError("");
     setIsSubmitting(true);
-    setTimeout(() => {
-      login();
+    try {
+      if (mode === "login") {
+        await verifyLoginOtp({ email, code });
+      } else {
+        await verifyEmail({ email, code });
+      }
+      await refresh();
       showToast(successMessage, "success");
 
       const draft = getDraftPot();
-      if (draft && draft.title.trim()) {
-        const pot = createPot({
-          title: draft.title.trim(),
-          description: draft.description.trim() || undefined,
-          potType: draft.potType,
-          refundType: draft.refundType,
-          minContribution: isPositiveAmount(draft.minContribution)
-            ? (toNairaAmount(draft.minContribution) ?? undefined)
-            : undefined,
-          maxContribution: isPositiveAmount(draft.maxContribution)
-            ? (toNairaAmount(draft.maxContribution) ?? undefined)
-            : undefined,
-          goalAmount: isPositiveAmount(draft.goalAmount)
-            ? (toNairaAmount(draft.goalAmount) ?? undefined)
-            : undefined,
-          payoutMode: draft.payoutMode ?? "manual",
-          payoutConfig: buildPayoutConfig(draft),
-        });
-        clearDraftPot();
-        router.push(`/pots/${pot.id}/edit`);
-        return;
+      if (draft && draft.title.trim() && draft.payoutMode) {
+        try {
+          const pot = await createPot({
+            title: draft.title.trim(),
+            description: draft.description.trim() || undefined,
+            potType: draft.potType,
+            refundType: draft.refundType,
+            minContribution: isPositiveAmount(draft.minContribution)
+              ? (toNairaAmount(draft.minContribution) ?? undefined)
+              : undefined,
+            maxContribution: isPositiveAmount(draft.maxContribution)
+              ? (toNairaAmount(draft.maxContribution) ?? undefined)
+              : undefined,
+            goalAmount: isPositiveAmount(draft.goalAmount)
+              ? (toNairaAmount(draft.goalAmount) ?? undefined)
+              : undefined,
+            payoutMode: draft.payoutMode,
+            payoutConfig: buildPayoutConfig(draft),
+          });
+          clearDraftPot();
+          router.push(`/pots/${pot.id}/edit`);
+          return;
+        } catch {
+          clearDraftPot();
+        }
       }
 
-      router.push("/dashboard");
-    }, 500);
+      router.push("/home");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't verify that code");
+      setIsSubmitting(false);
+    }
   }
 
-  function handleResend() {
+  async function handleResend() {
     if (secondsLeft > 0) return;
-    reset();
-    showToast(`We sent a new code to ${email}. Check spam if you don't see it.`, "success");
+    try {
+      await resendOtp({ email, purpose: mode === "login" ? "login" : "signup_verification" });
+      reset();
+      showToast(`We sent a new code to ${email}. Check spam if you don't see it.`, "success");
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't resend the code", "error");
+    }
   }
 
   return (
@@ -82,12 +101,12 @@ export function OtpVerifyForm({ email, successMessage }: OtpVerifyFormProps) {
           value={code}
           onChange={(next) => {
             setCode(next);
-            setShowError(false);
+            setError("");
           }}
         />
-        {showError && !isComplete && (
-          <Text size="xs" color="error">
-            Enter all 6 digits.
+        {error && (
+          <Text size="xs" color="error" className="text-center">
+            {error}
           </Text>
         )}
       </div>

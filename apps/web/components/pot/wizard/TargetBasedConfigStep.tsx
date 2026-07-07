@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -15,6 +15,7 @@ type TargetBasedConfigStepProps = {
 };
 
 export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBasedConfigStepProps) {
+  const { banks } = useBanks();
   // isPositiveAmount, not Boolean(): a target amount of "0" is truthy as a
   // string but isConfigStepValid (wizard-helpers.ts) rejects it as not a
   // real target — matching this warning to that same rule so the message
@@ -47,7 +48,7 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           error={Boolean(bankError)}
         >
           <option value="">Select a bank</option>
-          {nigerianBanks.map((bank) => (
+          {banks.map((bank) => (
             <option key={bank.code} value={bank.code}>
               {bank.name}
             </option>

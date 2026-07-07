@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/lib/toast";
-import { useMockStore } from "@/lib/mock/store";
+import { ApiError, createPot } from "@/lib/api";
 import { BasicsStep } from "@/components/pot/wizard/BasicsStep";
 import { PayoutModeStep } from "@/components/pot/wizard/PayoutModeStep";
 import { TargetBasedConfigStep } from "@/components/pot/wizard/TargetBasedConfigStep";
@@ -32,7 +32,6 @@ const stepTitles: Record<(typeof wizardSteps)[number], string> = {
 export default function NewPotPage() {
   const router = useRouter();
   const { showToast } = useToast();
-  const { createPot } = useMockStore();
   const [stepIndex, setStepIndex] = useState(0);
   const [state, setState] = useState<WizardState>(initialWizardState);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,7 +52,7 @@ export default function NewPotPage() {
 
   function goBack() {
     if (stepIndex === 0) {
-      router.push("/dashboard");
+      router.push("/home");
       return;
     }
     setSubmitAttempted(false);
@@ -71,22 +70,27 @@ export default function NewPotPage() {
     }
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!state.payoutMode) return;
     setIsSubmitting(true);
-    const pot = createPot({
-      title: state.title.trim(),
-      description: state.description.trim() || undefined,
-      potType: state.potType,
-      refundType: state.refundType,
-      minContribution: isPositiveAmount(state.minContribution) ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
-      maxContribution: isPositiveAmount(state.maxContribution) ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
-      goalAmount: isPositiveAmount(state.goalAmount) ? (toNairaAmount(state.goalAmount) ?? undefined) : undefined,
-      payoutMode: state.payoutMode,
-      payoutConfig: buildPayoutConfig(state),
-    });
-    showToast("Pot created as a draft", "success");
-    router.push(`/pots/${pot.id}`);
+    try {
+      const pot = await createPot({
+        title: state.title.trim(),
+        description: state.description.trim() || undefined,
+        potType: state.potType,
+        refundType: state.refundType,
+        minContribution: isPositiveAmount(state.minContribution) ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
+        maxContribution: isPositiveAmount(state.maxContribution) ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
+        goalAmount: isPositiveAmount(state.goalAmount) ? (toNairaAmount(state.goalAmount) ?? undefined) : undefined,
+        payoutMode: state.payoutMode,
+        payoutConfig: buildPayoutConfig(state),
+      });
+      showToast("Pot created as a draft", "success");
+      router.push(`/pots/${pot.id}`);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't create this pot", "error");
+      setIsSubmitting(false);
+    }
   }
 
   return (

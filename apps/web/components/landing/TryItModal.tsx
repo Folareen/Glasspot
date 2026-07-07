@@ -9,8 +9,9 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
-import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
+import { ApiError, createPot } from "@/lib/api";
 import { saveDraftPot } from "@/lib/draftPot";
 import { buildPayoutConfig, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
 import { toNairaAmount } from "@/lib/money";
@@ -25,8 +26,9 @@ type TryItModalProps = {
 
 export function TryItModal({ open, onClose, useCase }: TryItModalProps) {
   const router = useRouter();
-  const { isAuthenticated, createPot } = useMockStore();
+  const { currentUser } = useAuth();
   const { showToast } = useToast();
+  const isAuthenticated = currentUser !== null;
   const [state, setState] = useState<WizardState | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -44,7 +46,7 @@ export function TryItModal({ open, onClose, useCase }: TryItModalProps) {
     setState({ ...activeState, ...update });
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!activeState || !activeState.title.trim()) return;
 
     if (!isAuthenticated) {
@@ -54,27 +56,32 @@ export function TryItModal({ open, onClose, useCase }: TryItModalProps) {
     }
 
     setIsSubmitting(true);
-    const pot = createPot({
-      title: activeState.title.trim(),
-      description: activeState.description.trim() || undefined,
-      potType: activeState.potType,
-      refundType: activeState.refundType,
-      minContribution: isPositiveAmount(activeState.minContribution)
-        ? (toNairaAmount(activeState.minContribution) ?? undefined)
-        : undefined,
-      maxContribution: isPositiveAmount(activeState.maxContribution)
-        ? (toNairaAmount(activeState.maxContribution) ?? undefined)
-        : undefined,
-      goalAmount: isPositiveAmount(activeState.goalAmount)
-        ? (toNairaAmount(activeState.goalAmount) ?? undefined)
-        : undefined,
-      payoutMode: activeState.payoutMode ?? "manual",
-      payoutConfig: buildPayoutConfig(activeState),
-    });
-    setIsSubmitting(false);
-    showToast("Pot created as a draft", "success");
-    handleOpenChange(false);
-    router.push(`/pots/${pot.id}/edit`);
+    try {
+      const pot = await createPot({
+        title: activeState.title.trim(),
+        description: activeState.description.trim() || undefined,
+        potType: activeState.potType,
+        refundType: activeState.refundType,
+        minContribution: isPositiveAmount(activeState.minContribution)
+          ? (toNairaAmount(activeState.minContribution) ?? undefined)
+          : undefined,
+        maxContribution: isPositiveAmount(activeState.maxContribution)
+          ? (toNairaAmount(activeState.maxContribution) ?? undefined)
+          : undefined,
+        goalAmount: isPositiveAmount(activeState.goalAmount)
+          ? (toNairaAmount(activeState.goalAmount) ?? undefined)
+          : undefined,
+        payoutMode: activeState.payoutMode ?? "manual",
+        payoutConfig: buildPayoutConfig(activeState),
+      });
+      showToast("Pot created as a draft", "success");
+      handleOpenChange(false);
+      router.push(`/pots/${pot.id}/edit`);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't create this pot", "error");
+      setIsSubmitting(false);
+      return;
+    }
   }
 
   return (

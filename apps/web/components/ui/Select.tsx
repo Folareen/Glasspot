@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Children, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -21,9 +21,15 @@ type SelectProps = {
   children: React.ReactNode;
 };
 
+// children arrives as a nested structure whenever a caller mixes static <option>s with a
+// {list.map(...)} result — e.g. <Select><option/>{banks.map(...)}</Select> produces
+// [optionElement, [optionElement, optionElement, ...]] — flat.map/for-of over the top level alone
+// silently drops every option inside that inner array, which is exactly how this previously
+// under-counted bank lists in every wizard step (only the static placeholder ever showed).
+// React.Children.toArray recursively flattens (and key-namespaces) any such nesting.
 function optionsFromChildren(children: React.ReactNode): SelectOption[] {
   const options: SelectOption[] = [];
-  for (const child of Array.isArray(children) ? children : [children]) {
+  for (const child of Children.toArray(children)) {
     if (
       child &&
       typeof child === "object" &&

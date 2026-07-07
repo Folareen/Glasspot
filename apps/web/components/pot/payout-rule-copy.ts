@@ -1,4 +1,4 @@
-import type { PayoutConfig, PotResponse } from "@/lib/mock/types";
+import type { PotResponse } from "@/lib/types";
 import { formatNaira } from "@/lib/money";
 
 function formatDate(iso: string) {
@@ -7,6 +7,7 @@ function formatDate(iso: string) {
 
 export function describePayoutRule(pot: PotResponse): string {
   const config = pot.payoutConfig;
+  if (!config) return "";
 
   switch (pot.payoutMode) {
     case "manual": {
@@ -32,7 +33,7 @@ export function describePayoutRule(pot: PotResponse): string {
     }
     case "scheduled": {
       if (!("legs" in config)) return "This pot pays out on a set schedule of legs.";
-      const remaining = config.legs.filter((leg) => !leg.firedAt).length;
+      const remaining = config.legs.filter((leg) => !leg.fired).length;
       return config.ordered
         ? `This pot pays out to each person in turn. ${remaining} of ${config.legs.length} turns still to go.`
         : `This pot pays out on a fixed schedule of legs. ${remaining} of ${config.legs.length} still to go.`;
@@ -40,10 +41,4 @@ export function describePayoutRule(pot: PotResponse): string {
     default:
       return "";
   }
-}
-
-// target_based never has an on-demand trigger — it only fires via its own
-// automatic rule (target date/amount reached), never admin discretion.
-export function isPayoutReady(config: PayoutConfig, mode: PotResponse["payoutMode"]): boolean {
-  return mode === "manual";
 }

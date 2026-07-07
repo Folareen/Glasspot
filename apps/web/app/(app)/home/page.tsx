@@ -1,28 +1,44 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, PiggyBank, Search } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, Search, CookingPot } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
+import { Spinner } from "@/components/ui/Spinner";
 import { PotCard } from "@/components/pot/PotCard";
-import { useMockStore } from "@/lib/mock/store";
+import { ApiError, listPots } from "@/lib/api";
+import { useToast } from "@/lib/toast";
+import type { PotResponse } from "@/lib/types";
+
+const statusOrder = { open: 0, draft: 1, closed: 2 };
 
 export default function DashboardPage() {
-  const { currentUser, pots, members } = useMockStore();
+  const { showToast } = useToast();
+  const [pots, setPots] = useState<PotResponse[] | null>(null);
   const [query, setQuery] = useState("");
 
-  const myPotIds = new Set(
-    members.filter((member) => member.userId === currentUser?.id).map((member) => member.potId)
-  );
-  const myPots = pots.filter((pot) => myPotIds.has(pot.id));
+  useEffect(() => {
+    listPots({ scope: "mine" })
+      .then(setPots)
+      .catch((e) => {
+        showToast(e instanceof ApiError ? e.message : "Couldn't load your pots", "error");
+        setPots([]);
+      });
+  }, [showToast]);
 
-  const statusOrder = { open: 0, draft: 1, closed: 2 };
-  const sortedPots = [...myPots].sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+  if (pots === null) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner size="md" />
+      </div>
+    );
+  }
 
+  const sortedPots = [...pots].sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
   const visiblePots = sortedPots.filter((pot) =>
     pot.title.toLowerCase().includes(query.trim().toLowerCase())
   );
@@ -56,9 +72,9 @@ export default function DashboardPage() {
           />
 
           {sortedPots.length > 0 && (
-            <div className="relative pb-6">
+            <div className="relative mb-6">
               <Search
-                className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-text-secondary"
+                className="pointer-events-none absolute left-4  h-4 w-4 bg-red-50 top-1/2 -translate-y-1/2 text-text-secondary"
                 strokeWidth={1.5}
               />
               <Input
@@ -76,7 +92,7 @@ export default function DashboardPage() {
       <Container className="pb-6 lg:pb-10">
         {sortedPots.length === 0 ? (
           <EmptyState
-            icon={<PiggyBank className="h-7 w-7" strokeWidth={1.5} />}
+            icon={<CookingPot className="h-7 w-7" strokeWidth={1.5} />}
             title="No pots yet"
             description="Create your first pot to start pooling money with people you trust."
             action={<Button href="/pots/new">Create a pot</Button>}

@@ -6,7 +6,7 @@ import { Money } from "@/components/ui/Money";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Text } from "@/components/ui/Text";
 import { PayoutModeIcon, payoutModeLabels } from "./PayoutModeIcon";
-import type { PotResponse } from "@/lib/mock/types";
+import type { PotResponse } from "@/lib/types";
 
 type PotCardProps = {
   pot: PotResponse;

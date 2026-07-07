@@ -1,7 +1,7 @@
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -13,6 +13,7 @@ type RecurringConfigStepProps = {
 };
 
 export function RecurringConfigStep({ state, onChange, showErrors }: RecurringConfigStepProps) {
+  const { banks } = useBanks();
   // Errors mirror isConfigStepValid's "recurring" case (wizard-helpers.ts)
   // field for field, so a message only shows for whichever condition that
   // rule is actually failing on.
@@ -48,7 +49,7 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
           error={Boolean(bankError)}
         >
           <option value="">Select a bank</option>
-          {nigerianBanks.map((bank) => (
+          {banks.map((bank) => (
             <option key={bank.code} value={bank.code}>
               {bank.name}
             </option>

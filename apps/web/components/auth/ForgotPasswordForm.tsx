@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
+import { ApiError, forgotPassword } from "@/lib/api";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -21,7 +22,7 @@ export function ForgotPasswordForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<ForgotPasswordFormErrors>({});
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const nextErrors: ForgotPasswordFormErrors = {};
     if (!email.trim()) {
@@ -35,9 +36,13 @@ export function ForgotPasswordForm() {
     }
     setErrors({});
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      await forgotPassword({ email: email.trim() });
       router.push(`/reset-password?email=${encodeURIComponent(email.trim())}`);
-    }, 600);
+    } catch (e) {
+      setErrors({ email: e instanceof ApiError ? e.message : "Couldn't send a reset code" });
+      setIsSubmitting(false);
+    }
   }
 
   return (
