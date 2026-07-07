@@ -73,9 +73,10 @@ describe("manual payout trigger", () => {
     assert.equal(potJobs.length, 1);
     assert.equal(potJobs[0].name, TransferJob.PAYOUT);
     assert.equal(potJobs[0].priority, TransferPriority.PAYOUT);
-    // No `amount` was sent in the trigger body, so postDisbursement uses
-    // the pot's FULL current balance, not a partial amount.
-    assert.equal(potJobs[0].data.amount, "500000");
+    // No `amount` was sent in the trigger body, so postDisbursement uses the pot's FULL current
+    // balance, minus the flat ₦50 outbound fee it nets out rather than adding on top (see
+    // fees.ts's OUTBOUND_FEE): 500_000 - 5_000 = 495_000.
+    assert.equal(potJobs[0].data.amount, "495000");
     assert.equal(potJobs[0].data.destinationAccount, destination.destinationAccount);
 
     const [updatedPot] = await db.select().from(pots).where(eq(pots.id, pot.id));
@@ -170,7 +171,9 @@ describe("manual payout trigger", () => {
     });
 
     assert.equal(triggerResponse.statusCode, 409);
-    assert.match(triggerResponse.json().message, /no balance/i);
+    // postDisbursement's zero-balance guard is phrased around the outbound fee it must cover,
+    // not a generic "no balance" message (see fees.ts's OUTBOUND_FEE).
+    assert.match(triggerResponse.json().message, /does not cover the ₦50 outbound fee/i);
   });
 
   test("replaying the same Idempotency-Key + identical body returns the cached result without enqueueing a second job", async (t) => {
