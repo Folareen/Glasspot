@@ -34,10 +34,7 @@ const EnvSchema = z.object({
   NOMBA_TRANSFER_RATE_LIMIT_MAX: z.coerce.number().default(10),
   NOMBA_TRANSFER_RATE_LIMIT_DURATION_MS: z.coerce.number().default(1000),
   REDIS_URL: z.string(),
-  SMTP_HOST: z.string(),
-  SMTP_PORT: z.coerce.number().default(587),
-  SMTP_USER: z.string(),
-  SMTP_PASSWORD: z.string(),
+  RESEND_API_KEY: z.string(),
   MAIL_FROM: z.string().default("Glasspot <no-reply@glasspot.app>"),
   BULL_BOARD_ENABLED: stringBoolean,
   // Comma-separated user ids allowed to force-refresh the cached bank list — a narrow allowlist
