@@ -8,7 +8,7 @@ import { ArrowRight } from "lucide-react";
 export function ClosingStatement() {
   return (
     <section className="border-t border-border bg-accent-soft py-16 sm:py-24">
-      <Container className="max-w-3xl text-center">
+      <Container maxWidth="3xl" className="text-center">
         <Heading level={2} font="display">
           If more than one person is putting in money, <Highlight>Glasspot</Highlight> fits.
         </Heading>

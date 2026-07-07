@@ -10,6 +10,7 @@ import {
   ArrowLeftRight as ActivityIcon,
 } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -95,7 +96,8 @@ export default function ActivityPage() {
     return (
       <>
         <AppHeader title="Activity" />
-        <Container className="py-6">
+        <Container className="py-6 lg:py-10">
+          <PageHeading title="Activity" className="mb-6 hidden lg:block" />
           <EmptyState
             icon={<ActivityIcon className="h-7 w-7" strokeWidth={1.5} />}
             title="No activity yet"
@@ -109,7 +111,8 @@ export default function ActivityPage() {
   return (
     <>
       <AppHeader title="Activity" />
-      <Container className="py-6">
+      <Container className="py-6 lg:py-10">
+        <PageHeading title="Activity" className="mb-6 hidden lg:block" />
         <Tabs tabs={filterTabs}>
           {(activeTabId) => {
             const filtered =

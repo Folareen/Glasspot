@@ -23,10 +23,14 @@ export function InviteMemberModal({ open, onClose, potId }: InviteMemberModalPro
   const { showToast } = useToast();
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<PotMemberRole>("member");
+  const [emailError, setEmailError] = useState("");
 
   function handleSubmit() {
     const trimmedEmail = email.trim();
-    if (!EMAIL_PATTERN.test(trimmedEmail)) return;
+    if (!EMAIL_PATTERN.test(trimmedEmail)) {
+      setEmailError("Enter a valid email address.");
+      return;
+    }
 
     const { status } = addMember(potId, trimmedEmail, role);
     showToast(
@@ -37,19 +41,24 @@ export function InviteMemberModal({ open, onClose, potId }: InviteMemberModalPro
     );
     setEmail("");
     setRole("member");
+    setEmailError("");
     onClose();
   }
 
   return (
     <Modal open={open} onClose={onClose} title="Add a member">
       <div className="flex flex-col gap-4">
-        <Field label="Email address" htmlFor="invite-email" required>
+        <Field label="Email address" htmlFor="invite-email" required error={emailError || undefined}>
           <Input
             id="invite-email"
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value);
+              setEmailError("");
+            }}
             placeholder="amaka@example.com"
+            error={Boolean(emailError)}
           />
         </Field>
         <Field label="Role" htmlFor="invite-role">

@@ -9,20 +9,36 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+type LoginFormErrors = {
+  email?: string;
+  password?: string;
+};
+
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [errors, setErrors] = useState<LoginFormErrors>({});
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setError("Enter your email and password to continue.");
+    const nextErrors: LoginFormErrors = {};
+    if (!email.trim()) {
+      nextErrors.email = "Enter your email address.";
+    } else if (!EMAIL_PATTERN.test(email.trim())) {
+      nextErrors.email = "Enter a valid email address.";
+    }
+    if (!password.trim()) {
+      nextErrors.password = "Enter your password.";
+    }
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors);
       return;
     }
-    setError("");
+    setErrors({});
     setIsSubmitting(true);
     setTimeout(() => {
       router.push(`/login/verify?email=${encodeURIComponent(email.trim())}`);
@@ -31,26 +47,37 @@ export function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-      <Field label="Email" htmlFor="email" required>
+      <Field label="Email" htmlFor="email" required error={errors.email}>
         <Input
           id="email"
           type="email"
           autoComplete="email"
           value={email}
-          onChange={(e) => setEmail(e.target.value)}
+          onChange={(e) => {
+            setEmail(e.target.value);
+            setErrors((prev) => ({ ...prev, email: undefined }));
+          }}
           placeholder="you@example.com"
+          error={Boolean(errors.email)}
         />
       </Field>
-      <Field label="Password" htmlFor="password" required error={error || undefined}>
+      <Field label="Password" htmlFor="password" required error={errors.password}>
         <Input
           id="password"
           type="password"
           autoComplete="current-password"
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => {
+            setPassword(e.target.value);
+            setErrors((prev) => ({ ...prev, password: undefined }));
+          }}
           placeholder="Enter your password"
+          error={Boolean(errors.password)}
         />
       </Field>
+      <Link href="/forgot-password" className="-mt-3 self-end text-sm font-medium text-accent">
+        Forgot password?
+      </Link>
       <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>
         {isSubmitting ? <Spinner size="sm" className="text-white" /> : "Log in"}
       </Button>

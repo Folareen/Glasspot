@@ -1,16 +1,14 @@
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
+import { GlasspotMark } from "@/components/brand/GlasspotLogo";
 
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background">
       <Container className="flex h-16 items-center justify-between">
-        <Link
-          href="/"
-          className="flex h-11 items-center font-display text-xl font-semibold text-text-primary"
-        >
-          Glasspot
+        <Link href="/" className="flex h-11 items-center">
+          <GlasspotMark size={32} />
         </Link>
         <nav className="hidden items-center gap-8 sm:flex">
           <Link

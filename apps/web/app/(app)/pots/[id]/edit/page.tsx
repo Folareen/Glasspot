@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
@@ -14,10 +15,12 @@ import { TargetBasedConfigStep } from "@/components/pot/wizard/TargetBasedConfig
 import { ManualConfigStep } from "@/components/pot/wizard/ManualConfigStep";
 import { RecurringConfigStep } from "@/components/pot/wizard/RecurringConfigStep";
 import { ScheduledConfigStep } from "@/components/pot/wizard/ScheduledConfigStep";
+import { ReviewStep } from "@/components/pot/wizard/ReviewStep";
 import { potToWizardState } from "@/components/pot/wizard/pot-to-wizard-state";
 import { buildPayoutConfig, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
 import { toNairaAmount } from "@/lib/money";
 import type { WizardState } from "@/components/pot/wizard/wizard-types";
+import { Tabs } from "@/components/ui/Tabs";
 
 type EditPotPageProps = {
   params: Promise<{ id: string }>;
@@ -33,6 +36,7 @@ export default function EditPotPage({ params }: EditPotPageProps) {
   if (!pot) notFound();
 
   const [state, setState] = useState<WizardState>(() => potToWizardState(pot));
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const isDraft = pot.status === "draft";
 
   useEffect(() => {
@@ -50,7 +54,10 @@ export default function EditPotPage({ params }: EditPotPageProps) {
   }
 
   function handleSave() {
-    if (!state.payoutMode) return;
+    if (!state.title.trim() || !state.payoutMode) {
+      setSubmitAttempted(true);
+      return;
+    }
     updatePot(id, {
       title: state.title.trim(),
       description: state.description.trim() || undefined,
@@ -67,29 +74,46 @@ export default function EditPotPage({ params }: EditPotPageProps) {
   return (
     <div>
       <AppHeader title="Edit draft" backHref={`/pots/${pot.id}`} />
-      <Container className="max-w-2xl py-6">
+      <Container maxWidth="2xl" className="py-6 lg:py-10">
+        <PageHeading title="Edit draft" backHref={`/pots/${pot.id}`} className="mb-6 hidden lg:block" />
         <Text size="sm" color="secondary" className="mb-6">
           You can change anything about this pot while it&apos;s still a draft. Once you open it,
           the payout and refund rules are locked in.
         </Text>
 
-        <div className="flex flex-col gap-8">
-          <BasicsStep state={state} onChange={patch} />
+        <Tabs tabs={[{ id: "edit", label: "Edit" }, { id: "preview", label: "Preview" }]}>
+          {(activeTabId) =>
+            activeTabId === "preview" ? (
+              <ReviewStep state={state} />
+            ) : (
+              <div className="flex flex-col gap-8">
+                <BasicsStep state={state} onChange={patch} showErrors={submitAttempted} />
 
-          <div>
-            <Text weight="semibold" className="mb-3">
-              Payout mode
-            </Text>
-            <PayoutModeStep value={state.payoutMode} onChange={(mode) => patch({ payoutMode: mode })} />
-          </div>
+                <div>
+                  <Text weight="semibold" className="mb-3">
+                    Payout mode
+                  </Text>
+                  <PayoutModeStep value={state.payoutMode} onChange={(mode) => patch({ payoutMode: mode })} />
+                </div>
 
-          {state.payoutMode === "target_based" && <TargetBasedConfigStep state={state} onChange={patch} />}
-          {state.payoutMode === "manual" && <ManualConfigStep state={state} onChange={patch} />}
-          {state.payoutMode === "recurring" && <RecurringConfigStep state={state} onChange={patch} />}
-          {state.payoutMode === "scheduled" && <ScheduledConfigStep state={state} onChange={patch} />}
-        </div>
+                {state.payoutMode === "target_based" && (
+                  <TargetBasedConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
+                )}
+                {state.payoutMode === "manual" && (
+                  <ManualConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
+                )}
+                {state.payoutMode === "recurring" && (
+                  <RecurringConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
+                )}
+                {state.payoutMode === "scheduled" && (
+                  <ScheduledConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
+                )}
+              </div>
+            )
+          }
+        </Tabs>
 
-        <Button className="mt-8 w-full" onClick={handleSave} disabled={!state.title.trim() || !state.payoutMode}>
+        <Button className="mt-8 w-full" onClick={handleSave}>
           Save changes
         </Button>
       </Container>
