@@ -9,7 +9,7 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { OtpStep } from "@/components/pot/OtpStep";
 import { requestPayoutOtp, triggerPayout } from "@/lib/api";
-import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
+import { formatNaira, nairaAmountToNumber, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
 
 type PayoutAmountModalProps = {
   open: boolean;
@@ -85,13 +85,11 @@ export function PayoutAmountModal({ open, onClose, potId, onConfirmed, balance }
           >
             <Input
               id="payout-amount"
-              type="number"
+              type="text"
               inputMode="decimal"
-              min={0}
-              max={balanceNaira}
               value={amount}
               onChange={(e) => {
-                setAmount(e.target.value);
+                setAmount(sanitizeAmountInput(e.target.value));
                 setAmountError("");
               }}
               placeholder={String(balanceNaira)}

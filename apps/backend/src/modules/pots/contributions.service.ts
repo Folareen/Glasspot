@@ -73,7 +73,7 @@ export const ContributionsService = {
     // name; for an anonymous contributor who DID supply a refund account,
     // the verified bank-account holder name already resolved above (see
     // docs/system-rules.md's validate-before-storing pattern); otherwise a
-    // "Glasspot-<pot title>" placeholder (an anonymous contributor who
+    // "Glasspot <pot title>" placeholder (an anonymous contributor who
     // omitted the refund account, or a refundType='admin' pot with no such
     // field at all — see postContributorsRefund's sender-account fallback
     // for how the omitted case still gets refunded correctly). This lets the
@@ -82,9 +82,15 @@ export const ContributionsService = {
     // that doesn't exist yet at this point. Nomba's own bank-facing NUBAN
     // display reportedly prefixes this with their own brand regardless — out
     // of our control — so this stays within nomba.createVirtualAccount's
-    // 8-64 char bound (Glasspot- alone is 9) and uses as much of the pot
-    // title as fits (20 chars) rather than a short slice, since Nomba's
-    // prefix eats into what the contributor actually sees first.
+    // 8-64 char bound and uses as much of the pot title as fits (20 chars)
+    // rather than a short slice, since Nomba's prefix eats into what the
+    // contributor actually sees first. Nomba rejects "special characters" in
+    // accountName (confirmed: a hyphen alone 400s the request, a plain space
+    // is fine) — a real incident where every anonymous-no-refund-account
+    // contribution silently got no virtual account number at all, since
+    // titles/punctuation aren't under our control. Non-alphanumeric/space
+    // characters are stripped from the title for this reason, not just
+    // whitespace collapsed.
     let accountName: string;
     if (userId) {
       const [contributor] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -93,7 +99,8 @@ export const ContributionsService = {
       }
       accountName = contributor.fullName;
     } else {
-      accountName = refundAccountName ?? `Glasspot-${pot.title.replace(/\s+/g, "").slice(0, 20)}`;
+      const cleanTitle = pot.title.replace(/[^a-zA-Z0-9 ]/g, "").replace(/\s+/g, " ").trim().slice(0, 20);
+      accountName = refundAccountName ?? `Glasspot ${cleanTitle}`.trim();
     }
 
     // Request-level idempotency is enforced at the HTTP layer (see

@@ -9,6 +9,7 @@ import { Divider } from "@/components/ui/Divider";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
+import { sanitizeAmountInput } from "@/lib/money";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardScheduledLeg } from "./wizard-types";
 import type { Bank } from "@/lib/types";
@@ -145,11 +146,10 @@ function LegCard({ leg, index, legLabel, errors, banks, canRemove, onUpdate, onR
           >
             <Input
               id={`leg-amount-${index}`}
-              type="number"
+              type="text"
               inputMode="decimal"
-              min={0}
               value={leg.amount}
-              onChange={(e) => onUpdate({ amount: e.target.value })}
+              onChange={(e) => onUpdate({ amount: sanitizeAmountInput(e.target.value) })}
               placeholder="2500"
               error={Boolean(errors.amount)}
             />

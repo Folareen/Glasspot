@@ -2,7 +2,7 @@ import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { Select } from "@/components/ui/Select";
-import { nairaAmountToNumber } from "@/lib/money";
+import { nairaAmountToNumber, sanitizeAmountInput } from "@/lib/money";
 import type { WizardState } from "./wizard-types";
 
 type BasicsStepProps = {
@@ -110,11 +110,10 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
         >
           <Input
             id="pot-min"
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
             value={state.minContribution}
-            onChange={(e) => onChange({ minContribution: e.target.value })}
+            onChange={(e) => onChange({ minContribution: sanitizeAmountInput(e.target.value) })}
             placeholder="1000"
             error={Boolean(minError)}
           />
@@ -128,11 +127,10 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
         >
           <Input
             id="pot-max"
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
             value={state.maxContribution}
-            onChange={(e) => onChange({ maxContribution: e.target.value })}
+            onChange={(e) => onChange({ maxContribution: sanitizeAmountInput(e.target.value) })}
             placeholder="No limit"
             error={Boolean(maxError)}
           />
@@ -140,7 +138,7 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
       </div>
 
       <Field
-        label="Fundraising goal"
+        label="Goal amount"
         htmlFor="pot-goal"
         helperText="Optional, shown to contributors as a progress target — doesn't trigger anything. Leave blank to skip — don't enter 0."
         error={goalError}
@@ -148,11 +146,10 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
       >
         <Input
           id="pot-goal"
-          type="number"
+          type="text"
           inputMode="decimal"
-          min={0}
           value={state.goalAmount}
-          onChange={(e) => onChange({ goalAmount: e.target.value })}
+          onChange={(e) => onChange({ goalAmount: sanitizeAmountInput(e.target.value) })}
           placeholder="No goal set"
           error={Boolean(goalError)}
         />

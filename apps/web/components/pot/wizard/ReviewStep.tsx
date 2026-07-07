@@ -54,7 +54,7 @@ export function ReviewStep({ state }: ReviewStepProps) {
         {state.goalAmount && (
           <>
             <Divider />
-            <Row label="Fundraising goal" value={<Money naira={toNairaAmount(state.goalAmount) ?? "0.00"} />} />
+            <Row label="Goal amount" value={<Money naira={toNairaAmount(state.goalAmount) ?? "0.00"} />} />
           </>
         )}
       </Card>

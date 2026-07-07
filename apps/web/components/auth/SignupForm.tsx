@@ -12,6 +12,10 @@ import { Text } from "@/components/ui/Text";
 import { ApiError, register } from "@/lib/api";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Nigerian phone numbers: local 11-digit form starting 0 (08012345678) or
+// +234 form (+2348012345678) — the two formats a Nigerian user actually
+// types, per docs/design-inspiration.md's Nigerian-fintech UI patterns.
+const PHONE_PATTERN = /^(0\d{10}|\+234\d{10})$/;
 const MIN_PASSWORD_LENGTH = 8;
 
 type SignupFormErrors = {
@@ -19,6 +23,7 @@ type SignupFormErrors = {
   username?: string;
   email?: string;
   password?: string;
+  phone?: string;
 };
 
 export function SignupForm() {
@@ -51,6 +56,9 @@ export function SignupForm() {
       nextErrors.password = "Create a password.";
     } else if (password.length < MIN_PASSWORD_LENGTH) {
       nextErrors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+    }
+    if (phone.trim() && !PHONE_PATTERN.test(phone.trim())) {
+      nextErrors.phone = "Enter a valid Nigerian number, e.g. 08012345678.";
     }
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors);
@@ -136,14 +144,18 @@ export function SignupForm() {
           error={Boolean(errors.password)}
         />
       </Field>
-      <Field label="Phone (optional)" htmlFor="phone">
+      <Field label="Phone (optional)" htmlFor="phone" error={errors.phone}>
         <Input
           id="phone"
           type="tel"
           autoComplete="tel"
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={(e) => {
+            setPhone(e.target.value);
+            setErrors((prev) => ({ ...prev, phone: undefined }));
+          }}
           placeholder="080 123 4567"
+          error={Boolean(errors.phone)}
         />
       </Field>
       <Button type="submit" size="lg" className="w-full" disabled={isSubmitting}>

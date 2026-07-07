@@ -18,7 +18,7 @@ import { RecurringConfigStep } from "@/components/pot/wizard/RecurringConfigStep
 import { ScheduledConfigStep } from "@/components/pot/wizard/ScheduledConfigStep";
 import { ReviewStep } from "@/components/pot/wizard/ReviewStep";
 import { potToWizardState } from "@/components/pot/wizard/pot-to-wizard-state";
-import { buildPayoutConfig, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
+import { buildPayoutConfig, isConfigStepValid, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
 import { toNairaAmount } from "@/lib/money";
 import type { WizardState } from "@/components/pot/wizard/wizard-types";
 import type { PotResponse } from "@/lib/types";
@@ -76,7 +76,7 @@ export default function EditPotPage({ params }: EditPotPageProps) {
   }
 
   async function handleSave() {
-    if (!state || !state.title.trim() || !state.payoutMode) {
+    if (!state || !state.title.trim() || !state.payoutMode || !isConfigStepValid(state)) {
       setSubmitAttempted(true);
       return;
     }
@@ -85,6 +85,8 @@ export default function EditPotPage({ params }: EditPotPageProps) {
       await updatePot(id, {
         title: state.title.trim(),
         description: state.description.trim() || undefined,
+        potType: state.potType,
+        refundType: state.refundType,
         minContribution: isPositiveAmount(state.minContribution) ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
         maxContribution: isPositiveAmount(state.maxContribution) ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
         goalAmount: isPositiveAmount(state.goalAmount) ? (toNairaAmount(state.goalAmount) ?? undefined) : undefined,

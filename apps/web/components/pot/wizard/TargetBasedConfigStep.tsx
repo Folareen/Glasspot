@@ -6,6 +6,7 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
+import { sanitizeAmountInput } from "@/lib/money";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -120,11 +121,10 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
         >
           <Input
             id="target-amount"
-            type="number"
+            type="text"
             inputMode="decimal"
-            min={0}
             value={state.targetAmountNaira}
-            onChange={(e) => onChange({ targetAmountNaira: e.target.value })}
+            onChange={(e) => onChange({ targetAmountNaira: sanitizeAmountInput(e.target.value) })}
             placeholder="15000"
           />
         </Field>
