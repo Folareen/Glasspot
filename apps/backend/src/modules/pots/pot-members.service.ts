@@ -1,13 +1,27 @@
 import { and, eq } from "drizzle-orm";
-import db, { potMembers } from "@/db";
+import db, { potMembers, users } from "@/db";
 import { PotError } from "./pots.errors";
 import { countAdmins, getMemberRole } from "./pot-authorization";
 import { UpdateMemberRoleInput } from "./pots.schema";
 
 export const PotMembersService = {
-  /** Returns every member row for potId; callers are responsible for checking pot visibility first (see getViewablePotOrThrow). */
+  /** Returns every member row for potId, joined with the member's public profile (fullName/username/email) so the frontend can render a member list without a separate lookup; callers are responsible for checking pot visibility first (see getViewablePotOrThrow). */
   async list(potId: string) {
-    return db.select().from(potMembers).where(eq(potMembers.potId, potId));
+    return db
+      .select({
+        id: potMembers.id,
+        potId: potMembers.potId,
+        userId: potMembers.userId,
+        role: potMembers.role,
+        invitedByUserId: potMembers.invitedByUserId,
+        joinedAt: potMembers.joinedAt,
+        fullName: users.fullName,
+        username: users.username,
+        email: users.email,
+      })
+      .from(potMembers)
+      .innerJoin(users, eq(users.id, potMembers.userId))
+      .where(eq(potMembers.potId, potId));
   },
 
   // Adding a member is now PotInvitesService.create (email-addressed, see
