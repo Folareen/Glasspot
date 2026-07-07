@@ -29,6 +29,7 @@ import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { nairaStringToKobo } from "@/lib/money";
+import { OUTBOUND_FEE } from "@/lib/fees";
 import {
   CreatePotInput,
   UpdatePotInput,
@@ -570,8 +571,16 @@ export const PotsService = {
         if (amount <= 0n) {
           throw new PotError("amount must be greater than zero", 400);
         }
-        if (amount > balance) {
-          throw new PotError(`amount (${amount}) exceeds the pot's current balance (${balance})`, 409);
+        // The recipient receives exactly `amount` — the pot is additionally debited the flat
+        // ₦50 outbound fee on top (see apps/backend/src/lib/fees.ts), so the balance must cover
+        // both. postFixedAmountDisbursement re-verifies this same check right before enqueueing
+        // (the authoritative check, since balance can move between here and then) — this early
+        // check just gives a precise 409 naming the actual amount requested.
+        if (amount + OUTBOUND_FEE > balance) {
+          throw new PotError(
+            `amount (${amount}) plus the ₦50 outbound fee exceeds the pot's current balance (${balance})`,
+            409
+          );
         }
         return postFixedAmountDisbursement(pot, "payout", amount, resolvedDestination);
       }
@@ -647,7 +656,14 @@ export const PotsService = {
   },
 };
 
-/** Shared disbursement path for payout and refund: disburses the pot's FULL current balance via postFixedAmountDisbursement (unlike PayoutSchedulerService, which passes a fixed amount for recurring/scheduled). */
+/**
+ * Shared disbursement path for payout and refund: disburses the pot's FULL current balance via
+ * postFixedAmountDisbursement (unlike PayoutSchedulerService, which passes a fixed amount for
+ * recurring/scheduled). Unlike an amount-specified payout (see triggerPayout), there's no
+ * external amount to add the flat ₦50 outbound fee on top of here — the fee has to come out of
+ * the balance itself, so the recipient actually receives `balance - OUTBOUND_FEE`, not the full
+ * balance (see apps/backend/src/lib/fees.ts).
+ */
 async function postDisbursement(
   pot: Pot,
   kind: "payout" | "refund",
@@ -656,10 +672,11 @@ async function postDisbursement(
 ): Promise<void> {
   const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
   const balance = await LedgerService.getBalance(potAccount.id);
-  if (balance <= 0n) {
-    throw new PotError(`Pot has no balance to ${kind}`, 409);
+  const payoutAmount = balance - OUTBOUND_FEE;
+  if (payoutAmount <= 0n) {
+    throw new PotError(`Pot's balance (${balance}) does not cover the ₦50 outbound fee — nothing to ${kind}`, 409);
   }
-  await postFixedAmountDisbursement(pot, kind, balance, destination, onSuccess);
+  await postFixedAmountDisbursement(pot, kind, payoutAmount, destination, onSuccess);
 }
 
 /**
@@ -683,6 +700,19 @@ export async function postFixedAmountDisbursement(
   onSuccess?: DisbursementOnSuccess,
   contributorUserId?: string
 ): Promise<void> {
+  // The authoritative check (system-rules.md rule 9: never trust a client-supplied amount for
+  // execution) — every caller (manual-with-amount, full-balance postDisbursement, target_based,
+  // recurring, scheduled, the contributors fan-out) funnels through here, so this is the single
+  // place a payout/refund can't proceed without covering its own flat ₦50 outbound fee.
+  const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+  const balance = await LedgerService.getBalance(potAccount.id);
+  if (amount + OUTBOUND_FEE > balance) {
+    throw new PotError(
+      `amount (${amount}) plus the ₦50 outbound fee exceeds the pot's current balance (${balance})`,
+      409
+    );
+  }
+
   const reference = `${kind}_${pot.id}_${randomUUID()}`;
   const claimed = await db
     .update(pots)
@@ -879,6 +909,24 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
     throw new PotError("Remaining pot balance is too small to distribute — every contributor's share rounds to zero", 409);
   }
 
+  // Each leg is its own independent outbound transfer, so each one needs its own flat ₦50
+  // outbound fee reserved (see apps/backend/src/lib/fees.ts) — the worker debits
+  // `leg.amount + OUTBOUND_FEE` from the pot per leg, mirroring every other disbursement path.
+  // Rescale every leg's share against the distributable pool (balance minus the total fee
+  // reserve for however many legs actually resulted) rather than the raw balance used above,
+  // using the same numerator/denominator ratio already tracked per leg.
+  const feeReserve = BigInt(legs.length) * OUTBOUND_FEE;
+  const distributable = balance - feeReserve;
+  if (distributable <= 0n) {
+    throw new PotError(
+      `Pot's balance (${balance}) does not cover the ₦50 outbound fee for each of its ${legs.length} contributor refund(s)`,
+      409
+    );
+  }
+  for (const leg of legs) {
+    leg.amount = (leg.numerator * distributable) / leg.denominator;
+  }
+
   const claimed = await db
     .update(pots)
     .set({ pendingOperation: "refund", pendingOperationLegCount: legs.length })
@@ -896,11 +944,14 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
   // claiming the lock just now — re-read and rescale each leg's share
   // against the fresh balance (same numerator/denominator ratio)
   // rather than posting against a stale snapshot, mirroring
-  // postFixedAmountDisbursement's re-read-after-lock pattern.
+  // postFixedAmountDisbursement's re-read-after-lock pattern. Rescale against the
+  // fresh balance's own distributable pool (same leg count/fee reserve as above) so the
+  // per-leg outbound fee stays accounted for even if the balance moved.
   const freshBalance = await LedgerService.getBalance(potAccount.id);
   if (freshBalance !== balance) {
+    const freshDistributable = freshBalance - feeReserve;
     for (const leg of legs) {
-      leg.amount = (leg.numerator * freshBalance) / leg.denominator;
+      leg.amount = freshDistributable > 0n ? (leg.numerator * freshDistributable) / leg.denominator : 0n;
     }
   }
 

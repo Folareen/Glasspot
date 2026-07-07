@@ -9,6 +9,8 @@ const NORMAL_BALANCE_BY_OWNER_TYPE: Record<Account["ownerType"], Account["normal
   platform_float: "debit",
   provider_settlement: "debit",
   suspense: "debit",
+  nomba_fee_expense: "debit",
+  nomba_clearing: "credit",
 };
 
 /** Returns the existing account for (ownerType, ownerId), creating it on first use; falls back to a re-select if a concurrent caller wins the insert race. */
@@ -45,11 +47,15 @@ export const AccountsService = {
 
   /**
    * Platform-level system accounts (revenue, float, suspense,
-   * provider_settlement) have no ownerId — there is exactly one active row
-   * per ownerType across the whole system, not one per something else.
+   * provider_settlement, nomba_fee_expense, nomba_clearing) have no
+   * ownerId — there is exactly one active row per ownerType across the
+   * whole system, not one per something else.
    */
   async getOrCreateSystemAccount(
-    ownerType: Extract<Account["ownerType"], "platform_revenue" | "platform_float" | "suspense" | "provider_settlement">
+    ownerType: Extract<
+      Account["ownerType"],
+      "platform_revenue" | "platform_float" | "suspense" | "provider_settlement" | "nomba_fee_expense" | "nomba_clearing"
+    >
   ): Promise<Account> {
     return getOrCreateAccount(ownerType, null);
   },

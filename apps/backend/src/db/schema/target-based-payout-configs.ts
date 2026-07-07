@@ -8,6 +8,12 @@ import { pots } from './pots';
  * option — that's manual mode's job now; this fires exclusively via
  * TargetBasedPayoutService's cron sweep. One row per pot, set during 'draft', immutable once
  * 'open'.
+ *
+ * This payout mode always disburses the pot's full balance (see pots.service.ts's
+ * postDisbursement), which nets the flat ₦50 outbound fee out of that balance rather than
+ * adding it on top — so the group must set targetAmount inclusive of that eventual fee; the
+ * actual payout the destination receives is targetAmount minus ₦50, not targetAmount itself.
+ * See apps/backend/src/lib/fees.ts.
  */
 export const targetBasedPayoutConfigs = pgTable(
   'target_based_payout_configs',

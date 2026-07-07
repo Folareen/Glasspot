@@ -14,7 +14,7 @@ export function SiteFooter() {
         <div className="max-w-xs">
           <GlasspotFullLogo size={28} />
           <Text size="sm" color="secondary" className="mt-1">
-            Group money, governed by agreement.
+            Contributions, governed by agreement.
           </Text>
           <div className="mt-4">
             <Badge variant="accent">

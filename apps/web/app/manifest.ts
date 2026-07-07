@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Glasspot",
     short_name: "Glasspot",
     description:
-      "Group money, governed by agreement. Pool money with people you trust and only move it when the rule you agreed on is met.",
+      "Contributions, governed by agreement. Pool money with people you trust and only move it when the rule you agreed on is met.",
     start_url: "/home",
     display: "standalone",
     background_color: "#e3e6e9",

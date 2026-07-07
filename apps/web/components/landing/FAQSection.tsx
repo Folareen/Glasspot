@@ -46,6 +46,11 @@ const faqs = [
     answer:
       "Yes. Glasspot also works for personal money separation, keep a savings target or project budget in its own pot without opening a new bank account.",
   },
+  {
+    question: "Does Glasspot charge a fee?",
+    answer:
+      "Yes, a very low flat fee, about the same as a normal bank transfer. No percentages, no hidden cuts. It shows up clearly before you contribute or pay out, never as a surprise.",
+  },
 ];
 
 export function FAQSection() {

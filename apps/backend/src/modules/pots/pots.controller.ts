@@ -22,6 +22,7 @@ import {
   UpdatePotInput,
 } from "./pots.schema";
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
+import { INBOUND_FEE } from "@/lib/fees";
 import type { Pot } from "@/db";
 
 /**
@@ -328,13 +329,20 @@ export async function contributeHandler(
       const contribution = await ContributionsService.create(request.params.id, userId, request.body);
       return {
               statusCode: 201,
-              body: { ...contribution, expectedAmount: koboToNairaString(contribution.expectedAmount) },
+              body: {
+                ...contribution,
+                expectedAmount: koboToNairaString(contribution.expectedAmount),
+                // intendedAmount is never stored — it's expectedAmount (the gross figure the
+                // contributor must send) minus the flat inbound fee, computed fresh here so it's
+                // never at risk of drifting from INBOUND_FEE if that constant ever changes.
+                intendedAmount: koboToNairaString(contribution.expectedAmount - INBOUND_FEE),
+              },
             };
     });
-    // body.expectedAmount is already a naira string here — either just
-    // converted above (fresh call) or read back as-is from the cached JSON
-    // response of an earlier identical call (see withIdempotencyKey) — so
-    // no further conversion happens on this path.
+    // body.expectedAmount/intendedAmount are already naira strings here —
+    // either just converted above (fresh call) or read back as-is from the
+    // cached JSON response of an earlier identical call (see
+    // withIdempotencyKey) — so no further conversion happens on this path.
     return reply.code(statusCode).send(body);
   } catch (e) {
     return handlePotError(e, reply);

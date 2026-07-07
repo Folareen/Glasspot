@@ -47,6 +47,15 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
 - Refund is the mechanism used to drain a pot's balance to zero so it can be closed, when payout isn't what drains it
 - Surplus refund, returning only the amount left over once payouts are settled
 
+## Fees
+
+Glasspot charges a flat fee on every contribution and every payout/refund, always added on top so the pool amount a group agreed on is never quietly shaved down.
+
+- **Contribution**: a flat ₦20 fee, added on top of the amount the contributor intends to give — the pot is always credited the full intended amount.
+- **Payout/refund**: a flat ₦50 fee, added on top of the amount the recipient is meant to receive — the pot's balance is debited the requested amount plus the fee, and the recipient gets the full requested amount.
+- **Full-balance payout/refund** (no explicit amount given, including every `target_based` payout, which always disburses the pot's full balance): the fee comes out of the balance instead, since there's nothing external to add it on top of — the recipient receives `balance - 50`. A `target_based` group must set its target amount inclusive of this eventual fee.
+- Presented to users as a low, flat cost, comparable to an ordinary bank transfer fee — not a percentage cut of the pool.
+
 ## Trust and visibility
 
 - Public activity log of every payout and refund, regardless of how it was authorized
