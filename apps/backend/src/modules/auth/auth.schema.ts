@@ -98,6 +98,19 @@ const messageResponseSchema = z.object({
   message: z.string(),
 });
 
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  code: z.string().length(6, "Code must be 6 digits"),
+  newPassword: z
+    .string()
+    .min(1, "Password is required")
+    .min(8, "Password must be at least 8 characters"),
+});
+
 // Destination for a refundType='admin' pot's real Nomba transfer when this
 // user triggers the refund (see users.ts schema comment). accountNumber is
 // looked up + confirmed against bankCode before being stored — see
@@ -120,6 +133,8 @@ export type VerifyLoginOtpInput = z.infer<typeof verifyLoginOtpSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type LogoutInput = z.infer<typeof logoutSchema>;
 export type UpdateRefundProfileInput = z.infer<typeof updateRefundProfileSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 // Response types — the wire contract, safe for apps/web to import directly.
 export type RegisterResponse = z.infer<typeof registerResponseSchema>;
@@ -145,4 +160,6 @@ export const { schemas: authSchemas, $ref } = buildJsonSchemas({
   messageResponseSchema,
   updateRefundProfileSchema,
   refundProfileResponseSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 });
