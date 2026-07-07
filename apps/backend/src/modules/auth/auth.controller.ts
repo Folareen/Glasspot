@@ -3,11 +3,13 @@ import { AuthService } from "./auth.service";
 import { AuthError, RateLimitError } from "./auth.errors";
 import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import {
+  ForgotPasswordInput,
   LoginInput,
   LogoutInput,
   RefreshTokenInput,
   RegisterInput,
   ResendOtpInput,
+  ResetPasswordInput,
   UpdateRefundProfileInput,
   VerifyEmailInput,
   VerifyLoginOtpInput,
@@ -147,6 +149,32 @@ export async function updateRefundProfileHandler(
     const userId = request.user.sub;
     const profile = await AuthService.updateRefundProfile(userId, request.body);
     return reply.code(200).send(profile);
+  } catch (e) {
+    return handleAuthError(e, request, reply);
+  }
+}
+
+/** Triggers a password-reset OTP send and always responds 200 with the same generic message, regardless of whether the email actually matched an account. */
+export async function forgotPasswordHandler(
+  request: FastifyRequest<{ Body: ForgotPasswordInput }>,
+  reply: FastifyReply
+) {
+  try {
+    await AuthService.forgotPassword(request.body.email);
+    return reply.code(200).send({ message: "If the account exists, a password reset code has been sent." });
+  } catch (e) {
+    return handleAuthError(e, request, reply);
+  }
+}
+
+/** Confirms the password-reset code, sets the new password, and responds 200 — the caller must log in again afterward since resetPassword revokes any existing session. */
+export async function resetPasswordHandler(
+  request: FastifyRequest<{ Body: ResetPasswordInput }>,
+  reply: FastifyReply
+) {
+  try {
+    await AuthService.resetPassword(request.body);
+    return reply.code(200).send({ message: "Password reset. Please log in with your new password." });
   } catch (e) {
     return handleAuthError(e, request, reply);
   }

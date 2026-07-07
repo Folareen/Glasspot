@@ -1,10 +1,12 @@
 import { FastifyInstance } from "fastify";
 import {
+  forgotPasswordHandler,
   loginHandler,
   logoutHandler,
   refreshHandler,
   registerHandler,
   resendOtpHandler,
+  resetPasswordHandler,
   updateRefundProfileHandler,
   verifyEmailHandler,
   verifyLoginOtpHandler,
@@ -120,6 +122,34 @@ async function authRoutes(server: FastifyInstance) {
       },
     },
     updateRefundProfileHandler
+  );
+
+  server.post(
+    "/forgot-password",
+    {
+      config: {
+        rateLimit: { max: 5, timeWindow: "1 minute" },
+      },
+      schema: {
+        body: $ref("forgotPasswordSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    forgotPasswordHandler
+  );
+
+  server.post(
+    "/reset-password",
+    {
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
+      schema: {
+        body: $ref("resetPasswordSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    resetPasswordHandler
   );
 }
 

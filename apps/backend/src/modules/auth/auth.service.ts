@@ -7,7 +7,7 @@ import { sendMail } from "@/lib/mailer";
 import { otpEmail } from "@/lib/otp-email";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { AuthError, RateLimitError } from "./auth.errors";
-import { RegisterInput, UpdateRefundProfileInput } from "./auth.schema";
+import { RegisterInput, ResetPasswordInput, UpdateRefundProfileInput } from "./auth.schema";
 import { PotInvitesService } from "@/modules/pots/pot-invites.service";
 
 type OtpPurposeValue = "signup_verification" | "login" | "password_reset";
@@ -314,5 +314,36 @@ export const AuthService = {
       .returning();
 
     return { defaultRefundAccount: user.defaultRefundAccount, defaultRefundBank: user.defaultRefundBank };
+  },
+
+  /** Issues a password_reset OTP for the given email; resolves silently (no error) if the email doesn't match a user, so callers can't use this to enumerate accounts — same shape as resendOtp. */
+  async forgotPassword(email: string) {
+    const user = await db.query.users.findFirst({ where: eq(users.email, email) });
+    if (!user) {
+      return;
+    }
+    await createOtp(user.id, user.email, "password_reset");
+  },
+
+  /** Confirms the password_reset code, sets the new password hash, and revokes any existing session (clears refreshTokenHash) so every device is forced to log in again with the new password. */
+  async resetPassword(input: ResetPasswordInput) {
+    const user = await db.query.users.findFirst({ where: eq(users.email, input.email) });
+    if (!user) {
+      throw new AuthError("Invalid email or code", 400);
+    }
+
+    await verifyOtp(user.id, "password_reset", input.code);
+
+    const passwordHash = hashPassword(input.newPassword);
+
+    await db
+      .update(users)
+      .set({
+        passwordHash,
+        refreshTokenHash: null,
+        refreshTokenExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
   },
 };
