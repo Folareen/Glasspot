@@ -12,7 +12,7 @@ import { OtpStep } from "@/components/pot/OtpStep";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { requestPayoutOtp, triggerPayout } from "@/lib/api";
-import { formatNaira, nairaAmountToNumber, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
+import { addNaira, formatNaira, nairaAmountToNumber, OUTBOUND_FEE, sanitizeAmountInput, subtractNaira, toNairaAmount } from "@/lib/money";
 
 type PayoutDestinationModalProps = {
   open: boolean;
@@ -35,6 +35,9 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
 
   const balanceNaira = nairaAmountToNumber(balance);
   const wireAmount = amount ? (toNairaAmount(amount) ?? undefined) : undefined;
+  // Same flat ₦50 outbound fee rule as PayoutAmountModal — see that file's comment.
+  const maxSendableNaira = nairaAmountToNumber(subtractNaira(balance, OUTBOUND_FEE));
+  const fullBalancePayout = subtractNaira(balance, OUTBOUND_FEE);
 
   function handleClose() {
     setStep("destination");
@@ -60,8 +63,8 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
       const naira = nairaAmountToNumber(amount);
       if (!naira || naira <= 0) {
         nextErrors.amount = "Enter an amount greater than 0.";
-      } else if (naira > balanceNaira) {
-        nextErrors.amount = `You can't send more than the pot's balance (${formatNaira(balance)}).`;
+      } else if (naira > maxSendableNaira) {
+        nextErrors.amount = `You can send up to ${formatNaira(fullBalancePayout)} — a flat ${formatNaira(OUTBOUND_FEE)} fee applies on top.`;
       }
     }
     if (Object.keys(nextErrors).length > 0) {
@@ -156,7 +159,7 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
           <Field
             label="Amount"
             htmlFor="payout-destination-amount"
-            helperText={errors.amount ? undefined : `Optional. Leave blank to send the full balance (${formatNaira(balance)}).`}
+            helperText={errors.amount ? undefined : `Optional. Leave blank to send the full balance minus fee (${formatNaira(fullBalancePayout)}). A flat ${formatNaira(OUTBOUND_FEE)} fee applies on top of any amount you enter.`}
             error={errors.amount}
           >
             <Input
@@ -172,6 +175,11 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
               error={Boolean(errors.amount)}
             />
           </Field>
+          {amount && !errors.amount && (
+            <Text size="sm" color="secondary">
+              {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot — {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
+            </Text>
+          )}
 
           <div className="flex gap-3">
             <Button variant="secondary" className="flex-1" onClick={handleClose}>

@@ -1,10 +1,21 @@
 import type { CreatePotInput } from "@/lib/api";
-import { nairaAmountToNumber, toNairaAmount } from "@/lib/money";
+import { nairaAmountToNumber, OUTBOUND_FEE, toNairaAmount } from "@/lib/money";
 import type { WizardState } from "./wizard-types";
 
 /** True for a wizard amount field holding a positive number — the wizard's own floor, mirroring the backend's nairaAmount schema (apps/backend/src/modules/pots/pots.schema.ts) rejecting "0.00"/an unset amount. Truthiness alone ("0" is a non-empty string) isn't enough here. Exported for reuse by minContribution/maxContribution's own validation in the pot create/edit pages. */
 export function isPositiveAmount(raw: string): boolean {
   return Boolean(raw) && nairaAmountToNumber(raw) > 0;
+}
+
+/**
+ * True for a target_based target amount that could actually pay out something — target_based
+ * always disburses the pot's full balance, netting the flat ₦50 outbound fee out of it (see
+ * apps/backend/src/lib/fees.ts and target-based-payout-configs.ts's targetAmount comment), so a
+ * target at or below that fee would fire a payout of ≤0. Mirrors the backend's own
+ * targetBasedPayoutConfigSchema refine.
+ */
+export function isValidTargetAmount(raw: string): boolean {
+  return isPositiveAmount(raw) && nairaAmountToNumber(raw) > nairaAmountToNumber(OUTBOUND_FEE);
 }
 
 export function toIsoDate(date: string) {
@@ -78,7 +89,7 @@ export function isConfigStepValid(state: WizardState) {
       return Boolean(
         state.targetDestinationAccount &&
           state.targetDestinationBank &&
-          (state.targetDate || isPositiveAmount(state.targetAmountNaira))
+          (state.targetDate || isValidTargetAmount(state.targetAmountNaira))
       );
     default:
       return false;

@@ -3,10 +3,18 @@ import { pgTable, uuid, text, timestamp, pgEnum, unique } from 'drizzle-orm/pg-c
 /**
  * One row per ledger account (every pot + system bucket) — there's no per-user wallet; money
  * moves directly between a contributor/payee's real bank account and a pot. normalBalance
- * follows standard accounting sign convention: pot accounts and platform_revenue are
- * credit-normal (liabilities/revenue), platform_float/provider_settlement/suspense are
- * debit-normal (assets). ownerId is nullable for platform-level accounts, identified by
- * ownerType alone (one active row per platform ownerType, enforced by the unique index below).
+ * follows standard accounting sign convention: pot accounts, platform_revenue, and nomba_clearing
+ * are credit-normal (liabilities/revenue/contra-clearing), platform_float/provider_settlement/
+ * suspense/nomba_fee_expense are debit-normal (assets/expense). ownerId is nullable for
+ * platform-level accounts, identified by ownerType alone (one active row per platform ownerType,
+ * enforced by the unique index below).
+ *
+ * nomba_fee_expense and nomba_clearing exist as a matched pair for Nomba's real flat
+ * fee (₦10 inbound, ₦20 outbound — see apps/backend/src/lib/fees.ts) on every contribution/
+ * payout: nomba_fee_expense records the cost, nomba_clearing is its balancing contra-entry
+ * representing the slice of gross cash that never actually becomes usable platform_float balance
+ * (Nomba keeps it before settlement) — see fees.ts's inboundFeeLegs/outboundFeeLegs for the
+ * worked arithmetic.
  */
 export const accountOwnerTypeEnum = pgEnum('account_owner_type', [
   'pot',
@@ -14,6 +22,8 @@ export const accountOwnerTypeEnum = pgEnum('account_owner_type', [
   'platform_float',
   'suspense',
   'provider_settlement',
+  'nomba_fee_expense',
+  'nomba_clearing',
 ]);
 export const normalBalanceEnum = pgEnum('normal_balance', ['debit', 'credit']);
 export const accountStatusEnum = pgEnum('account_status', ['active', 'frozen', 'closed']);

@@ -6,8 +6,8 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
-import { sanitizeAmountInput } from "@/lib/money";
-import { isPositiveAmount } from "./wizard-helpers";
+import { formatNaira, OUTBOUND_FEE, sanitizeAmountInput } from "@/lib/money";
+import { isPositiveAmount, isValidTargetAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
 type TargetBasedConfigStepProps = {
@@ -19,11 +19,13 @@ type TargetBasedConfigStepProps = {
 
 export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBasedConfigStepProps) {
   const { banks } = useBanks();
-  // isPositiveAmount, not Boolean(): a target amount of "0" is truthy as a
-  // string but isConfigStepValid (wizard-helpers.ts) rejects it as not a
-  // real target — matching this warning to that same rule so the message
-  // doesn't silently disappear on a "0" the Next button still blocks.
-  const hasAtLeastOneCondition = Boolean(state.targetDate) || isPositiveAmount(state.targetAmountNaira);
+  // isValidTargetAmount, not Boolean(): a target amount of "0", or one that couldn't even cover
+  // the flat outbound fee, is rejected by isConfigStepValid (wizard-helpers.ts) as not a real
+  // usable target — matching this warning to that same rule so the message doesn't silently
+  // disappear on a value the Next button still blocks.
+  const hasAtLeastOneCondition = Boolean(state.targetDate) || isValidTargetAmount(state.targetAmountNaira);
+  const targetAmountTooLow =
+    isPositiveAmount(state.targetAmountNaira) && !isValidTargetAmount(state.targetAmountNaira);
 
   const accountError =
     showErrors && !state.targetDestinationAccount ? "Enter the payout account number." : undefined;
@@ -117,7 +119,12 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
         <Field
           label="Target amount"
           htmlFor="target-amount"
-          helperText="In naira, optional. Leave blank to rely on the date instead — don't enter 0."
+          helperText={
+            targetAmountTooLow
+              ? undefined
+              : `In naira, optional. Leave blank to rely on the date instead. This pot pays out its full balance when the target is met, so include the flat ${formatNaira(OUTBOUND_FEE)} payout fee in this number — don't enter 0.`
+          }
+          error={targetAmountTooLow ? `Must be more than ${formatNaira(OUTBOUND_FEE)} — the payout fee.` : undefined}
         >
           <Input
             id="target-amount"
@@ -126,6 +133,7 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
             value={state.targetAmountNaira}
             onChange={(e) => onChange({ targetAmountNaira: sanitizeAmountInput(e.target.value) })}
             placeholder="15000"
+            error={targetAmountTooLow}
           />
         </Field>
       </Card>

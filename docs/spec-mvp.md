@@ -46,6 +46,16 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
 - Refund is the mechanism used to drain a pot's balance to zero so it can be closed, when payout isn't what drains it
 - Triggering a refund requires the same one-time email confirmation code as a manual payout trigger — request it, then trigger with the code
 
+## Fees
+
+Glasspot charges a flat fee on every contribution and every payout/refund, always added on top so the pool amount everyone agreed on is never quietly shaved down.
+
+- **Contribution**: a flat ₦20 fee, added on top of the amount the contributor intends to give. If someone means to contribute ₦1,000, they send ₦1,020 total, and the pot is credited the full ₦1,000.
+- **Payout/refund**: a flat ₦50 fee, added on top of the amount the recipient is meant to receive. If a payout of ₦10,000 is requested, the pot's balance is debited ₦10,050, and the recipient gets the full ₦10,000.
+- **Full-balance payout/refund** (no explicit amount given): there's nothing external to add the fee on top of, so the ₦50 comes out of the balance instead. The recipient receives `balance - 50`, not the full balance.
+- **`target_based` payouts always disburse the pot's full balance**, so this is the full-balance case above — a group's target amount must be set inclusive of the eventual ₦50 fee, since the payout that actually lands is `targetAmount - 50`.
+- The frontend shows this breakdown before a contribution or payout is confirmed, and enforces it: a payout amount can't be set higher than `balance - 50`, and a `target_based` target amount can't be set at or below ₦50.
+
 ## Stack
 
 Next.js, Tailwind CSS, Fastify, TypeScript, PostgreSQL, Drizzle, Redis, BullMQ, Nomba APIs

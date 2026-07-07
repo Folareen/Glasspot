@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { buildJsonSchemas } from "fastify-zod";
+import { OUTBOUND_FEE } from "@/lib/fees";
+import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 
 const payoutModeValues = ["target_based", "manual", "recurring", "scheduled"] as const;
 const potTypeValues = ["public", "private"] as const;
@@ -53,6 +55,12 @@ const destinationSchema = {
 // target_based is exclusively date/amount-rule-driven; a group wanting
 // "fixed destination, admin releases whenever" picks manual with a
 // destination set instead.
+//
+// target_based always disburses the pot's FULL balance once fired (see
+// pots.service.ts's postDisbursement), which nets the flat ₦50 outbound fee out of that balance
+// rather than adding it on top — so targetAmount must be set inclusive of that eventual fee, and
+// must exceed it (a target that couldn't even cover the fee would fire a payout of ≤0). See
+// apps/backend/src/lib/fees.ts.
 export const targetBasedPayoutConfigSchema = z
   .object({
     ...destinationSchema,
@@ -64,6 +72,10 @@ export const targetBasedPayoutConfigSchema = z
   .refine(
     (c) => c.targetDate !== undefined || c.targetAmount !== undefined,
     { message: "At least one of targetDate or targetAmount is required" }
+  )
+  .refine(
+    (c) => c.targetAmount === undefined || nairaStringToKobo(c.targetAmount) > OUTBOUND_FEE,
+    { message: `targetAmount must exceed ₦${koboToNairaString(OUTBOUND_FEE)} — the pot's balance nets the flat outbound fee out at payout time, so a target at or below it would never actually pay out anything`, path: ["targetAmount"] }
   );
 
 // Manual mode's destination is optional at creation time, unlike
@@ -476,8 +488,15 @@ const contributionResponseSchema = z.object({
   virtualAccountRef: z.string(),
   virtualAccountNumber: z.string().nullable(),
   virtualAccountBankName: z.string().nullable(),
-  // Naira string — see transactionResponseSchema's amount comment.
+  // Naira string — see transactionResponseSchema's amount comment. GROSS figure: what the
+  // contributor must actually send, inclusive of the flat ₦20 inbound fee (see
+  // apps/backend/src/lib/fees.ts). intendedAmount below is the net amount the pot will be
+  // credited once funded — show both so the frontend can render "you're contributing X, send
+  // X+20 total".
   expectedAmount: z.string(),
+  // Naira string, computed as expectedAmount minus the flat ₦20 inbound fee — never stored
+  // separately, derived at response time (see pots.controller.ts's contributeHandler).
+  intendedAmount: z.string(),
   status: z.enum(["pending", "funded", "underpaid", "failed", "reversed"]),
   anonymous: z.boolean(),
   refundAccountNumber: z.string().nullable(),

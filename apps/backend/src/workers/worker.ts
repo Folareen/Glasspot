@@ -15,6 +15,7 @@ import { RedisTransferThrottle } from '@/integrations/nomba/transfer-throttle';
 import { clearPendingOperation, decrementPendingOperationLeg } from '@/modules/pots/pots.service';
 import type { DisbursementJobData } from '@/modules/scheduler/disbursement-job.types';
 import { koboToNairaString } from '@/lib/money';
+import { OUTBOUND_FEE, outboundFeeLegs } from '@/lib/fees';
 
 import { recurringPayoutConfigs, scheduledPayoutLegs } from '@/db';
 import type { DisbursementOnSuccess } from '@/modules/scheduler/disbursement-job.types';
@@ -101,12 +102,19 @@ async function callNomba(data: DisbursementJobData, resolved: { accountName: str
 async function processLedgerDisbursement(data: Extract<DisbursementJobData, { kind: 'payout' | 'pot_refund' }>) {
   const potAccount = await AccountsService.getOrCreatePotAccount(data.potId);
   const platformFloat = await AccountsService.getOrCreateSystemAccount('platform_float');
+  const platformRevenue = await AccountsService.getOrCreateSystemAccount('platform_revenue');
+  const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount('nomba_fee_expense');
+  const nombaClearing = await AccountsService.getOrCreateSystemAccount('nomba_clearing');
+  // amount is what the recipient actually receives — the pot is additionally debited the flat
+  // ₦50 outbound fee on top (see apps/backend/src/lib/fees.ts); postFixedAmountDisbursement/
+  // postContributorsRefund already verified the balance covers amount + OUTBOUND_FEE before
+  // enqueueing this job, but re-check here too since balance can still move in the interim.
   const amount = BigInt(data.amount);
 
   const balance = await LedgerService.getBalance(potAccount.id);
-  if (balance < amount) {
+  if (balance < amount + OUTBOUND_FEE) {
     await releaseLock(data);
-    throw new Error(`Pot ${data.potId} balance insufficient for ${data.kind} of ${amount} kobo`);
+    throw new Error(`Pot ${data.potId} balance insufficient for ${data.kind} of ${amount} kobo plus the ₦50 outbound fee`);
   }
 
   const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
@@ -117,10 +125,16 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
       type: data.kind === 'payout' ? 'payout' : 'refund',
       reference: data.reference,
       status: 'processing',
-      entries: [
-        { accountId: potAccount.id, direction: 'debit', amount: amount },
-        { accountId: platformFloat.id, direction: 'credit', amount: amount },
-      ],
+      entries: outboundFeeLegs(
+        {
+          potAccountId: potAccount.id,
+          platformFloatId: platformFloat.id,
+          platformRevenueId: platformRevenue.id,
+          nombaFeeExpenseId: nombaFeeExpense.id,
+          nombaClearingId: nombaClearing.id,
+        },
+        amount
+      ),
       metadata: data.contributorUserId
         ? { potId: data.potId, contributorUserId: data.contributorUserId, destinationAccountName: resolved.accountName }
         : { potId: data.potId, destinationAccountName: resolved.accountName },

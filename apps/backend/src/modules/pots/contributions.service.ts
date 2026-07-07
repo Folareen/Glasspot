@@ -8,6 +8,7 @@ import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
+import { INBOUND_FEE, inboundFeeLegs } from "@/lib/fees";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
@@ -112,6 +113,13 @@ export const ContributionsService = {
 
     const expiresAt = new Date(Date.now() + CONTRIBUTION_EXPIRY_HOURS * 60 * 60 * 1000);
 
+    // expectedAmount stores the GROSS amount (intended amount + the flat ₦20 inbound fee) — this
+    // is what the contributor must actually send for the pot to receive their full intended
+    // amount once Nomba's real ₦10 cut is split out in confirmFunding(). amount itself (validated
+    // against minContribution/maxContribution above) stays the intended net figure throughout —
+    // see apps/backend/src/lib/fees.ts.
+    const grossExpectedAmount = amount + INBOUND_FEE;
+
     // Nomba's expectedAmount is in naira, our amounts are kobo (see
     // docs/system-rules.md) — convert via koboToNairaString for the API
     // call only, never for anything stored or posted to the ledger.
@@ -120,7 +128,7 @@ export const ContributionsService = {
     const virtualAccount = await nomba.createVirtualAccount({
       accountRef: virtualAccountRef,
       accountName,
-      expectedAmountNaira: Number(koboToNairaString(amount)),
+      expectedAmountNaira: Number(koboToNairaString(grossExpectedAmount)),
       expiryDate: formatNombaExpiryDate(expiresAt),
     });
 
@@ -132,7 +140,7 @@ export const ContributionsService = {
         virtualAccountRef,
         virtualAccountNumber: virtualAccount.bankAccountNumber,
         virtualAccountBankName: virtualAccount.bankName,
-        expectedAmount: amount,
+        expectedAmount: grossExpectedAmount,
         anonymous: input.anonymous ?? false,
         refundAccountNumber,
         refundAccountName,
@@ -231,15 +239,29 @@ export const ContributionsService = {
 
     const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
     const potAccount = await AccountsService.getOrCreatePotAccount(contribution.potId);
+    const platformRevenue = await AccountsService.getOrCreateSystemAccount("platform_revenue");
+    const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount("nomba_fee_expense");
+    const nombaClearing = await AccountsService.getOrCreateSystemAccount("nomba_clearing");
+
+    // contribution.expectedAmount is the GROSS figure (intended amount + INBOUND_FEE, see
+    // create()'s comment) — the pot must only ever be credited the intended net amount, with both
+    // fee cuts split into their own ledger legs, never folded into the pot's credit.
+    const intendedAmount = contribution.expectedAmount - INBOUND_FEE;
 
     const transaction = await LedgerService.postTransaction({
       type: "contribution",
       reference: `contribution_${contribution.id}`,
       externalReference: payment.transaction.transactionId,
-      entries: [
-        { accountId: platformFloat.id, direction: "debit", amount: contribution.expectedAmount },
-        { accountId: potAccount.id, direction: "credit", amount: contribution.expectedAmount },
-      ],
+      entries: inboundFeeLegs(
+        {
+          platformFloatId: platformFloat.id,
+          potAccountId: potAccount.id,
+          platformRevenueId: platformRevenue.id,
+          nombaFeeExpenseId: nombaFeeExpense.id,
+          nombaClearingId: nombaClearing.id,
+        },
+        intendedAmount
+      ),
       metadata: {
         potId: contribution.potId,
         contributorUserId: contribution.contributorUserId,

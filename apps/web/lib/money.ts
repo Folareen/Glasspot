@@ -8,6 +8,14 @@
 
 const NAIRA_STRING_PATTERN = /^\d+\.\d{2}$/;
 
+// Flat fees, mirroring apps/backend/src/lib/fees.ts's INBOUND_FEE/OUTBOUND_FEE constants — kept
+// in sync by hand since apps/web has no dependency on apps/backend. Both are added on top of
+// what the user intends to move, never deducted from it: a contribution costs the intended
+// amount plus INBOUND_FEE to send, and a payout/refund amount costs the pot the requested
+// amount plus OUTBOUND_FEE.
+export const INBOUND_FEE = "20.00";
+export const OUTBOUND_FEE = "50.00";
+
 /** True for a well-formed "NN.NN" naira string — exactly two decimal digits, no sign, no thousands separators. Matches the backend's nairaAmount schema (apps/backend/src/modules/pots/pots.schema.ts). */
 export function isValidNairaString(value: string): boolean {
   return NAIRA_STRING_PATTERN.test(value);
