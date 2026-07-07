@@ -22,29 +22,43 @@ export function usePollUntil<T>(check: () => Promise<T | null>, intervalMs = 400
     timeoutRef.current = null;
   }, []);
 
+  const tick = useCallback(async () => {
+    try {
+      const value = await checkRef.current();
+      if (value !== null) {
+        setResult(value);
+        setStatus("done");
+        return;
+      }
+      timeoutRef.current = setTimeout(tick, intervalMs);
+    } catch {
+      setStatus("error");
+    }
+  }, [intervalMs]);
+
   const start = useCallback(() => {
     stop();
     setStatus("polling");
     setResult(null);
-
-    const tick = async () => {
-      try {
-        const value = await checkRef.current();
-        if (value !== null) {
-          setResult(value);
-          setStatus("done");
-          return;
-        }
-        timeoutRef.current = setTimeout(tick, intervalMs);
-      } catch {
-        setStatus("error");
-      }
-    };
-
     tick();
-  }, [intervalMs, stop]);
+  }, [stop, tick]);
+
+  // Runs one check immediately, independent of the interval timer — for a
+  // user-triggered "check now" action (see AwaitingPaymentModal's "I've
+  // paid" button) rather than waiting for the next scheduled tick.
+  const checkNow = useCallback(async () => {
+    stop();
+    const value = await checkRef.current();
+    if (value !== null) {
+      setResult(value);
+      setStatus("done");
+    } else {
+      timeoutRef.current = setTimeout(tick, intervalMs);
+    }
+    return value;
+  }, [stop, tick, intervalMs]);
 
   useEffect(() => stop, [stop]);
 
-  return { status, result, start, stop };
+  return { status, result, start, stop, checkNow };
 }

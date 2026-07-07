@@ -1,7 +1,10 @@
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { Text } from "@/components/ui/Text";
+import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
+import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -26,6 +29,11 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
     showErrors && !state.recurringIntervalDays ? "Enter how many days between payouts." : undefined;
   const nextRunError =
     showErrors && !state.recurringNextRunAt ? "Choose the first payout date." : undefined;
+  const {
+    confirmedName,
+    isLookingUp,
+    error: lookupError,
+  } = useBankAccountLookup(state.recurringDestinationAccount, state.recurringDestinationBank);
 
   return (
     <div className="flex flex-col gap-5">
@@ -47,6 +55,8 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
           value={state.recurringDestinationBank}
           onChange={(e) => onChange({ recurringDestinationBank: e.target.value })}
           error={Boolean(bankError)}
+          searchable
+          searchPlaceholder="Search banks..."
         >
           <option value="">Select a bank</option>
           {banks.map((bank) => (
@@ -56,6 +66,27 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
           ))}
         </Select>
       </Field>
+
+      {isLookingUp && (
+        <div className="flex items-center gap-2">
+          <Spinner size="sm" />
+          <Text size="sm" color="secondary">
+            Verifying account...
+          </Text>
+        </div>
+      )}
+
+      {confirmedName && !isLookingUp && (
+        <Field label="Account name">
+          <Text weight="medium">{confirmedName}</Text>
+        </Field>
+      )}
+
+      {lookupError && !isLookingUp && (
+        <Text size="sm" color="error">
+          {lookupError}
+        </Text>
+      )}
 
       <Field
         label="Amount per payout"

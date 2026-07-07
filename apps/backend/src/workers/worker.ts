@@ -76,8 +76,7 @@ async function delayForThrottle(job: Job, token: string): Promise<never> {
   throw new DelayedError();
 }
 
-async function callNomba(data: DisbursementJobData) {
-  const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
+async function callNomba(data: DisbursementJobData, resolved: { accountName: string }) {
   const amount = BigInt(data.amount);
 
   const transfer = await nomba.transferToBankAccount({
@@ -110,6 +109,8 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
     throw new Error(`Pot ${data.potId} balance insufficient for ${data.kind} of ${amount} kobo`);
   }
 
+  const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
+
   let transaction;
   try {
     transaction = await LedgerService.postTransaction({
@@ -121,13 +122,13 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
         { accountId: platformFloat.id, direction: 'credit', amount: amount },
       ],
       metadata: data.contributorUserId
-        ? { potId: data.potId, contributorUserId: data.contributorUserId }
-        : { potId: data.potId },
+        ? { potId: data.potId, contributorUserId: data.contributorUserId, destinationAccountName: resolved.accountName }
+        : { potId: data.potId, destinationAccountName: resolved.accountName },
     });
 
     await db.update(pots).set({ pendingOperationTransactionId: transaction.id }).where(eq(pots.id, data.potId));
 
-    const { transfer } = await callNomba(data);
+    const { transfer } = await callNomba(data, resolved);
 
     if (transfer.status === 'SUCCESS') {
       await LedgerService.markCompleted(transaction.id);
@@ -176,7 +177,8 @@ function releaseLock(data: Extract<DisbursementJobData, { kind: 'payout' | 'pot_
 
 /** Contribution-expiry refund — the contribution never reached 'funded' so nothing exists in the ledger to reverse; just moves money back to the sender and marks the payment refunded. */
 async function processContributionRefund(data: Extract<DisbursementJobData, { kind: 'contribution_refund' }>) {
-  const { transfer } = await callNomba(data);
+  const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
+  const { transfer } = await callNomba(data, resolved);
 
   if (transfer.status === 'SUCCESS') {
     await db

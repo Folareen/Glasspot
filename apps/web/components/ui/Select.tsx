@@ -19,6 +19,8 @@ type SelectProps = {
   error?: boolean;
   className?: string;
   children: React.ReactNode;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 };
 
 // children arrives as a nested structure whenever a caller mixes static <option>s with a
@@ -48,15 +50,33 @@ function optionsFromChildren(children: React.ReactNode): SelectOption[] {
   return options;
 }
 
-export function Select({ id, value, onChange, required, disabled, error, className, children }: SelectProps) {
+export function Select({
+  id,
+  value,
+  onChange,
+  required,
+  disabled,
+  error,
+  className,
+  children,
+  searchable,
+  searchPlaceholder = "Search...",
+}: SelectProps) {
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const listId = `${id ?? "select"}-listbox`;
 
-  const options = useMemo(() => optionsFromChildren(children), [children]);
-  const selected = options.find((option) => option.value === value);
+  const allOptions = useMemo(() => optionsFromChildren(children), [children]);
+  const options = useMemo(() => {
+    if (!searchable || !query.trim()) return allOptions;
+    const q = query.trim().toLowerCase();
+    return allOptions.filter((option) => option.label.toLowerCase().includes(q));
+  }, [allOptions, searchable, query]);
+  const selected = allOptions.find((option) => option.value === value);
 
   useEffect(() => {
     if (!open) return;
@@ -73,8 +93,17 @@ export function Select({ id, value, onChange, required, disabled, error, classNa
     listRef.current?.children[highlightedIndex]?.scrollIntoView({ block: "nearest" });
   }, [open, highlightedIndex]);
 
+  useEffect(() => {
+    if (open && searchable) searchRef.current?.focus();
+  }, [open, searchable]);
+
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [query]);
+
   function openList() {
-    const index = options.findIndex((option) => option.value === value);
+    setQuery("");
+    const index = allOptions.findIndex((option) => option.value === value);
     setHighlightedIndex(index >= 0 ? index : 0);
     setOpen(true);
   }
@@ -85,7 +114,7 @@ export function Select({ id, value, onChange, required, disabled, error, classNa
     setOpen(false);
   }
 
-  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+  function handleKeyDown(event: React.KeyboardEvent<HTMLElement>) {
     if (disabled) return;
 
     if (!open) {
@@ -138,12 +167,24 @@ export function Select({ id, value, onChange, required, disabled, error, classNa
       </button>
 
       {open && (
-        <ul
-          ref={listRef}
-          id={listId}
-          role="listbox"
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-sm border border-border bg-surface py-1 shadow-md"
-        >
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-sm border border-border bg-surface shadow-md">
+          {searchable && (
+            <div className="border-b border-border p-2">
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={searchPlaceholder}
+                className="h-9 w-full rounded-sm border border-border bg-surface px-3 text-sm outline-none focus:border-accent"
+              />
+            </div>
+          )}
+          <ul ref={listRef} id={listId} role="listbox" className="max-h-60 overflow-y-auto py-1">
+          {options.length === 0 && (
+            <li className="px-4 py-2.5 text-sm text-text-secondary">No matches found</li>
+          )}
           {options.map((option, index) => (
             <li
               key={option.value}
@@ -164,7 +205,8 @@ export function Select({ id, value, onChange, required, disabled, error, classNa
               {option.value === value && <Check className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />}
             </li>
           ))}
-        </ul>
+          </ul>
+        </div>
       )}
     </div>
   );

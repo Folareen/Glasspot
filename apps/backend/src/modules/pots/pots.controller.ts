@@ -24,6 +24,21 @@ import {
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import type { Pot } from "@/db";
 
+/**
+ * The bank-confirmed account-holder name for a transaction row: the sender for a contribution
+ * (blank if the contributor chose anonymous), the resolved destination for a payout/refund. Read
+ * from transactions.metadata rather than a dedicated column — see worker.ts/contributions.service.ts
+ * for where each field is written at disbursement/funding time.
+ */
+export function displayNameFor(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const m = metadata as Record<string, unknown>;
+  if (m.anonymous === true) return null;
+  if (typeof m.senderName === "string") return m.senderName;
+  if (typeof m.destinationAccountName === "string") return m.destinationAccountName;
+  return null;
+}
+
 /** Converts one payoutMode config row (raw kobo bigints/Date fields from PotsService.getPayoutConfig, tagged by `mode`) to its wire shape, or null for manual mode with no fixed destination. Scheduled's legs array is converted leg-by-leg. */
 function serializePayoutConfig(config: PayoutConfigRow | null) {
   if (!config) return null;
@@ -338,6 +353,7 @@ export async function listTransactionsHandler(
       transactions.map((t) => ({
         ...t,
         amount: koboToNairaString(t.amount),
+        displayName: displayNameFor(t.metadata),
       }))
     );
   } catch (e) {

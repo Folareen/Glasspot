@@ -443,6 +443,11 @@ const transactionResponseSchema = z.object({
   // comment above.
   amount: z.string(),
   createdAt: z.string(),
+  // The bank-confirmed account-holder name behind this row — the sender for
+  // a contribution, the destination for a payout/refund. Derived server-side
+  // from transactions.metadata (see PotsController's mapping) and already
+  // null for an anonymous contribution, never the raw metadata blob.
+  displayName: z.string().nullable(),
 });
 
 // POST /pots/:id/refund always returns an array — one element for
@@ -467,6 +472,7 @@ const contributionResponseSchema = z.object({
   contributorUserId: z.string().uuid().nullable(),
   virtualAccountRef: z.string(),
   virtualAccountNumber: z.string().nullable(),
+  virtualAccountBankName: z.string().nullable(),
   // Naira string — see transactionResponseSchema's amount comment.
   expectedAmount: z.string(),
   status: z.enum(["pending", "funded", "underpaid", "failed", "reversed"]),

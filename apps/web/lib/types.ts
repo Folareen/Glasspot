@@ -180,6 +180,7 @@ export type TransactionResponse = {
   externalReference: string | null;
   amount: string;
   createdAt: string;
+  displayName: string | null;
 };
 
 export type MeTransaction = TransactionResponse & {
@@ -194,6 +195,7 @@ export type ContributionResponse = {
   contributorUserId: string | null;
   virtualAccountRef: string;
   virtualAccountNumber: string | null;
+  virtualAccountBankName: string | null;
   expectedAmount: string;
   status: ContributionStatus;
   anonymous: boolean;

@@ -6,6 +6,7 @@ import { ChevronRight, LogOut, Wallet } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Container } from "@/components/ui/Container";
 import { Heading } from "@/components/ui/Heading";
@@ -50,7 +51,7 @@ export default function ProfilePage() {
           </div>
         )}
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3 max-w-sm">
           <Link href="/profile/refund-account" className="block">
             <Card padding="sm" className="transition-colors duration-150 hover:bg-surface-hover">
               <div className="flex items-center gap-3">
@@ -77,18 +78,10 @@ export default function ProfilePage() {
             </Card>
           </Link>
 
-          <button type="button" onClick={handleLogout} className="block w-full text-left">
-            <Card padding="sm" className="transition-colors duration-150 hover:bg-surface-hover">
-              <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-hover text-text-secondary">
-                  <LogOut className="h-5 w-5" strokeWidth={1.5} />
-                </span>
-                <Text weight="medium" className="flex-1">
-                  Log out
-                </Text>
-              </div>
-            </Card>
-          </button>
+          <Button variant="danger" className="w-max " onClick={handleLogout}>
+            <LogOut className="h-4 w-4" strokeWidth={1.5} />
+            Log out
+          </Button>
         </div>
       </Container>
     </>

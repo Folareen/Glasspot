@@ -1,15 +1,14 @@
 import { ArrowDownToLine, ArrowUpFromLine, ReceiptText, RotateCcw, ArrowLeftRight } from "lucide-react";
 import { DataTableGridRow, type DataTableColumn } from "@/components/ui/DataTable";
 import { Money } from "@/components/ui/Money";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Text } from "@/components/ui/Text";
 import type { TransactionResponse, TransactionType } from "@/lib/types";
 
 export const activityColumns: DataTableColumn[] = [
   { key: "type", label: "Type", width: "1.5fr" },
+  { key: "name", label: "Name", width: "1.5fr" },
   { key: "date", label: "Date", width: "1.5fr" },
   { key: "amount", label: "Amount", width: "1fr", align: "right" },
-  { key: "status", label: "Status", width: "1fr", align: "right" },
 ];
 
 const iconByType: Record<TransactionType, typeof ArrowDownToLine> = {
@@ -62,14 +61,18 @@ export function PotTransactionRow({ transaction }: PotTransactionRowProps) {
           <Text weight="medium" className="truncate">
             {typeLabels[transaction.type]}
           </Text>
+          <Text size="xs" color="secondary" className="truncate">
+            {transaction.displayName ?? "Anonymous"}
+          </Text>
           <Text size="xs" color="secondary">
             {dateLabel} at {timeLabel}
           </Text>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <Money naira={transaction.amount} color={moneyColorFor(transaction.type)} className="font-medium" />
-          <StatusBadge status={transaction.status} />
-        </div>
+        <Money
+          naira={transaction.amount}
+          color={moneyColorFor(transaction.type)}
+          className="shrink-0 font-medium"
+        />
       </div>
 
       {/* Desktop: column-aligned table row */}
@@ -82,11 +85,13 @@ export function PotTransactionRow({ transaction }: PotTransactionRowProps) {
             </span>
             <Text weight="medium">{typeLabels[transaction.type]}</Text>
           </div>,
+          <Text key="name" size="sm" color="secondary" className="truncate">
+            {transaction.displayName ?? "Anonymous"}
+          </Text>,
           <Text key="date" size="sm" color="secondary">
             {dateLabel} · {timeLabel}
           </Text>,
           <Money key="amount" naira={transaction.amount} color={moneyColorFor(transaction.type)} className="font-medium" />,
-          <StatusBadge key="status" status={transaction.status} />,
         ]}
       />
     </>

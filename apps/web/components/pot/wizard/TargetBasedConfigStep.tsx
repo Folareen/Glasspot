@@ -3,7 +3,9 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
+import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
+import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -25,6 +27,11 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
   const accountError =
     showErrors && !state.targetDestinationAccount ? "Enter the payout account number." : undefined;
   const bankError = showErrors && !state.targetDestinationBank ? "Choose the payout bank." : undefined;
+  const {
+    confirmedName,
+    isLookingUp,
+    error: lookupError,
+  } = useBankAccountLookup(state.targetDestinationAccount, state.targetDestinationBank);
 
   return (
     <div className="flex flex-col gap-5">
@@ -46,6 +53,8 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           value={state.targetDestinationBank}
           onChange={(e) => onChange({ targetDestinationBank: e.target.value })}
           error={Boolean(bankError)}
+          searchable
+          searchPlaceholder="Search banks..."
         >
           <option value="">Select a bank</option>
           {banks.map((bank) => (
@@ -55,6 +64,27 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           ))}
         </Select>
       </Field>
+
+      {isLookingUp && (
+        <div className="flex items-center gap-2">
+          <Spinner size="sm" />
+          <Text size="sm" color="secondary">
+            Verifying account...
+          </Text>
+        </div>
+      )}
+
+      {confirmedName && !isLookingUp && (
+        <Field label="Account name">
+          <Text weight="medium">{confirmedName}</Text>
+        </Field>
+      )}
+
+      {lookupError && !isLookingUp && (
+        <Text size="sm" color="error">
+          {lookupError}
+        </Text>
+      )}
 
       <div>
         <Text size="sm" weight="medium">

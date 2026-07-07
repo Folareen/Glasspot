@@ -74,6 +74,10 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const router = useRouter();
   const { showToast } = useToast();
   const { currentUser } = useAuth();
+  // Anonymous visitors reach this page directly via a shared link and have no
+  // /home to go back to — see proxy.ts's isProtectedPotRoute for why this
+  // route is reachable without a session at all.
+  const backHref = currentUser ? "/home" : "/";
 
   const [pot, setPot] = useState<PotResponse | null | undefined>(undefined);
   const [memberRows, setMemberRows] = useState<MemberListRow[]>([]);
@@ -229,9 +233,9 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   const activityExportRows = filteredTransactions.map((transaction) => [
     transaction.type,
+    transaction.displayName ?? "Anonymous",
     new Date(transaction.createdAt).toISOString(),
     transaction.amount,
-    transaction.status,
   ]);
 
   const membersExportRows = filteredMembers.map((member) => [
@@ -287,7 +291,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             setActivityPage(1);
           }}
           exportFilename={`${currentPot.title}-activity`}
-          exportHeaders={["Type", "Date", "Amount", "Status"]}
+          exportHeaders={["Type", "Name", "Date", "Amount"]}
           exportRows={activityExportRows}
           onExpand={() => setActivityFullscreen(true)}
         />
@@ -390,13 +394,13 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   return (
     <div>
-      <AppHeader title={pot.title} backHref="/home" action={editAction} />
+      <AppHeader title={pot.title} backHref={backHref} action={editAction} />
 
       <Container maxWidth="2xl" className="py-6 lg:py-10">
         <PageHeading
           title={pot.title}
-          backHref="/home"
-          backLabel="Your pots"
+          backHref={backHref}
+          backLabel={currentUser ? "Your pots" : "Glasspot"}
           action={editAction}
           className="mb-6 hidden lg:block"
         />

@@ -40,7 +40,7 @@ export function SiteFooter() {
             <Link href="#faq" className={linkClasses}>
               FAQ
             </Link>
-            <Link href="/about" className={linkClasses}>
+            <Link href="#about" className={linkClasses}>
               About
             </Link>
           </div>

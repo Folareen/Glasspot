@@ -28,7 +28,7 @@ const glasspotWay = [
 
 export function ProblemSolution() {
   return (
-    <section className="py-16 sm:py-24">
+    <section id="about" className="py-16 sm:py-24">
       <Container>
         <div className="max-w-2xl">
           <Heading level={2} font="display">

@@ -73,10 +73,18 @@ export const ContributionsService = {
     // name; for an anonymous contributor who DID supply a refund account,
     // the verified bank-account holder name already resolved above (see
     // docs/system-rules.md's validate-before-storing pattern); otherwise a
-    // generic placeholder (an anonymous contributor who omitted the
-    // refund account, or a refundType='admin' pot with no such field at
-    // all — see postContributorsRefund's sender-account fallback for how
-    // the omitted case still gets refunded correctly).
+    // "Glasspot-<pot title>" placeholder (an anonymous contributor who
+    // omitted the refund account, or a refundType='admin' pot with no such
+    // field at all — see postContributorsRefund's sender-account fallback
+    // for how the omitted case still gets refunded correctly). This lets the
+    // contributor cross-check the account name their bank app shows against
+    // the pot they're actually paying into, without depending on a real name
+    // that doesn't exist yet at this point. Nomba's own bank-facing NUBAN
+    // display reportedly prefixes this with their own brand regardless — out
+    // of our control — so this stays within nomba.createVirtualAccount's
+    // 8-64 char bound (Glasspot- alone is 9) and uses as much of the pot
+    // title as fits (20 chars) rather than a short slice, since Nomba's
+    // prefix eats into what the contributor actually sees first.
     let accountName: string;
     if (userId) {
       const [contributor] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -85,7 +93,7 @@ export const ContributionsService = {
       }
       accountName = contributor.fullName;
     } else {
-      accountName = refundAccountName ?? "Anonymous contributor";
+      accountName = refundAccountName ?? `Glasspot-${pot.title.replace(/\s+/g, "").slice(0, 20)}`;
     }
 
     // Request-level idempotency is enforced at the HTTP layer (see
@@ -116,6 +124,7 @@ export const ContributionsService = {
         contributorUserId: userId,
         virtualAccountRef,
         virtualAccountNumber: virtualAccount.bankAccountNumber,
+        virtualAccountBankName: virtualAccount.bankName,
         expectedAmount: amount,
         anonymous: input.anonymous ?? false,
         refundAccountNumber,
@@ -228,6 +237,7 @@ export const ContributionsService = {
         potId: contribution.potId,
         contributorUserId: contribution.contributorUserId,
         anonymous: contribution.anonymous,
+        senderName: payment.customer.senderName,
         refundAccountNumber: contribution.refundAccountNumber,
         refundAccountName: contribution.refundAccountName,
         refundBank: contribution.refundBank,

@@ -3,7 +3,9 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
+import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
+import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import type { WizardState } from "./wizard-types";
 
 type ManualConfigStepProps = {
@@ -27,6 +29,11 @@ export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigSt
     showErrors && state.manualDestinationAccount && !state.manualDestinationBank
       ? "Add a bank too."
       : undefined;
+  const {
+    confirmedName,
+    isLookingUp,
+    error: lookupError,
+  } = useBankAccountLookup(state.manualDestinationAccount, state.manualDestinationBank);
 
   return (
     <div className="flex flex-col gap-5">
@@ -76,6 +83,8 @@ export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigSt
           value={state.manualDestinationBank}
           onChange={(e) => onChange({ manualDestinationBank: e.target.value })}
           error={Boolean(bankError)}
+          searchable
+          searchPlaceholder="Search banks..."
         >
           <option value="">Select a bank</option>
           {banks.map((bank) => (
@@ -85,6 +94,27 @@ export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigSt
           ))}
         </Select>
       </Field>
+
+      {isLookingUp && (
+        <div className="flex items-center gap-2">
+          <Spinner size="sm" />
+          <Text size="sm" color="secondary">
+            Verifying account...
+          </Text>
+        </div>
+      )}
+
+      {confirmedName && !isLookingUp && (
+        <Field label="Account name">
+          <Text weight="medium">{confirmedName}</Text>
+        </Field>
+      )}
+
+      {lookupError && !isLookingUp && (
+        <Text size="sm" color="error">
+          {lookupError}
+        </Text>
+      )}
     </div>
   );
 }

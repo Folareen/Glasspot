@@ -18,7 +18,11 @@ type LoginFormErrors = {
   password?: string;
 };
 
-export function LoginForm() {
+type LoginFormProps = {
+  redirectTo?: string;
+};
+
+export function LoginForm({ redirectTo }: LoginFormProps) {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -44,7 +48,9 @@ export function LoginForm() {
     setIsSubmitting(true);
     try {
       await login({ email: email.trim(), password });
-      router.push(`/login/verify?email=${encodeURIComponent(email.trim())}`);
+      const params = new URLSearchParams({ email: email.trim() });
+      if (redirectTo) params.set("redirect", redirectTo);
+      router.push(`/login/verify?${params.toString()}`);
     } catch (e) {
       // AuthService.login rejects with 403 specifically (and only) when the account exists,
       // the password is correct, but the email was never verified after signup — the account has

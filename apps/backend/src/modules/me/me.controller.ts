@@ -3,6 +3,7 @@ import { AuthService } from "@/modules/auth/auth.service";
 import { AuthError } from "@/modules/auth/auth.errors";
 import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import { PotsService } from "@/modules/pots/pots.service";
+import { displayNameFor } from "@/modules/pots/pots.controller";
 import { koboToNairaString } from "@/lib/money";
 import { UpdateRefundProfileInput } from "./me.schema";
 
@@ -49,6 +50,7 @@ export async function listMyTransactionsHandler(request: FastifyRequest, reply: 
       transactions.map((t) => ({
         ...t,
         amount: koboToNairaString(t.amount),
+        displayName: displayNameFor(t.metadata),
       }))
     );
   } catch (e) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Button } from "@/components/ui/Button";
@@ -12,9 +12,10 @@ import { Select } from "@/components/ui/Select";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
+import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
-import { ApiError, lookupBankAccount, updateRefundProfile } from "@/lib/api";
+import { ApiError, updateRefundProfile } from "@/lib/api";
 
 const NUBAN_LENGTH = 10;
 
@@ -27,43 +28,14 @@ export default function RefundAccountPage() {
   const [bankCode, setBankCode] = useState(currentUser?.defaultRefundBank ?? "");
   const [accountNumber, setAccountNumber] = useState(currentUser?.defaultRefundAccount ?? "");
   const [errors, setErrors] = useState<{ bankCode?: string; accountNumber?: string }>({});
-  // Tagged with the exact accountNumber/bankCode pair it was resolved for, so a lookup that
-  // resolves after the user has already changed either field is never shown as confirming the
-  // new (different) pair — avoids a synchronous "reset to null" at the top of the lookup effect.
-  const [confirmed, setConfirmed] = useState<{ accountNumber: string; bankCode: string; name: string } | null>(null);
-  const [isLookingUp, setIsLookingUp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const isComplete = bankCode !== "" && accountNumber.length === NUBAN_LENGTH;
-  const confirmedName =
-    confirmed && confirmed.accountNumber === accountNumber && confirmed.bankCode === bankCode
-      ? confirmed.name
-      : null;
-
-  useEffect(() => {
-    if (!isComplete) return;
-    let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- immediate loading indicator for the lookup this same effect kicks off; there's no external event to defer it to.
-    setIsLookingUp(true);
-    lookupBankAccount({ accountNumber, bankCode })
-      .then((result) => {
-        if (!cancelled) setConfirmed({ accountNumber, bankCode, name: result.accountName });
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setErrors((prev) => ({
-            ...prev,
-            accountNumber: e instanceof ApiError ? e.message : "Couldn't verify that account.",
-          }));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLookingUp(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [accountNumber, bankCode, isComplete]);
+  const {
+    confirmedName,
+    isLookingUp,
+    error: lookupError,
+    isComplete,
+  } = useBankAccountLookup(accountNumber, bankCode);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -117,6 +89,8 @@ export default function RefundAccountPage() {
               }}
               required
               error={Boolean(errors.bankCode)}
+              searchable
+              searchPlaceholder="Search banks..."
             >
               <option value="" disabled>
                 Select a bank
@@ -129,7 +103,12 @@ export default function RefundAccountPage() {
             </Select>
           </Field>
 
-          <Field label="Account number" htmlFor="refund-account-number" required error={errors.accountNumber}>
+          <Field
+            label="Account number"
+            htmlFor="refund-account-number"
+            required
+            error={errors.accountNumber ?? lookupError ?? undefined}
+          >
             <Input
               id="refund-account-number"
               type="tel"
@@ -142,7 +121,7 @@ export default function RefundAccountPage() {
               }}
               placeholder="0123456789"
               required
-              error={Boolean(errors.accountNumber)}
+              error={Boolean(errors.accountNumber) || Boolean(lookupError)}
             />
           </Field>
 
