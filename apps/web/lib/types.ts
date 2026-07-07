@@ -151,26 +151,28 @@ export type MemberResponse = {
   potId: string;
   userId: string;
   role: PotMemberRole;
-  invitedByUserId: string | null;
+  addedByUserId: string | null;
   joinedAt: string;
   fullName: string;
   username: string;
   email: string;
 };
 
-export type InviteResponse = {
+// Not an invite the recipient accepts/declines — an admin added this email to the pot; this row
+// just tracks that it'll become a real MemberResponse automatically once they sign up and verify.
+export type PendingMemberResponse = {
   id: string;
   potId: string;
   email: string;
   role: PotMemberRole;
-  status: "pending" | "accepted" | "cancelled";
-  invitedByUserId: string;
-  acceptedUserId: string | null;
+  status: "pending" | "joined" | "removed";
+  addedByUserId: string;
+  joinedUserId: string | null;
   createdAt: string;
-  acceptedAt: string | null;
+  joinedAt: string | null;
 };
 
-export type AddMemberResponse = MemberResponse | Omit<InviteResponse, "acceptedUserId" | "acceptedAt">;
+export type AddMemberResponse = MemberResponse | Omit<PendingMemberResponse, "joinedUserId" | "joinedAt">;
 
 export type TransactionResponse = {
   id: string;

@@ -1,7 +1,7 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { PotsService, type PayoutConfigRow } from "./pots.service";
 import { PotMembersService } from "./pot-members.service";
-import { PotInvitesService } from "./pot-invites.service";
+import { PendingMembersService } from "./pending-members.service";
 import { ContributionsService } from "./contributions.service";
 import { assertIsAdmin, getViewablePotOrThrow } from "./pot-authorization";
 import { PotError } from "./pots.errors";
@@ -11,7 +11,7 @@ import {
   AddMemberInput,
   ContributeInput,
   CreatePotInput,
-  InviteIdParams,
+  PendingMemberParams,
   ListPotsQuery,
   MemberParams,
   PotIdParams,
@@ -377,7 +377,7 @@ export async function listMembersHandler(
   }
 }
 
-/** Adds a member to a pot by email (admin-only): joins immediately if the email belongs to a verified user, otherwise creates a pending invite resolved later on verification. */
+/** Adds a member to a pot by email (admin-only): joins immediately if the email belongs to a verified user, otherwise creates a pending row resolved automatically on that person's signup verification. Either way they're emailed the pot link — this is not an invite they accept or decline. */
 export async function addMemberHandler(
   request: FastifyRequest<{ Params: PotIdParams; Body: AddMemberInput }>,
   reply: FastifyReply
@@ -385,39 +385,39 @@ export async function addMemberHandler(
   try {
     const userId = requireUserId(request);
     await assertIsAdmin(request.params.id, userId);
-    const result = await PotInvitesService.create(request.params.id, userId, request.body);
-    const body = result.kind === "member" ? result.member : result.invite;
+    const result = await PendingMembersService.create(request.params.id, userId, request.body);
+    const body = result.kind === "member" ? result.member : result.pending;
     return reply.code(201).send(body);
   } catch (e) {
     return handlePotError(e, reply);
   }
 }
 
-/** Lists every invite (any status) for a pot (admin-only). */
-export async function listInvitesHandler(
+/** Lists every pending-member row (any status) for a pot (admin-only) — people added by email who haven't signed up/verified yet. */
+export async function listPendingMembersHandler(
   request: FastifyRequest<{ Params: PotIdParams }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
     await assertIsAdmin(request.params.id, userId);
-    const invites = await PotInvitesService.list(request.params.id);
-    return reply.code(200).send(invites);
+    const pending = await PendingMembersService.list(request.params.id);
+    return reply.code(200).send(pending);
   } catch (e) {
     return handlePotError(e, reply);
   }
 }
 
-/** Cancels a still-pending invite (admin-only) and responds 200. */
-export async function cancelInviteHandler(
-  request: FastifyRequest<{ Params: InviteIdParams }>,
+/** Removes a still-pending row (admin-only) and responds 200 — for undoing an add-by-email before that person has signed up. */
+export async function removePendingMemberHandler(
+  request: FastifyRequest<{ Params: PendingMemberParams }>,
   reply: FastifyReply
 ) {
   try {
     const userId = requireUserId(request);
     await assertIsAdmin(request.params.id, userId);
-    await PotInvitesService.cancel(request.params.id, request.params.inviteId);
-    return reply.code(200).send({ message: "Invite cancelled" });
+    await PendingMembersService.remove(request.params.id, request.params.pendingId);
+    return reply.code(200).send({ message: "Pending member removed" });
   } catch (e) {
     return handlePotError(e, reply);
   }
@@ -452,6 +452,20 @@ export async function removeMemberHandler(
     await assertIsAdmin(request.params.id, userId);
     await PotMembersService.remove(request.params.id, request.params.userId);
     return reply.code(200).send({ message: "Member removed" });
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/** A member removing themselves from a pot (self-service, no admin check) — refuses if they're the pot's last remaining admin, same as removeMemberHandler's protection. */
+export async function leavePotHandler(
+  request: FastifyRequest<{ Params: PotIdParams }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    await PotMembersService.leave(request.params.id, userId);
+    return reply.code(200).send({ message: "Left pot" });
   } catch (e) {
     return handlePotError(e, reply);
   }

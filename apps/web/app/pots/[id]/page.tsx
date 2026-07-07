@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { use } from "react";
-import { Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
+import { LogOut, Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
@@ -29,12 +29,13 @@ import { cn } from "@/lib/cn";
 import {
   ApiError,
   activatePot,
-  cancelInvite,
+  removePendingMember,
   closePot,
   getPot,
-  getPotInvites,
+  getPendingMembers,
   getPotMembers,
   getPotTransactions,
+  leavePot,
   removeMember,
 } from "@/lib/api";
 import { describePayoutRule } from "@/components/pot/payout-rule-copy";
@@ -44,7 +45,7 @@ import { PotMemberRow, memberColumns, type MemberListRow } from "@/components/po
 import { ActionRow } from "@/components/pot/ActionRow";
 import { ContributeModal } from "@/components/pot/ContributeModal";
 import { AwaitingPaymentModal } from "@/components/pot/AwaitingPaymentModal";
-import { InviteMemberModal } from "@/components/pot/InviteMemberModal";
+import { AddMemberModal } from "@/components/pot/AddMemberModal";
 import { ConfirmActionModal } from "@/components/pot/ConfirmActionModal";
 import { RefundConfirmModal } from "@/components/pot/RefundConfirmModal";
 import { CloseConfirmModal } from "@/components/pot/CloseConfirmModal";
@@ -61,7 +62,7 @@ const activityFilters: { id: string; label: string; types?: TransactionType[] }[
 
 const memberFilters = [
   { id: "all", label: "Members" },
-  { id: "invites", label: "Invites" },
+  { id: "pending", label: "Pending" },
   { id: "admins", label: "Admins" },
 ];
 
@@ -85,12 +86,13 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   const [contributeOpen, setContributeOpen] = useState(false);
   const [pendingContribution, setPendingContribution] = useState<ContributionResponse | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [activateOpen, setActivateOpen] = useState(false);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [removeMemberTarget, setRemoveMemberTarget] = useState<MemberListRow | null>(null);
+  const [leaveOpen, setLeaveOpen] = useState(false);
   const [activityFilter, setActivityFilter] = useState("all");
   const [activityPageSize, setActivityPageSize] = useState<PageSize>(10);
   const [activityPage, setActivityPage] = useState(1);
@@ -120,13 +122,13 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       const members = await getPotMembers(id);
       const rows: MemberListRow[] = members.map((m) => ({ kind: "member" as const, ...m }));
       try {
-        const invites = await getPotInvites(id);
-        const pending = invites
-          .filter((i) => i.status === "pending")
-          .map((i) => ({ kind: "invite" as const, id: i.id, potId: i.potId, email: i.email, role: i.role }));
+        const pendingRows = await getPendingMembers(id);
+        const pending = pendingRows
+          .filter((p) => p.status === "pending")
+          .map((p) => ({ kind: "pending" as const, id: p.id, potId: p.potId, email: p.email, role: p.role }));
         setMemberRows([...rows, ...pending]);
       } catch {
-        // Non-admins get a 403 on GET /pots/:id/invites — fine, just show real members.
+        // Non-admins get a 403 on GET /pots/:id/pending-members — fine, just show real members.
         setMemberRows(rows);
       }
     } catch (e) {
@@ -212,7 +214,8 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
     isAdmin && pot.status === "open" && !pot.pendingOperation && Number(pot.balance) > 0;
 
   const canClose = isAdmin && pot.status === "open";
-  const hasActions = canTriggerPayout || canTriggerRefund || canClose;
+  const isCurrentMember = memberRows.some((m) => m.kind === "member" && m.userId === currentUser?.id);
+  const hasActions = canTriggerPayout || canTriggerRefund || canClose || isCurrentMember;
 
   const activityFilterDef = activityFilters.find((filter) => filter.id === activityFilter);
   const filteredTransactions = activityFilterDef?.types
@@ -225,8 +228,8 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       : filteredTransactions.slice((activityPage - 1) * activityPageSize, activityPage * activityPageSize);
 
   const filteredMembers =
-    memberFilter === "invites"
-      ? memberRows.filter((m) => m.kind === "invite")
+    memberFilter === "pending"
+      ? memberRows.filter((m) => m.kind === "pending")
       : memberFilter === "admins"
         ? memberRows.filter((m) => m.role === "admin")
         : memberRows;
@@ -239,10 +242,10 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   ]);
 
   const membersExportRows = filteredMembers.map((member) => [
-    member.kind === "invite" ? member.email : member.fullName,
-    member.kind === "invite" ? "" : member.username,
+    member.kind === "pending" ? member.email : member.fullName,
+    member.kind === "pending" ? "" : member.username,
     member.role,
-    member.kind === "invite" ? "pending" : "active",
+    member.kind === "pending" ? "pending" : "active",
   ]);
 
   function renderActivityFilters() {
@@ -333,7 +336,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           ))}
         </div>
         {isAdmin && (
-          <Button size="sm" variant="secondary" onClick={() => setInviteOpen(true)}>
+          <Button size="sm" variant="secondary" onClick={() => setAddMemberOpen(true)}>
             <UserPlus className="h-4 w-4" strokeWidth={1.5} />
             Add
           </Button>
@@ -363,13 +366,13 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
               key={member.id}
               row={member}
               action={
-                isAdmin && (member.kind === "invite" || member.userId !== currentUser?.id) ? (
+                isAdmin && (member.kind === "pending" || member.userId !== currentUser?.id) ? (
                   <button
                     type="button"
                     onClick={() => setRemoveMemberTarget(member)}
                     className="text-xs font-medium text-text-secondary transition-colors duration-150 hover:text-error"
                   >
-                    {member.kind === "invite" ? "Cancel invite" : "Remove"}
+                    Remove
                   </button>
                 ) : undefined
               }
@@ -532,6 +535,16 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                       onClick={() => setCloseOpen(true)}
                     />
                   )}
+                  {isCurrentMember && (
+                    <ActionRow
+                      icon={<LogOut className="h-5 w-5" strokeWidth={1.5} />}
+                      title="Leave pot"
+                      description="You'll lose access to this pot and won't be able to contribute or see updates unless added again."
+                      buttonLabel="Leave"
+                      danger
+                      onClick={() => setLeaveOpen(true)}
+                    />
+                  )}
                 </div>
               )}
             </>
@@ -567,9 +580,9 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           loadTransactions();
         }}
       />
-      <InviteMemberModal
-        open={inviteOpen}
-        onClose={() => setInviteOpen(false)}
+      <AddMemberModal
+        open={addMemberOpen}
+        onClose={() => setAddMemberOpen(false)}
         potId={pot.id}
         onAdded={loadMembers}
       />
@@ -654,9 +667,9 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         onConfirm={async () => {
           if (!removeMemberTarget) return;
           try {
-            if (removeMemberTarget.kind === "invite") {
-              await cancelInvite(pot.id, removeMemberTarget.id);
-              showToast(`Invite to ${removeMemberTarget.email} canceled`);
+            if (removeMemberTarget.kind === "pending") {
+              await removePendingMember(pot.id, removeMemberTarget.id);
+              showToast(`${removeMemberTarget.email} removed`);
             } else {
               await removeMember(pot.id, removeMemberTarget.userId);
               showToast(`${removeMemberTarget.fullName || removeMemberTarget.email} removed`);
@@ -666,14 +679,32 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             showToast(e instanceof ApiError ? e.message : "Couldn't complete that action", "error");
           }
         }}
-        title={removeMemberTarget?.kind === "invite" ? "Cancel this invite?" : "Remove this member?"}
+        title={removeMemberTarget?.kind === "pending" ? "Remove this pending member?" : "Remove this member?"}
         description={
-          removeMemberTarget?.kind === "invite"
-            ? "They won't be able to join this pot with that invite anymore."
-            : "They'll lose access to this pot and won't be able to contribute or see updates unless invited again."
+          removeMemberTarget?.kind === "pending"
+            ? "They won't be added to this pot when they sign up unless added again."
+            : "They'll lose access to this pot and won't be able to contribute or see updates unless added again."
         }
-        confirmLabel={removeMemberTarget?.kind === "invite" ? "Cancel invite" : "Remove member"}
-        danger={removeMemberTarget?.kind !== "invite"}
+        confirmLabel="Remove"
+        danger
+      />
+
+      <ConfirmActionModal
+        open={leaveOpen}
+        onClose={() => setLeaveOpen(false)}
+        onConfirm={async () => {
+          try {
+            await leavePot(pot.id);
+            showToast("You left the pot", "success");
+            router.push(backHref);
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't leave this pot", "error");
+          }
+        }}
+        title="Leave this pot?"
+        description="You'll lose access to this pot and won't be able to contribute or see updates unless added again."
+        confirmLabel="Leave pot"
+        danger
       />
     </div>
   );

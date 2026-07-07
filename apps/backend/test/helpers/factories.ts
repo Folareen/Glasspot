@@ -94,7 +94,7 @@ export async function createTestPot(
   return pot;
 }
 
-/** Adds an existing user to an existing pot with the given role, without going through PotInvitesService. */
+/** Adds an existing user to an existing pot with the given role, without going through PendingMembersService. */
 export async function addTestMember(potId: string, userId: string, role: "admin" | "member" = "member") {
   const [member] = await db.insert(potMembers).values({ potId, userId, role }).returning();
   return member;
