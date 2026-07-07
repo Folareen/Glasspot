@@ -5,7 +5,7 @@
     "dev": "pnpm db:up && turbo run dev dev:worker",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "db:up": "docker compose -f apps/backend/docker-compose.yml --env-file apps/backend/.env up -d",
+    "db:up": "pnpm --filter @glasspot/backend db:up",
     "db:generate": "pnpm --filter @glasspot/backend db:generate",
     "db:migrate": "pnpm --filter @glasspot/backend db:migrate",
     "db:studio": "pnpm --filter @glasspot/backend db:studio"
