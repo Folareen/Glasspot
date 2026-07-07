@@ -11,6 +11,7 @@ import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
+import { TargetBasedPayoutService } from "./target-based-payout.service";
 
 /** How long a virtual account stays open for funding before ExpiryService sweeps it — see contributions.ts's expiresAt comment. */
 export const CONTRIBUTION_EXPIRY_HOURS = 24;
@@ -237,6 +238,19 @@ export const ContributionsService = {
       .update(contributions)
       .set({ status: "funded", transactionId: transaction.id, fundedAt: new Date() })
       .where(eq(contributions.id, contribution.id));
+
+    // Fire a target_based payout immediately if this contribution just pushed the pot's balance
+    // to its targetAmount, rather than waiting for the once-daily cron sweep
+    // (TargetBasedPayoutService.fireDueTargetBasedPayouts) to notice — see that service's
+    // checkAndFireForPot. No-op for every other payoutMode/pot state. Failure here (enqueue
+    // error, pot already mid-payout) is logged and swallowed rather than thrown: the sweep still
+    // catches it later, and a webhook handler failing must never leave the event unprocessed or
+    // Nomba will redeliver it forever (see NombaWebhooksService.handle).
+    try {
+      await TargetBasedPayoutService.checkAndFireForPot(contribution.potId);
+    } catch (err) {
+      console.error(`checkAndFireForPot failed for pot ${contribution.potId} after contribution ${contribution.id}:`, err);
+    }
 
     const excess = receivedTotal - contribution.expectedAmount;
     if (excess > 0n) {

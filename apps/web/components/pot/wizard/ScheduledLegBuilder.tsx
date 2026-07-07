@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
 import { Divider } from "@/components/ui/Divider";
-import { nigerianBanks } from "@/lib/mock/fixtures";
+import { useBanks } from "@/lib/useBanks";
 import { isPositiveAmount } from "./wizard-helpers";
-import type { ScheduledLeg } from "@/lib/mock/types";
+import type { WizardScheduledLeg } from "./wizard-types";
 
 type LegErrors = {
   account?: string;
@@ -20,7 +20,7 @@ type LegErrors = {
 const NO_ERRORS: LegErrors = {};
 
 /** Per-leg field errors, mirroring isConfigStepValid's "scheduled" case (wizard-helpers.ts) field for field. */
-function legErrors(leg: ScheduledLeg): LegErrors {
+function legErrors(leg: WizardScheduledLeg): LegErrors {
   return {
     account: leg.destinationAccount ? undefined : "Enter the account number.",
     bank: leg.destinationBank ? undefined : "Choose the bank.",
@@ -31,27 +31,27 @@ function legErrors(leg: ScheduledLeg): LegErrors {
 
 type ScheduledLegBuilderProps = {
   ordered: boolean;
-  legs: ScheduledLeg[];
-  onChange: (legs: ScheduledLeg[]) => void;
+  legs: WizardScheduledLeg[];
+  onChange: (legs: WizardScheduledLeg[]) => void;
   /** Show validation messages. Lifted from the parent wizard page's Continue/Save click, so errors only appear after a submit attempt. */
   showErrors?: boolean;
 };
 
-function emptyLeg(sequenceOrder: number): ScheduledLeg {
+function emptyLeg(sequenceOrder: number): WizardScheduledLeg {
   return {
     destinationAccount: "",
     destinationBank: "",
     sequenceOrder,
     amount: "",
     scheduledDate: "",
-    firedAt: null,
   };
 }
 
 export function ScheduledLegBuilder({ ordered, legs, onChange, showErrors }: ScheduledLegBuilderProps) {
+  const { banks } = useBanks();
   const legLabel = ordered ? "Turn" : "Payout";
 
-  function updateLeg(index: number, patch: Partial<ScheduledLeg>) {
+  function updateLeg(index: number, patch: Partial<WizardScheduledLeg>) {
     onChange(legs.map((leg, i) => (i === index ? { ...leg, ...patch } : leg)));
   }
 
@@ -110,7 +110,7 @@ export function ScheduledLegBuilder({ ordered, legs, onChange, showErrors }: Sch
                   error={Boolean(errors.bank)}
                 >
                   <option value="">Select a bank</option>
-                  {nigerianBanks.map((bank) => (
+                  {banks.map((bank) => (
                     <option key={bank.code} value={bank.code}>
                       {bank.name}
                     </option>

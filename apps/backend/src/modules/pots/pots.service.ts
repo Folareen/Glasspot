@@ -17,6 +17,11 @@ import db, {
   scheduledPayoutLegs,
   type Pot,
   type Transaction,
+  type TargetBasedPayoutConfig,
+  type ManualPayoutConfig,
+  type RecurringPayoutConfig,
+  type ScheduledPayoutConfig,
+  type ScheduledPayoutLeg,
 } from "@/db";
 import { PotError } from "./pots.errors";
 import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
@@ -44,6 +49,16 @@ type PayoutModeConfigPair =
   | { payoutMode: "manual"; payoutConfig: z.infer<typeof manualPayoutConfigSchema> }
   | { payoutMode: "recurring"; payoutConfig: z.infer<typeof recurringPayoutConfigSchema> }
   | { payoutMode: "scheduled"; payoutConfig: z.infer<typeof scheduledPayoutConfigSchema> };
+
+// Raw (kobo/Date, not yet wire-serialized) return shape of PotsService.getPayoutConfig — a real
+// discriminated union (tagged by `mode`) so pots.controller.ts's serializePayoutConfig can switch
+// on payoutMode and narrow without an unsound cast, since none of the four config tables share a
+// natural discriminant column of their own.
+export type PayoutConfigRow =
+  | ({ mode: "target_based" } & TargetBasedPayoutConfig)
+  | ({ mode: "manual" } & ManualPayoutConfig)
+  | ({ mode: "recurring" } & RecurringPayoutConfig)
+  | ({ mode: "scheduled" } & ScheduledPayoutConfig & { legs: ScheduledPayoutLeg[] });
 
 /** Generates a random URL-safe slug for a pot's share link. */
 function generateShareSlug(): string {
@@ -204,6 +219,50 @@ export const PotsService = {
   async getBalance(potId: string): Promise<bigint> {
     const potAccount = await AccountsService.getOrCreatePotAccount(potId);
     return LedgerService.getBalance(potAccount.id);
+  },
+
+  /** Reads back this pot's payoutMode-specific config row (kobo/Date fields still raw — serializePot converts to wire format), or null for a manual-mode pot with no fixed destination configured. */
+  async getPayoutConfig(potId: string, payoutMode: Pot["payoutMode"]): Promise<PayoutConfigRow | null> {
+    switch (payoutMode) {
+      case "target_based": {
+        const [config] = await db
+          .select()
+          .from(targetBasedPayoutConfigs)
+          .where(eq(targetBasedPayoutConfigs.potId, potId))
+          .limit(1);
+        return config ? { mode: "target_based", ...config } : null;
+      }
+      case "manual": {
+        const [config] = await db
+          .select()
+          .from(manualPayoutConfigs)
+          .where(eq(manualPayoutConfigs.potId, potId))
+          .limit(1);
+        return config ? { mode: "manual", ...config } : null;
+      }
+      case "recurring": {
+        const [config] = await db
+          .select()
+          .from(recurringPayoutConfigs)
+          .where(eq(recurringPayoutConfigs.potId, potId))
+          .limit(1);
+        return config ? { mode: "recurring", ...config } : null;
+      }
+      case "scheduled": {
+        const [config] = await db
+          .select()
+          .from(scheduledPayoutConfigs)
+          .where(eq(scheduledPayoutConfigs.potId, potId))
+          .limit(1);
+        if (!config) return null;
+        const legs = await db
+          .select()
+          .from(scheduledPayoutLegs)
+          .where(eq(scheduledPayoutLegs.scheduledConfigId, config.id))
+          .orderBy(scheduledPayoutLegs.sequenceOrder);
+        return { mode: "scheduled", ...config, legs };
+      }
+    }
   },
 
   /**

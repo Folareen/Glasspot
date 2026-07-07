@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
+import { ApiError, login, resendOtp } from "@/lib/api";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -23,7 +25,7 @@ export function LoginForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<LoginFormErrors>({});
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const nextErrors: LoginFormErrors = {};
     if (!email.trim()) {
@@ -40,9 +42,27 @@ export function LoginForm() {
     }
     setErrors({});
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      await login({ email: email.trim(), password });
       router.push(`/login/verify?email=${encodeURIComponent(email.trim())}`);
-    }, 600);
+    } catch (e) {
+      // AuthService.login rejects with 403 specifically (and only) when the account exists,
+      // the password is correct, but the email was never verified after signup — the account has
+      // no way to get a fresh code otherwise, since it never reached the OTP step the first time.
+      // Resend the signup-verification code here and drop them at the same verify screen a fresh
+      // signup would, rather than stranding them on a "couldn't log in" error with no way forward.
+      if (e instanceof ApiError && e.status === 403) {
+        try {
+          await resendOtp({ email: email.trim(), purpose: "signup_verification" });
+        } catch {
+          // Best-effort — verify page's own "Resend code" still works if this one failed.
+        }
+        router.push(`/signup/verify?email=${encodeURIComponent(email.trim())}`);
+        return;
+      }
+      setErrors({ password: e instanceof ApiError ? e.message : "Couldn't log you in" });
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -62,9 +82,8 @@ export function LoginForm() {
         />
       </Field>
       <Field label="Password" htmlFor="password" required error={errors.password}>
-        <Input
+        <PasswordInput
           id="password"
-          type="password"
           autoComplete="current-password"
           value={password}
           onChange={(e) => {

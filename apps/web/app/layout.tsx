@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
-import { MockStoreProvider } from "@/lib/mock/store";
+import { AuthProvider } from "@/lib/auth";
 import { ToastProvider } from "@/lib/toast";
 import "./globals.css";
 
@@ -20,9 +20,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Glasspot: group money, governed by agreement",
+  title: "Glasspot — contributions that move by agreed rules, in plain sight",
   description:
-    "Glasspot is a shared pot for group money. The group agrees on the rule before anyone pays, so money only moves when that rule is met, visible to everyone in the pot.",
+    "Set the rule before anyone pays. Whether it fires automatically or an admin triggers it, every move is visible to the contributors.",
   manifest: "/manifest.webmanifest",
 };
 
@@ -41,9 +41,9 @@ export default function RootLayout({
       className={`${fraunces.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <MockStoreProvider>
+        <AuthProvider>
           <ToastProvider>{children}</ToastProvider>
-        </MockStoreProvider>
+        </AuthProvider>
       </body>
     </html>
   );

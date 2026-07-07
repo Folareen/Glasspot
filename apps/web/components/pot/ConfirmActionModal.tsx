@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/Spinner";
 type ConfirmActionModalProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  onConfirm: () => Promise<void>;
   title: string;
   description: string;
   confirmLabel: string;
@@ -27,11 +27,14 @@ export function ConfirmActionModal({
 }: ConfirmActionModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleConfirm() {
+  async function handleConfirm() {
     setIsSubmitting(true);
-    onConfirm();
-    setIsSubmitting(false);
-    onClose();
+    try {
+      await onConfirm();
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (

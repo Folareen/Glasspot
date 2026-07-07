@@ -21,7 +21,7 @@ export default async function SignupVerifyPage({ searchParams }: SignupVerifyPag
           Can&apos;t find it? Check your spam or junk folder.
         </Text>
       </div>
-      <OtpVerifyForm email={email} successMessage="Account created successfully" />
+      <OtpVerifyForm email={email} mode="signup" successMessage="Account created successfully" />
     </AuthCard>
   );
 }

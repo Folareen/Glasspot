@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { use } from "react";
 import { Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
@@ -21,23 +21,36 @@ import { DataTable } from "@/components/ui/DataTable";
 import { Pagination, type PageSize } from "@/components/ui/Pagination";
 import { TableToolbar } from "@/components/ui/TableToolbar";
 import { TableFullscreenModal } from "@/components/ui/TableFullscreenModal";
+import { Spinner } from "@/components/ui/Spinner";
 import { Users, ReceiptText } from "lucide-react";
-import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
 import { cn } from "@/lib/cn";
+import {
+  ApiError,
+  activatePot,
+  cancelInvite,
+  closePot,
+  getPot,
+  getPotInvites,
+  getPotMembers,
+  getPotTransactions,
+  removeMember,
+} from "@/lib/api";
 import { describePayoutRule } from "@/components/pot/payout-rule-copy";
 import { PayoutModeIcon, payoutModeLabels } from "@/components/pot/PayoutModeIcon";
 import { PotTransactionRow, activityColumns } from "@/components/pot/PotTransactionRow";
-import { PotMemberRow, memberColumns } from "@/components/pot/PotMemberRow";
+import { PotMemberRow, memberColumns, type MemberListRow } from "@/components/pot/PotMemberRow";
 import { ActionRow } from "@/components/pot/ActionRow";
 import { ContributeModal } from "@/components/pot/ContributeModal";
+import { AwaitingPaymentModal } from "@/components/pot/AwaitingPaymentModal";
 import { InviteMemberModal } from "@/components/pot/InviteMemberModal";
 import { ConfirmActionModal } from "@/components/pot/ConfirmActionModal";
 import { RefundConfirmModal } from "@/components/pot/RefundConfirmModal";
 import { CloseConfirmModal } from "@/components/pot/CloseConfirmModal";
 import { PayoutDestinationModal } from "@/components/pot/PayoutDestinationModal";
 import { PayoutAmountModal } from "@/components/pot/PayoutAmountModal";
-import type { TransactionType } from "@/lib/mock/types";
+import type { ContributionResponse, PotResponse, TransactionType } from "@/lib/types";
 
 const activityFilters: { id: string; label: string; types?: TransactionType[] }[] = [
   { id: "all", label: "All" },
@@ -60,25 +73,20 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
   const { showToast } = useToast();
-  const {
-    currentUser,
-    getPot,
-    getMembersForPot,
-    getTransactionsForPot,
-    activatePot,
-    closePot,
-    triggerPayout,
-    triggerRefund,
-    removeMember,
-  } = useMockStore();
+  const { currentUser } = useAuth();
+
+  const [pot, setPot] = useState<PotResponse | null | undefined>(undefined);
+  const [memberRows, setMemberRows] = useState<MemberListRow[]>([]);
+  const [transactions, setTransactions] = useState<import("@/lib/types").TransactionResponse[]>([]);
 
   const [contributeOpen, setContributeOpen] = useState(false);
+  const [pendingContribution, setPendingContribution] = useState<ContributionResponse | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [activateOpen, setActivateOpen] = useState(false);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
-  const [removeMemberTarget, setRemoveMemberTarget] = useState<string | null>(null);
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<MemberListRow | null>(null);
   const [activityFilter, setActivityFilter] = useState("all");
   const [activityPageSize, setActivityPageSize] = useState<PageSize>(10);
   const [activityPage, setActivityPage] = useState(1);
@@ -86,16 +94,84 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const [memberFilter, setMemberFilter] = useState("all");
   const [membersFullscreen, setMembersFullscreen] = useState(false);
 
-  const potOrUndefined = getPot(id);
-  if (!potOrUndefined) notFound();
-  const pot = potOrUndefined;
+  const isAdmin = memberRows.some(
+    (m) => m.kind === "member" && m.userId === currentUser?.id && m.role === "admin"
+  );
 
-  const members = getMembersForPot(id);
-  const transactions = getTransactionsForPot(id);
+  const loadPot = useCallback(async () => {
+    try {
+      const data = await getPot(id);
+      setPot(data);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        setPot(null);
+        return;
+      }
+      showToast(e instanceof ApiError ? e.message : "Couldn't load this pot", "error");
+    }
+  }, [id, showToast]);
 
-  const isAdmin = members.some((m) => m.userId === currentUser?.id && m.role === "admin");
+  const loadMembers = useCallback(async () => {
+    try {
+      const members = await getPotMembers(id);
+      const rows: MemberListRow[] = members.map((m) => ({ kind: "member" as const, ...m }));
+      try {
+        const invites = await getPotInvites(id);
+        const pending = invites
+          .filter((i) => i.status === "pending")
+          .map((i) => ({ kind: "invite" as const, id: i.id, potId: i.potId, email: i.email, role: i.role }));
+        setMemberRows([...rows, ...pending]);
+      } catch {
+        // Non-admins get a 403 on GET /pots/:id/invites — fine, just show real members.
+        setMemberRows(rows);
+      }
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't load members", "error");
+    }
+  }, [id, showToast]);
+
+  const loadTransactions = useCallback(async () => {
+    try {
+      setTransactions(await getPotTransactions(id));
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't load activity", "error");
+    }
+  }, [id, showToast]);
+
+  useEffect(() => {
+    // loadPot/loadMembers/loadTransactions are shared with several onConfirmed callbacks below
+    // (re-fetching after a payout/refund/activate/etc succeeds), so they're real named callbacks,
+    // not effect-only logic inlined here — the alternative the lint rule wants (writing the fetch
+    // promise chain directly in the effect body) would mean duplicating this exact logic at every
+    // call site instead of sharing it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPot();
+    loadMembers();
+    loadTransactions();
+  }, [loadPot, loadMembers, loadTransactions]);
+
+  const completedTransactions = useMemo(
+    () =>
+      [...transactions]
+        .filter((transaction) => transaction.status === "completed")
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [transactions]
+  );
+
+  if (pot === undefined) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner size="md" />
+      </div>
+    );
+  }
+  if (pot === null) {
+    notFound();
+  }
+  const currentPot: PotResponse = pot;
+
   const targetAmount =
-    pot.payoutMode === "target_based" && "targetAmount" in pot.payoutConfig
+    pot.payoutMode === "target_based" && pot.payoutConfig && "targetAmount" in pot.payoutConfig
       ? pot.payoutConfig.targetAmount
       : undefined;
   const progress = targetAmount
@@ -117,6 +193,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   // never by an admin's discretion. See docs's payout mode split.
   const hasFixedManualDestination =
     pot.payoutMode === "manual" &&
+    pot.payoutConfig &&
     "destinationAccount" in pot.payoutConfig &&
     Boolean(pot.payoutConfig.destinationAccount) &&
     Boolean(pot.payoutConfig.destinationBank);
@@ -133,14 +210,6 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const canClose = isAdmin && pot.status === "open";
   const hasActions = canTriggerPayout || canTriggerRefund || canClose;
 
-  const completedTransactions = useMemo(
-    () =>
-      [...transactions]
-        .filter((transaction) => transaction.status === "completed")
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [transactions]
-  );
-
   const activityFilterDef = activityFilters.find((filter) => filter.id === activityFilter);
   const filteredTransactions = activityFilterDef?.types
     ? completedTransactions.filter((transaction) => activityFilterDef.types!.includes(transaction.type))
@@ -153,10 +222,10 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   const filteredMembers =
     memberFilter === "invites"
-      ? members.filter((member) => member.status === "pending")
+      ? memberRows.filter((m) => m.kind === "invite")
       : memberFilter === "admins"
-        ? members.filter((member) => member.role === "admin")
-        : members;
+        ? memberRows.filter((m) => m.role === "admin")
+        : memberRows;
 
   const activityExportRows = filteredTransactions.map((transaction) => [
     transaction.type,
@@ -166,10 +235,10 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   ]);
 
   const membersExportRows = filteredMembers.map((member) => [
-    member.status === "pending" ? member.email : member.fullName,
-    member.status === "pending" ? "" : member.username,
+    member.kind === "invite" ? member.email : member.fullName,
+    member.kind === "invite" ? "" : member.username,
     member.role,
-    member.status,
+    member.kind === "invite" ? "pending" : "active",
   ]);
 
   function renderActivityFilters() {
@@ -217,7 +286,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             setActivityPageSize(size);
             setActivityPage(1);
           }}
-          exportFilename={`${pot.title}-activity`}
+          exportFilename={`${currentPot.title}-activity`}
           exportHeaders={["Type", "Date", "Amount", "Status"]}
           exportRows={activityExportRows}
           onExpand={() => setActivityFullscreen(true)}
@@ -278,33 +347,30 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       <>
         <TableToolbar
           className="mb-4"
-          exportFilename={`${pot.title}-members`}
+          exportFilename={`${currentPot.title}-members`}
           exportHeaders={["Name", "Username", "Role", "Status"]}
           exportRows={membersExportRows}
           onExpand={() => setMembersFullscreen(true)}
         />
         <DataTable
           columns={memberColumns}
-          rows={filteredMembers.map((member) => {
-            const isPending = member.status === "pending";
-            return (
-              <PotMemberRow
-                key={member.id}
-                member={member}
-                action={
-                  isAdmin && member.userId !== currentUser?.id ? (
-                    <button
-                      type="button"
-                      onClick={() => setRemoveMemberTarget(member.id)}
-                      className="text-xs font-medium text-text-secondary transition-colors duration-150 hover:text-error"
-                    >
-                      {isPending ? "Cancel invite" : "Remove"}
-                    </button>
-                  ) : undefined
-                }
-              />
-            );
-          })}
+          rows={filteredMembers.map((member) => (
+            <PotMemberRow
+              key={member.id}
+              row={member}
+              action={
+                isAdmin && (member.kind === "invite" || member.userId !== currentUser?.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => setRemoveMemberTarget(member)}
+                    className="text-xs font-medium text-text-secondary transition-colors duration-150 hover:text-error"
+                  >
+                    {member.kind === "invite" ? "Cancel invite" : "Remove"}
+                  </button>
+                ) : undefined
+              }
+            />
+          ))}
         />
       </>
     );
@@ -324,12 +390,12 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
   return (
     <div>
-      <AppHeader title={pot.title} backHref="/dashboard" action={editAction} />
+      <AppHeader title={pot.title} backHref="/home" action={editAction} />
 
       <Container maxWidth="2xl" className="py-6 lg:py-10">
         <PageHeading
           title={pot.title}
-          backHref="/dashboard"
+          backHref="/home"
           backLabel="Your pots"
           action={editAction}
           className="mb-6 hidden lg:block"
@@ -479,15 +545,42 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         {renderMembersTable()}
       </TableFullscreenModal>
 
-      <ContributeModal open={contributeOpen} onClose={() => setContributeOpen(false)} pot={pot} />
-      <InviteMemberModal open={inviteOpen} onClose={() => setInviteOpen(false)} potId={pot.id} />
+      <ContributeModal
+        open={contributeOpen}
+        onClose={() => setContributeOpen(false)}
+        pot={pot}
+        onContributed={(contribution) => setPendingContribution(contribution)}
+      />
+      <AwaitingPaymentModal
+        open={pendingContribution !== null}
+        onClose={() => setPendingContribution(null)}
+        potId={pot.id}
+        contribution={pendingContribution}
+        onResolved={() => {
+          showToast("Contribution received", "success");
+          setPendingContribution(null);
+          loadPot();
+          loadTransactions();
+        }}
+      />
+      <InviteMemberModal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        potId={pot.id}
+        onAdded={loadMembers}
+      />
 
       <ConfirmActionModal
         open={activateOpen}
         onClose={() => setActivateOpen(false)}
-        onConfirm={() => {
-          activatePot(pot.id);
-          showToast("Pot is now open for contributions", "success");
+        onConfirm={async () => {
+          try {
+            await activatePot(pot.id);
+            showToast("Pot is now open for contributions", "success");
+            loadPot();
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't open this pot", "error");
+          }
         }}
         title="Open this pot?"
         description="Once open, the the payout and refund rules are locked in and can no longer be changed."
@@ -498,20 +591,24 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         <PayoutDestinationModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
+          potId={pot.id}
           balance={pot.balance}
-          onConfirm={(destination, amount) => {
-            triggerPayout(pot.id, destination, amount);
+          onConfirmed={() => {
             showToast("Payout triggered", "success");
+            loadPot();
+            loadTransactions();
           }}
         />
       ) : (
         <PayoutAmountModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
+          potId={pot.id}
           balance={pot.balance}
-          onConfirm={(amount) => {
-            triggerPayout(pot.id, undefined, amount);
+          onConfirmed={() => {
             showToast("Payout triggered", "success");
+            loadPot();
+            loadTransactions();
           }}
         />
       )}
@@ -519,9 +616,11 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       <RefundConfirmModal
         open={refundOpen}
         onClose={() => setRefundOpen(false)}
-        onConfirm={() => {
-          triggerRefund(pot.id);
+        potId={pot.id}
+        onConfirmed={() => {
           showToast("Refund triggered", "success");
+          loadPot();
+          loadTransactions();
         }}
         description={
           pot.refundType === "contributors"
@@ -533,9 +632,14 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       <CloseConfirmModal
         open={closeOpen}
         onClose={() => setCloseOpen(false)}
-        onConfirm={() => {
-          closePot(pot.id);
-          showToast("Pot closed", "success");
+        onConfirm={async () => {
+          try {
+            await closePot(pot.id);
+            showToast("Pot closed", "success");
+            loadPot();
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't close this pot", "error");
+          }
         }}
         balance={pot.balance}
       />
@@ -543,30 +647,29 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       <ConfirmActionModal
         open={removeMemberTarget !== null}
         onClose={() => setRemoveMemberTarget(null)}
-        onConfirm={() => {
-          const member = members.find((m) => m.id === removeMemberTarget);
-          if (!member) return;
-          const isPending = member.status === "pending";
-          removeMember(pot.id, member.id);
-          showToast(
-            isPending ? `Invite to ${member.email} canceled` : `${member.fullName || member.email} removed`,
-            "default"
-          );
+        onConfirm={async () => {
+          if (!removeMemberTarget) return;
+          try {
+            if (removeMemberTarget.kind === "invite") {
+              await cancelInvite(pot.id, removeMemberTarget.id);
+              showToast(`Invite to ${removeMemberTarget.email} canceled`);
+            } else {
+              await removeMember(pot.id, removeMemberTarget.userId);
+              showToast(`${removeMemberTarget.fullName || removeMemberTarget.email} removed`);
+            }
+            loadMembers();
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't complete that action", "error");
+          }
         }}
-        title={
-          members.find((m) => m.id === removeMemberTarget)?.status === "pending"
-            ? "Cancel this invite?"
-            : "Remove this member?"
-        }
+        title={removeMemberTarget?.kind === "invite" ? "Cancel this invite?" : "Remove this member?"}
         description={
-          members.find((m) => m.id === removeMemberTarget)?.status === "pending"
+          removeMemberTarget?.kind === "invite"
             ? "They won't be able to join this pot with that invite anymore."
             : "They'll lose access to this pot and won't be able to contribute or see updates unless invited again."
         }
-        confirmLabel={
-          members.find((m) => m.id === removeMemberTarget)?.status === "pending" ? "Cancel invite" : "Remove member"
-        }
-        danger={members.find((m) => m.id === removeMemberTarget)?.status !== "pending"}
+        confirmLabel={removeMemberTarget?.kind === "invite" ? "Cancel invite" : "Remove member"}
+        danger={removeMemberTarget?.kind !== "invite"}
       />
     </div>
   );

@@ -3,7 +3,7 @@ import { DataTableGridRow, type DataTableColumn } from "@/components/ui/DataTabl
 import { Money } from "@/components/ui/Money";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Text } from "@/components/ui/Text";
-import type { TransactionResponse, TransactionType } from "@/lib/mock/types";
+import type { TransactionResponse, TransactionType } from "@/lib/types";
 
 export const activityColumns: DataTableColumn[] = [
   { key: "type", label: "Type", width: "1.5fr" },

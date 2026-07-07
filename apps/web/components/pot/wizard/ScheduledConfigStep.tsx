@@ -2,8 +2,7 @@ import { ScheduledLegBuilder } from "./ScheduledLegBuilder";
 import { Toggle } from "@/components/ui/Toggle";
 import { Divider } from "@/components/ui/Divider";
 import { Text } from "@/components/ui/Text";
-import type { ScheduledLeg } from "@/lib/mock/types";
-import type { WizardState } from "./wizard-types";
+import type { WizardScheduledLeg, WizardState } from "./wizard-types";
 
 type ScheduledConfigStepProps = {
   state: WizardState;
@@ -20,11 +19,10 @@ export function ScheduledConfigStep({ state, onChange, showErrors }: ScheduledCo
       sequenceOrder: 0,
       amount: "",
       scheduledDate: "",
-      firedAt: null,
     },
   ];
 
-  function handleLegsChange(nextLegs: ScheduledLeg[]) {
+  function handleLegsChange(nextLegs: WizardScheduledLeg[]) {
     onChange({ scheduledLegs: nextLegs });
   }
 

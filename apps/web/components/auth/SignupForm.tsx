@@ -5,9 +5,11 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
+import { ApiError, register } from "@/lib/api";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
@@ -29,7 +31,7 @@ export function SignupForm() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<SignupFormErrors>({});
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const nextErrors: SignupFormErrors = {};
     if (!fullName.trim()) {
@@ -56,9 +58,19 @@ export function SignupForm() {
     }
     setErrors({});
     setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      await register({
+        fullName: fullName.trim(),
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        phone: phone.trim() || undefined,
+      });
       router.push(`/signup/verify?email=${encodeURIComponent(email.trim())}`);
-    }, 600);
+    } catch (e) {
+      setErrors({ email: e instanceof ApiError ? e.message : "Couldn't create your account" });
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -112,9 +124,8 @@ export function SignupForm() {
         error={errors.password}
         helperText={errors.password ? undefined : "At least 8 characters"}
       >
-        <Input
+        <PasswordInput
           id="password"
-          type="password"
           autoComplete="new-password"
           value={password}
           onChange={(e) => {

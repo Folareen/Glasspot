@@ -56,7 +56,6 @@ export function buildTemplateFromUseCase(useCase: UseCase): WizardState {
             sequenceOrder: 0,
             amount: "5000.00",
             scheduledDate: fourWeeksIso,
-            firedAt: null,
           },
         ],
       };

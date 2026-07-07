@@ -6,7 +6,7 @@ import { ArrowLeftRight, Compass, Home, User } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const tabs = [
-  { href: "/dashboard", label: "Home", icon: Home },
+  { href: "/home", label: "Home", icon: Home },
   { href: "/discover", label: "Explore", icon: Compass },
   { href: "/activity", label: "Activity", icon: ArrowLeftRight },
   { href: "/profile", label: "Profile", icon: User },

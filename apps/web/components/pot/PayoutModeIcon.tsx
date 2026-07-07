@@ -1,5 +1,5 @@
 import { Calendar, Repeat, Target, Zap } from "lucide-react";
-import type { PayoutMode } from "@/lib/mock/types";
+import type { PayoutMode } from "@/lib/types";
 import { cn } from "@/lib/cn";
 
 const iconByMode: Record<PayoutMode, typeof Target> = {

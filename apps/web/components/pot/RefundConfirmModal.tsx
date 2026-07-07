@@ -6,15 +6,17 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { OtpStep } from "@/components/pot/OtpStep";
+import { requestRefundOtp, triggerRefund } from "@/lib/api";
 
 type RefundConfirmModalProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: () => void;
+  potId: string;
+  onConfirmed: () => void;
   description: string;
 };
 
-export function RefundConfirmModal({ open, onClose, onConfirm, description }: RefundConfirmModalProps) {
+export function RefundConfirmModal({ open, onClose, potId, onConfirmed, description }: RefundConfirmModalProps) {
   const [step, setStep] = useState<"confirm" | "otp">("confirm");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -23,11 +25,19 @@ export function RefundConfirmModal({ open, onClose, onConfirm, description }: Re
     onClose();
   }
 
-  function handleVerified() {
+  async function handleRequestCode() {
+    await requestRefundOtp(potId);
+  }
+
+  async function handleVerify(otpCode: string) {
     setIsSubmitting(true);
-    onConfirm();
-    setIsSubmitting(false);
-    handleClose();
+    try {
+      await triggerRefund(potId, { otpCode });
+      onConfirmed();
+      handleClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -50,7 +60,8 @@ export function RefundConfirmModal({ open, onClose, onConfirm, description }: Re
           description="Enter the code we sent to your email to confirm this refund."
           confirmLabel="Trigger refund"
           onBack={() => setStep("confirm")}
-          onVerified={handleVerified}
+          onRequestCode={handleRequestCode}
+          onVerify={handleVerify}
           danger
         />
       )}

@@ -8,23 +8,26 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { OtpStep } from "@/components/pot/OtpStep";
+import { requestPayoutOtp, triggerPayout } from "@/lib/api";
 import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 
 type PayoutAmountModalProps = {
   open: boolean;
   onClose: () => void;
-  onConfirm: (amount?: string) => void;
+  potId: string;
+  onConfirmed: () => void;
   /** Pot's current balance, wire-format naira string — shown as the amount field's cap. */
   balance: string;
 };
 
-export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutAmountModalProps) {
+export function PayoutAmountModal({ open, onClose, potId, onConfirmed, balance }: PayoutAmountModalProps) {
   const [step, setStep] = useState<"amount" | "otp">("amount");
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [amountError, setAmountError] = useState("");
 
   const balanceNaira = nairaAmountToNumber(balance);
+  const wireAmount = amount ? (toNairaAmount(amount) ?? undefined) : undefined;
 
   function handleClose() {
     setStep("amount");
@@ -51,11 +54,19 @@ export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutA
     setStep("otp");
   }
 
-  function handleVerified() {
+  async function handleRequestCode() {
+    await requestPayoutOtp(potId, { amount: wireAmount });
+  }
+
+  async function handleVerify(otpCode: string) {
     setIsSubmitting(true);
-    onConfirm(amount ? (toNairaAmount(amount) ?? undefined) : undefined);
-    setIsSubmitting(false);
-    handleClose();
+    try {
+      await triggerPayout(potId, { amount: wireAmount, otpCode });
+      onConfirmed();
+      handleClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -103,7 +114,8 @@ export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutA
           description="Enter the code we sent to your email to confirm this payout."
           confirmLabel="Trigger payout"
           onBack={() => setStep("amount")}
-          onVerified={handleVerified}
+          onRequestCode={handleRequestCode}
+          onVerify={handleVerify}
         />
       )}
     </Modal>

@@ -21,7 +21,7 @@ export default async function LoginVerifyPage({ searchParams }: LoginVerifyPageP
           Can&apos;t find it? Check your spam or junk folder.
         </Text>
       </div>
-      <OtpVerifyForm email={email} successMessage="Logged in successfully" />
+      <OtpVerifyForm email={email} mode="login" successMessage="Logged in successfully" />
     </AuthCard>
   );
 }

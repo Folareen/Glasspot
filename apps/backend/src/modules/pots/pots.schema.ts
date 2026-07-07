@@ -163,6 +163,59 @@ const createPotSchema = z.discriminatedUnion("payoutMode", [
   }),
 ]);
 
+// Response shape of each payoutMode's config, as actually read back from its table by
+// PotsService.getPayoutConfig and serialized by serializePot — naira strings/ISO date strings on
+// the wire, distinct from the *input* schemas above (targetBasedPayoutConfigSchema etc.) which
+// use z.coerce.date()/nairaAmount for a request body. null for target_based/recurring/scheduled
+// would mean the pot was created without ever inserting its (required) config row, which
+// shouldn't happen; null for manual means no fixed destination was configured (see
+// manualPayoutConfigs' comment) — the only response-shape difference between input and output
+// here is these response schemas drop the DB-only id/potId/createdAt/fired bookkeeping fields.
+const targetBasedPayoutConfigResponseSchema = z.object({
+  ...destinationSchema,
+  destinationAccountName: z.string(),
+  targetDate: z.string().nullable(),
+  targetAmount: z.string().nullable(),
+  fired: z.boolean(),
+});
+
+const manualPayoutConfigResponseSchema = z.object({
+  destinationAccount: z.string().nullable(),
+  destinationBank: z.string().nullable(),
+  destinationAccountName: z.string().nullable(),
+});
+
+const recurringPayoutConfigResponseSchema = z.object({
+  ...destinationSchema,
+  destinationAccountName: z.string(),
+  amount: z.string(),
+  intervalDays: z.number().int(),
+  nextRunAt: z.string(),
+});
+
+const scheduledPayoutLegResponseSchema = z.object({
+  ...destinationSchema,
+  destinationAccountName: z.string(),
+  sequenceOrder: z.number().int(),
+  amount: z.string(),
+  scheduledDate: z.string(),
+  fired: z.boolean(),
+});
+
+const scheduledPayoutConfigResponseSchema = z.object({
+  ordered: z.boolean(),
+  legs: z.array(scheduledPayoutLegResponseSchema),
+});
+
+const payoutConfigResponseSchema = z
+  .union([
+    targetBasedPayoutConfigResponseSchema,
+    manualPayoutConfigResponseSchema,
+    recurringPayoutConfigResponseSchema,
+    scheduledPayoutConfigResponseSchema,
+  ])
+  .nullable();
+
 const potResponseSchema = z.object({
   id: z.string().uuid(),
   creatorId: z.string().uuid(),
@@ -171,12 +224,16 @@ const potResponseSchema = z.object({
   potType: z.enum(potTypeValues),
   status: z.enum(["draft", "open", "closed"]),
   payoutMode: z.enum(payoutModeValues),
+  payoutConfig: payoutConfigResponseSchema,
   refundType: z.enum(refundTypeValues),
   shareSlug: z.string(),
   minContribution: z.string(),
   maxContribution: z.string().nullable(),
   goalAmount: z.string().nullable(),
   balance: z.string(),
+  // Set while a payout/refund's outbound transfer(s) are in flight — see pots.ts's
+  // potPendingOperationEnum comment. null the rest of the time.
+  pendingOperation: z.enum(["payout", "refund"]).nullable(),
   activatedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -273,6 +330,11 @@ const memberResponseSchema = z.object({
   role: z.enum(potMemberRoleValues),
   invitedByUserId: z.string().uuid().nullable(),
   joinedAt: z.string(),
+  // Joined from users at query time (see PotMembersService.list) so the frontend can render a
+  // member list without a second lookup per member.
+  fullName: z.string(),
+  username: z.string(),
+  email: z.string(),
 });
 
 const memberListResponseSchema = z.array(memberResponseSchema);

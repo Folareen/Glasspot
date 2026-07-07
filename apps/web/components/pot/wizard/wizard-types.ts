@@ -1,4 +1,15 @@
-import type { PayoutMode, PotType, RefundType, ScheduledLeg } from "@/lib/mock/types";
+import type { PayoutMode, PotType, RefundType } from "@/lib/types";
+
+// Wizard-local leg shape — a subset of the wire ScheduledLeg (lib/types.ts) that only holds what
+// the form collects. destinationAccountName/fired are server-computed/server-owned fields the
+// wizard never sets; buildPayoutConfig (wizard-helpers.ts) sends just these four fields per leg.
+export type WizardScheduledLeg = {
+  destinationAccount: string;
+  destinationBank: string;
+  sequenceOrder: number;
+  amount: string;
+  scheduledDate: string;
+};
 
 export type WizardState = {
   title: string;
@@ -25,7 +36,7 @@ export type WizardState = {
   recurringNextRunAt: string;
 
   scheduledOrdered: boolean;
-  scheduledLegs: ScheduledLeg[];
+  scheduledLegs: WizardScheduledLeg[];
 };
 
 export const initialWizardState: WizardState = {

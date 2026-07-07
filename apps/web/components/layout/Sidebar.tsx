@@ -1,15 +1,18 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeftRight, Compass, Home, Plus, User } from "lucide-react";
 import { GlasspotFullLogo } from "@/components/brand/GlasspotLogo";
 import { Text } from "@/components/ui/Text";
 import { cn } from "@/lib/cn";
-import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth";
+import { listPots } from "@/lib/api";
+import type { PotResponse } from "@/lib/types";
 
 const links = [
-  { href: "/dashboard", label: "Home", icon: Home },
+  { href: "/home", label: "Home", icon: Home },
   { href: "/discover", label: "Explore", icon: Compass },
   { href: "/activity", label: "Activity", icon: ArrowLeftRight },
   { href: "/profile", label: "Profile", icon: User },
@@ -17,19 +20,23 @@ const links = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { currentUser, pots, members } = useMockStore();
+  const { currentUser } = useAuth();
+  const [myPots, setMyPots] = useState<PotResponse[]>([]);
 
-  const myPotIds = new Set(
-    members.filter((member) => member.userId === currentUser?.id).map((member) => member.potId)
-  );
-  const myPots = pots.filter((pot) => myPotIds.has(pot.id));
+  useEffect(() => {
+    if (!currentUser) return;
+    listPots({ scope: "mine" })
+      .then(setMyPots)
+      .catch(() => {});
+  }, [currentUser]);
+
   const openCount = myPots.filter((pot) => pot.status === "open").length;
   const pendingCount = myPots.filter((pot) => pot.pendingOperation).length;
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-border bg-surface lg:flex">
       <div className="px-5 pt-6">
-        <Link href="/dashboard">
+        <Link href="/home">
           <GlasspotFullLogo size={26} />
         </Link>
       </div>
