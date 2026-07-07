@@ -46,6 +46,7 @@ export const contributions = pgTable('contributions', {
     .references(() => users.id),
   virtualAccountRef: text('virtual_account_ref').unique().notNull(),
   virtualAccountNumber: text('virtual_account_number'),
+  virtualAccountBankName: text('virtual_account_bank_name'),
   expectedAmount: bigint('expected_amount', { mode: 'bigint' }).notNull(),
   status: contributionStatusEnum('status').notNull().default('pending'),
   anonymous: boolean('anonymous').notNull().default(false),

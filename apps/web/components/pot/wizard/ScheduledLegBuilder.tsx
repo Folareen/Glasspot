@@ -6,9 +6,12 @@ import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
 import { Divider } from "@/components/ui/Divider";
+import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
+import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardScheduledLeg } from "./wizard-types";
+import type { Bank } from "@/lib/types";
 
 type LegErrors = {
   account?: string;
@@ -47,6 +50,125 @@ function emptyLeg(sequenceOrder: number): WizardScheduledLeg {
   };
 }
 
+type LegCardProps = {
+  leg: WizardScheduledLeg;
+  index: number;
+  legLabel: string;
+  errors: LegErrors;
+  banks: Bank[];
+  canRemove: boolean;
+  onUpdate: (patch: Partial<WizardScheduledLeg>) => void;
+  onRemove: () => void;
+};
+
+// Its own component (not inlined in the .map() below) because it needs to call
+// useBankAccountLookup — one lookup per leg, keyed to that leg's own account+bank pair.
+function LegCard({ leg, index, legLabel, errors, banks, canRemove, onUpdate, onRemove }: LegCardProps) {
+  const { confirmedName, isLookingUp, error: lookupError } = useBankAccountLookup(
+    leg.destinationAccount,
+    leg.destinationBank
+  );
+
+  return (
+    <Card padding="md">
+      <div className="mb-3 flex items-center justify-between">
+        <Text weight="semibold">{legLabel} {index + 1}</Text>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label={`Remove ${legLabel.toLowerCase()} ${index + 1}`}
+            className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-error"
+          >
+            <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-4">
+        <Field label="Account number" htmlFor={`leg-account-${index}`} required error={errors.account}>
+          <Input
+            id={`leg-account-${index}`}
+            inputMode="numeric"
+            maxLength={10}
+            value={leg.destinationAccount}
+            onChange={(e) => onUpdate({ destinationAccount: e.target.value })}
+            placeholder="0123456789"
+            error={Boolean(errors.account)}
+          />
+        </Field>
+        <Field label="Bank" htmlFor={`leg-bank-${index}`} required error={errors.bank}>
+          <Select
+            id={`leg-bank-${index}`}
+            value={leg.destinationBank}
+            onChange={(e) => onUpdate({ destinationBank: e.target.value })}
+            error={Boolean(errors.bank)}
+            searchable
+            searchPlaceholder="Search banks..."
+          >
+            <option value="">Select a bank</option>
+            {banks.map((bank) => (
+              <option key={bank.code} value={bank.code}>
+                {bank.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        {isLookingUp && (
+          <div className="flex items-center gap-2">
+            <Spinner size="sm" />
+            <Text size="sm" color="secondary">
+              Verifying account...
+            </Text>
+          </div>
+        )}
+
+        {confirmedName && !isLookingUp && (
+          <Field label="Account name">
+            <Text weight="medium">{confirmedName}</Text>
+          </Field>
+        )}
+
+        {lookupError && !isLookingUp && (
+          <Text size="sm" color="error">
+            {lookupError}
+          </Text>
+        )}
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field
+            label="Amount"
+            htmlFor={`leg-amount-${index}`}
+            helperText={errors.amount ? undefined : "In naira. Must be greater than 0."}
+            required
+            error={errors.amount}
+          >
+            <Input
+              id={`leg-amount-${index}`}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              value={leg.amount}
+              onChange={(e) => onUpdate({ amount: e.target.value })}
+              placeholder="2500"
+              error={Boolean(errors.amount)}
+            />
+          </Field>
+          <Field label="Date" htmlFor={`leg-date-${index}`} required error={errors.date}>
+            <Input
+              id={`leg-date-${index}`}
+              type="date"
+              value={leg.scheduledDate}
+              onChange={(e) => onUpdate({ scheduledDate: e.target.value })}
+              error={Boolean(errors.date)}
+            />
+          </Field>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 export function ScheduledLegBuilder({ ordered, legs, onChange, showErrors }: ScheduledLegBuilderProps) {
   const { banks } = useBanks();
   const legLabel = ordered ? "Turn" : "Payout";
@@ -73,83 +195,19 @@ export function ScheduledLegBuilder({ ordered, legs, onChange, showErrors }: Sch
           : "Add each payout. Every leg gets its own destination, amount, and date, and fires independently once its date arrives — the same destination can repeat across legs."}
       </Text>
 
-      {legs.map((leg, index) => {
-        const errors = showErrors ? legErrors(leg) : NO_ERRORS;
-        return (
-          <Card key={index} padding="md">
-            <div className="mb-3 flex items-center justify-between">
-              <Text weight="semibold">{legLabel} {index + 1}</Text>
-              {legs.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeLeg(index)}
-                  aria-label={`Remove ${legLabel.toLowerCase()} ${index + 1}`}
-                  className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-error"
-                >
-                  <Trash2 className="h-4 w-4" strokeWidth={1.5} />
-                </button>
-              )}
-            </div>
-            <div className="flex flex-col gap-4">
-              <Field label="Account number" htmlFor={`leg-account-${index}`} required error={errors.account}>
-                <Input
-                  id={`leg-account-${index}`}
-                  inputMode="numeric"
-                  maxLength={10}
-                  value={leg.destinationAccount}
-                  onChange={(e) => updateLeg(index, { destinationAccount: e.target.value })}
-                  placeholder="0123456789"
-                  error={Boolean(errors.account)}
-                />
-              </Field>
-              <Field label="Bank" htmlFor={`leg-bank-${index}`} required error={errors.bank}>
-                <Select
-                  id={`leg-bank-${index}`}
-                  value={leg.destinationBank}
-                  onChange={(e) => updateLeg(index, { destinationBank: e.target.value })}
-                  error={Boolean(errors.bank)}
-                >
-                  <option value="">Select a bank</option>
-                  {banks.map((bank) => (
-                    <option key={bank.code} value={bank.code}>
-                      {bank.name}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="grid grid-cols-2 gap-4">
-                <Field
-                  label="Amount"
-                  htmlFor={`leg-amount-${index}`}
-                  helperText={errors.amount ? undefined : "In naira. Must be greater than 0."}
-                  required
-                  error={errors.amount}
-                >
-                  <Input
-                    id={`leg-amount-${index}`}
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    value={leg.amount}
-                    onChange={(e) => updateLeg(index, { amount: e.target.value })}
-                    placeholder="2500"
-                    error={Boolean(errors.amount)}
-                  />
-                </Field>
-                <Field label="Date" htmlFor={`leg-date-${index}`} required error={errors.date}>
-                  <Input
-                    id={`leg-date-${index}`}
-                    type="date"
-                    value={leg.scheduledDate}
-                    onChange={(e) => updateLeg(index, { scheduledDate: e.target.value })}
-                    error={Boolean(errors.date)}
-                  />
-                </Field>
-              </div>
-            </div>
-          </Card>
-        );
-      })}
+      {legs.map((leg, index) => (
+        <LegCard
+          key={index}
+          leg={leg}
+          index={index}
+          legLabel={legLabel}
+          errors={showErrors ? legErrors(leg) : NO_ERRORS}
+          banks={banks}
+          canRemove={legs.length > 1}
+          onUpdate={(patch) => updateLeg(index, patch)}
+          onRemove={() => removeLeg(index)}
+        />
+      ))}
 
       <Divider />
 

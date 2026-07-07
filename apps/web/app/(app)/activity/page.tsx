@@ -17,7 +17,6 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Money } from "@/components/ui/Money";
 import { Spinner } from "@/components/ui/Spinner";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Tabs } from "@/components/ui/Tabs";
 import { Text } from "@/components/ui/Text";
 import { ApiError, getMyTransactions } from "@/lib/api";
@@ -71,19 +70,19 @@ function TransactionRow({ transaction }: { transaction: MeTransaction }) {
             {transaction.potTitle}
           </Text>
         </Link>
+        <Text size="xs" color="secondary" className="truncate">
+          {transaction.displayName ?? "Anonymous"}
+        </Text>
         <Text size="xs" color="secondary">
           {date.toLocaleDateString()} at{" "}
           {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
         </Text>
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        <Money
-          naira={transaction.amount}
-          color={moneyColorFor(transaction.type)}
-          className="font-medium"
-        />
-        <StatusBadge status={transaction.status} />
-      </div>
+      <Money
+        naira={transaction.amount}
+        color={moneyColorFor(transaction.type)}
+        className="shrink-0 font-medium"
+      />
     </Card>
   );
 }
@@ -109,9 +108,9 @@ export default function ActivityPage() {
     );
   }
 
-  const sorted = [...transactions].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-  );
+  const sorted = transactions
+    .filter((transaction) => transaction.status === "completed")
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   if (sorted.length === 0) {
     return (

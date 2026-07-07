@@ -6,7 +6,7 @@ import { GlasspotMark } from "@/components/brand/GlasspotLogo";
 export function SiteHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background">
-      <Container className="flex h-16 items-center justify-between">
+      <Container className="flex min-h-16 items-center justify-between py-3">
         <Link href="/" className="flex h-11 items-center">
           <GlasspotMark size={32} />
         </Link>

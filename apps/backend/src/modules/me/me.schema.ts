@@ -37,6 +37,7 @@ const meTransactionResponseSchema = z.object({
   externalReference: z.string().nullable(),
   amount: z.string(),
   createdAt: z.string(),
+  displayName: z.string().nullable(),
   potId: z.string().uuid(),
   potTitle: z.string(),
 });

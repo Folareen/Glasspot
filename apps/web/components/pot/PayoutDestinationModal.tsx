@@ -10,6 +10,7 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { OtpStep } from "@/components/pot/OtpStep";
 import { useBanks } from "@/lib/useBanks";
+import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
 import { requestPayoutOtp, triggerPayout } from "@/lib/api";
 import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 
@@ -30,6 +31,7 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errors, setErrors] = useState<{ account?: string; bank?: string; amount?: string }>({});
+  const { confirmedName, isLookingUp, error: lookupError } = useBankAccountLookup(account, bank);
 
   const balanceNaira = nairaAmountToNumber(balance);
   const wireAmount = amount ? (toNairaAmount(amount) ?? undefined) : undefined;
@@ -50,6 +52,9 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
     }
     if (!bank) {
       nextErrors.bank = "Choose the bank.";
+    }
+    if (account && bank && !confirmedName) {
+      nextErrors.account = "Wait for the account name to be confirmed.";
     }
     if (amount) {
       const naira = nairaAmountToNumber(amount);
@@ -115,6 +120,8 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
                 setErrors((prev) => ({ ...prev, bank: undefined }));
               }}
               error={Boolean(errors.bank)}
+              searchable
+              searchPlaceholder="Search banks..."
             >
               <option value="">Select a bank</option>
               {banks.map((b) => (
@@ -124,6 +131,27 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
               ))}
             </Select>
           </Field>
+
+          {isLookingUp && (
+            <div className="flex items-center gap-2">
+              <Spinner size="sm" />
+              <Text size="sm" color="secondary">
+                Verifying account...
+              </Text>
+            </div>
+          )}
+
+          {confirmedName && !isLookingUp && (
+            <Field label="Account name">
+              <Text weight="medium">{confirmedName}</Text>
+            </Field>
+          )}
+
+          {lookupError && !isLookingUp && (
+            <Text size="sm" color="error">
+              {lookupError}
+            </Text>
+          )}
 
           <Field
             label="Amount"
@@ -151,7 +179,11 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
             <Button variant="secondary" className="flex-1" onClick={handleClose}>
               Cancel
             </Button>
-            <Button className="flex-1" onClick={handleContinue} disabled={isSubmitting}>
+            <Button
+              className="flex-1"
+              onClick={handleContinue}
+              disabled={isSubmitting || !account || !bank || !confirmedName}
+            >
               {isSubmitting && <Spinner size="sm" />}
               Continue
             </Button>

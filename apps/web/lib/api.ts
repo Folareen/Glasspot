@@ -30,12 +30,37 @@ export class ApiError extends Error {
   }
 }
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+// A 401 here means the proxy (app/api/[...path]/route.ts) already tried refreshing the session
+// and it still failed — the refresh token itself is dead (expired past its 30-day lifetime,
+// revoked, or the browser cleared cookies), not just the 15-minute access token. Before this
+// existed, every caller just got a raw ApiError and rendered its own "something went wrong"/
+// "authentication required" message forever: proxy.ts's middleware only redirects on the
+// *initial* page load (and only checks cookie presence, not validity), so once a live SPA session
+// hit this state there was no path back to /login short of a manual reload — see the bug report
+// this was written for. Redirecting straight to /login here means every API caller gets this for
+// free with no per-call handling. getMe() opts out via skipAuthRedirect since a 401 there is the
+// normal, expected "not logged in yet" signal on first load, not a dead session mid-use.
+//
+// Guards against redirect nesting (a real incident this shipped with): window.location.href is a
+// full page reload, which resets every JS module — a same-page "already redirecting" flag alone
+// doesn't survive that, so if the /login page itself ever fires a 401 (e.g. a stray authenticated
+// call from a shared layout), each redirect appended another ?redirect=%2Flogin%3Fredirect%3D...
+// layer on top of the last one. Never redirect from /login itself, and only ever carry the
+// current path forward, never one that's already a /login?redirect=... URL.
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  const { pathname, search } = window.location;
+  if (pathname === "/login") return;
+  window.location.href = `/login?redirect=${encodeURIComponent(pathname + search)}`;
+}
+
+async function apiFetch<T>(path: string, init?: RequestInit & { skipAuthRedirect?: boolean }): Promise<T> {
+  const { skipAuthRedirect, ...requestInit } = init ?? {};
   const response = await fetch(`/api${path}`, {
-    ...init,
+    ...requestInit,
     headers: {
       "content-type": "application/json",
-      ...init?.headers,
+      ...requestInit.headers,
     },
   });
 
@@ -43,6 +68,9 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const body = isJson ? await response.json().catch(() => null) : null;
 
   if (!response.ok) {
+    if (response.status === 401 && !skipAuthRedirect) {
+      redirectToLogin();
+    }
     const message = body && typeof body === "object" && "message" in body ? String(body.message) : "Something went wrong";
     throw new ApiError(message, response.status);
   }
@@ -112,7 +140,9 @@ export function logout() {
 // ---------- me ----------
 
 export function getMe() {
-  return apiFetch<CurrentUser>("/me");
+  // skipAuthRedirect: a 401 here is the normal "not logged in yet" check on
+  // mount, not a dead mid-session — see apiFetch's redirectToLogin comment.
+  return apiFetch<CurrentUser>("/me", { skipAuthRedirect: true });
 }
 
 export function updateRefundProfile(input: { accountNumber: string; bankCode: string }) {
@@ -192,7 +222,12 @@ export function getPotMembers(potId: string) {
 }
 
 export function getPotInvites(potId: string) {
-  return apiFetch<InviteResponse[]>(`/pots/${potId}/invites`);
+  // skipAuthRedirect: this route is authenticate-gated (not optionalAuthenticate like the rest of
+  // the pot-detail reads), so a non-admin member gets an expected 403 but a fully anonymous
+  // visitor to a public pot gets a 401 here — the caller (pots/[id]/page.tsx) already treats
+  // either as "just show members without invites," it must not also redirect the anonymous
+  // visitor to /login for a call they never needed to succeed.
+  return apiFetch<InviteResponse[]>(`/pots/${potId}/invites`, { skipAuthRedirect: true });
 }
 
 export function addMember(potId: string, input: { email: string; role?: PotMemberRole }) {

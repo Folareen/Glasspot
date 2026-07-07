@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Info } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
@@ -8,6 +9,7 @@ import { Money } from "@/components/ui/Money";
 import { Button } from "@/components/ui/Button";
 import { getPotTransactions } from "@/lib/api";
 import { usePollUntil } from "@/lib/usePollUntil";
+import { useToast } from "@/lib/toast";
 import type { ContributionResponse } from "@/lib/types";
 
 type AwaitingPaymentModalProps = {
@@ -26,7 +28,9 @@ type AwaitingPaymentModalProps = {
 // matching a specific row: a new "contribution" transaction landing since this contribution was
 // created is the funded signal.
 export function AwaitingPaymentModal({ open, onClose, potId, contribution, onResolved }: AwaitingPaymentModalProps) {
-  const { status, start, stop } = usePollUntil(async () => {
+  const { showToast } = useToast();
+  const [checking, setChecking] = useState(false);
+  const { status, start, stop, checkNow } = usePollUntil(async () => {
     if (!contribution) return null;
     const transactions = await getPotTransactions(potId);
     const fundedSince = transactions.find(
@@ -42,6 +46,18 @@ export function AwaitingPaymentModal({ open, onClose, potId, contribution, onRes
     if (open && contribution) start();
     if (!open) stop();
   }, [open, contribution, start, stop]);
+
+  async function handleIvePaid() {
+    setChecking(true);
+    try {
+      const result = await checkNow();
+      if (result === null) {
+        showToast("Payment not received yet — this can take a moment.", "default");
+      }
+    } finally {
+      setChecking(false);
+    }
+  }
 
   // onResolved is typically a fresh inline closure on every parent render (it usually calls
   // setState itself, e.g. clearing the pending contribution) — depending on it directly would
@@ -59,6 +75,13 @@ export function AwaitingPaymentModal({ open, onClose, potId, contribution, onRes
 
   if (!contribution) return null;
 
+  const expiresAtLabel = new Date(contribution.expiresAt).toLocaleString([], {
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   return (
     <Modal open={open} onClose={onClose} title="Waiting for payment">
       <div className="flex flex-col items-center gap-4 py-2 text-center">
@@ -74,7 +97,31 @@ export function AwaitingPaymentModal({ open, onClose, potId, contribution, onRes
           <Text weight="semibold" size="lg">
             {contribution.virtualAccountNumber ?? "Generating..."}
           </Text>
+          <Text size="xs" color="secondary" className="mt-2">
+            Bank
+          </Text>
+          <Text weight="semibold" size="lg">
+            {contribution.virtualAccountBankName ?? "Nomba MFB"}
+          </Text>
         </div>
+
+        <div className="flex w-full items-start gap-2 rounded-lg bg-accent-soft px-3.5 py-2.5 text-left text-accent">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.5} />
+          <div className="flex flex-col gap-1">
+            <Text size="sm" color="accent">
+              Transfer only <Money naira={contribution.expectedAmount} size="sm" color="accent" /> — this account
+              expires on {expiresAtLabel} and can&apos;t be reused after.
+            </Text>
+            <Text size="sm" color="accent">
+              Don&apos;t share this account number. Every contributor gets their own — anyone else
+              paying in can just contribute themselves.
+            </Text>
+          </div>
+        </div>
+
+        <Button className="w-full" onClick={handleIvePaid} disabled={checking}>
+          {checking ? <Spinner size="sm" /> : "I've paid"}
+        </Button>
         <Button variant="secondary" className="w-full" onClick={onClose}>
           I&apos;ll pay later
         </Button>

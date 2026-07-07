@@ -18,8 +18,14 @@ export function Hero() {
         className="pointer-events-none absolute top-28 right-[8%] hidden h-56 w-56 rounded-full border border-border sm:block"
       />
       <Container className="relative flex flex-col items-start gap-8 py-16 sm:py-24">
-        <Heading level={1} font="display" as="h1" className="max-w-3xl">
-          Contributions that move by <Highlight>agreed rules</Highlight>, in plain sight.
+        <Heading
+          level={1}
+          font="display"
+          as="h1"
+          className="max-w-3xl text-[2.75rem] leading-[1.25] sm:text-5xl sm:leading-tight md:text-6xl"
+        >
+          Contributions that move by <Highlight>agreed rules,</Highlight>
+          <br className="sm:hidden" /> in plain sight.
         </Heading>
         <Text size="lg" color="secondary" className="max-w-xl">
           Set the rule before anyone pays. Whether it fires automatically or an admin triggers

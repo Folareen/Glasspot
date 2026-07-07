@@ -18,9 +18,13 @@ type OtpVerifyFormProps = {
   email: string;
   mode: "login" | "signup";
   successMessage: string;
+  /** Where to send the user after a successful login — set when they were bounced here from a
+   * protected page (proxy.ts's redirect, or apiFetch's redirectToLogin on a dead session).
+   * Login-only: signup has its own draft-pot redirect below, which takes priority regardless. */
+  redirectTo?: string;
 };
 
-export function OtpVerifyForm({ email, mode, successMessage }: OtpVerifyFormProps) {
+export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVerifyFormProps) {
   const router = useRouter();
   const { refresh } = useAuth();
   const { showToast } = useToast();
@@ -76,7 +80,17 @@ export function OtpVerifyForm({ email, mode, successMessage }: OtpVerifyFormProp
         }
       }
 
-      router.push("/home");
+      // Only ever a same-app relative path, and never back to /login itself — redirectTo comes
+      // from a URL query param, so an absolute/external value (e.g. "https://evil.com" or
+      // "//evil.com") is rejected rather than handed to router.push (which would otherwise let a
+      // crafted link send a logged-in user off-site), and a value starting with "/login" is
+      // rejected too so a stale/malformed link can never bounce the user straight back to login.
+      const isSafeRedirect =
+        mode === "login" &&
+        redirectTo?.startsWith("/") &&
+        !redirectTo.startsWith("//") &&
+        !redirectTo.startsWith("/login");
+      router.push(isSafeRedirect ? redirectTo! : "/home");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't verify that code");
       setIsSubmitting(false);

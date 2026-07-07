@@ -94,7 +94,7 @@ export default function DashboardPage() {
           <EmptyState
             icon={<CookingPot className="h-7 w-7" strokeWidth={1.5} />}
             title="No pots yet"
-            description="Create your first pot to start pooling money with people you trust."
+            description="Create your first pot to start pooling money."
             action={<Button href="/pots/new">Create a pot</Button>}
           />
         ) : visiblePots.length === 0 ? (
