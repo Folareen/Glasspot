@@ -7,7 +7,7 @@ import { cn } from "@/lib/cn";
 
 const tabs = [
   { href: "/dashboard", label: "Home", icon: Home },
-  { href: "/discover", label: "Discover", icon: Compass },
+  { href: "/discover", label: "Explore", icon: Compass },
   { href: "/activity", label: "Activity", icon: ArrowLeftRight },
   { href: "/profile", label: "Profile", icon: User },
 ];
@@ -16,7 +16,7 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-surface pb-[env(safe-area-inset-bottom)] lg:hidden">
       <div className="mx-auto flex h-16 max-w-6xl items-stretch justify-around">
         {tabs.map((tab) => {
           const isActive = pathname === tab.href || pathname.startsWith(`${tab.href}/`);

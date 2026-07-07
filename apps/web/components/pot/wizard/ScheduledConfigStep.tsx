@@ -8,9 +8,11 @@ import type { WizardState } from "./wizard-types";
 type ScheduledConfigStepProps = {
   state: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
+  /** Show validation messages. Lifted from the parent wizard page's Continue/Save click, so errors only appear after a submit attempt. */
+  showErrors?: boolean;
 };
 
-export function ScheduledConfigStep({ state, onChange }: ScheduledConfigStepProps) {
+export function ScheduledConfigStep({ state, onChange, showErrors }: ScheduledConfigStepProps) {
   const legs = state.scheduledLegs.length > 0 ? state.scheduledLegs : [
     {
       destinationAccount: "",
@@ -43,7 +45,12 @@ export function ScheduledConfigStep({ state, onChange }: ScheduledConfigStepProp
           : "Every payout fires on its own date regardless of the others — good for staged or installment disbursements."}
       </Text>
       <Divider />
-      <ScheduledLegBuilder ordered={state.scheduledOrdered} legs={legs} onChange={handleLegsChange} />
+      <ScheduledLegBuilder
+        ordered={state.scheduledOrdered}
+        legs={legs}
+        onChange={handleLegsChange}
+        showErrors={showErrors}
+      />
     </div>
   );
 }

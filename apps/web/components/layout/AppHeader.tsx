@@ -8,9 +8,11 @@ type AppHeaderProps = {
   action?: React.ReactNode;
 };
 
+// Mobile only. Desktop (lg:) pages render PageHeading inline in the content
+// column instead — the sidebar carries all navigation there, no top bar.
 export function AppHeader({ title, backHref, action }: AppHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background px-5 sm:px-8">
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-border bg-background px-5 sm:px-8 lg:hidden">
       {backHref && (
         <Link
           href={backHref}

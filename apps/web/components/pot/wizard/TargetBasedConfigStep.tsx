@@ -10,18 +10,24 @@ import type { WizardState } from "./wizard-types";
 type TargetBasedConfigStepProps = {
   state: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
+  /** Show validation messages. Lifted from the parent wizard page's Continue/Save click, so errors only appear after a submit attempt. */
+  showErrors?: boolean;
 };
 
-export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStepProps) {
+export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBasedConfigStepProps) {
   // isPositiveAmount, not Boolean(): a target amount of "0" is truthy as a
   // string but isConfigStepValid (wizard-helpers.ts) rejects it as not a
   // real target — matching this warning to that same rule so the message
   // doesn't silently disappear on a "0" the Next button still blocks.
   const hasAtLeastOneCondition = Boolean(state.targetDate) || isPositiveAmount(state.targetAmountNaira);
 
+  const accountError =
+    showErrors && !state.targetDestinationAccount ? "Enter the payout account number." : undefined;
+  const bankError = showErrors && !state.targetDestinationBank ? "Choose the payout bank." : undefined;
+
   return (
     <div className="flex flex-col gap-5">
-      <Field label="Payout account number" htmlFor="target-account" required>
+      <Field label="Payout account number" htmlFor="target-account" required error={accountError}>
         <Input
           id="target-account"
           inputMode="numeric"
@@ -29,14 +35,16 @@ export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStep
           value={state.targetDestinationAccount}
           onChange={(e) => onChange({ targetDestinationAccount: e.target.value })}
           placeholder="0123456789"
+          error={Boolean(accountError)}
         />
       </Field>
 
-      <Field label="Payout bank" htmlFor="target-bank" required>
+      <Field label="Payout bank" htmlFor="target-bank" required error={bankError}>
         <Select
           id="target-bank"
           value={state.targetDestinationBank}
           onChange={(e) => onChange({ targetDestinationBank: e.target.value })}
+          error={Boolean(bankError)}
         >
           <option value="">Select a bank</option>
           {nigerianBanks.map((bank) => (
@@ -91,7 +99,7 @@ export function TargetBasedConfigStep({ state, onChange }: TargetBasedConfigStep
         </Field>
       </Card>
 
-      {!hasAtLeastOneCondition && (
+      {showErrors && !hasAtLeastOneCondition && (
         <Text size="xs" color="error">
           Set at least a target date or a target amount.
         </Text>

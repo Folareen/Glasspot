@@ -5,17 +5,25 @@ import { Text } from "@/components/ui/Text";
 import { Check, Minus } from "lucide-react";
 
 const usualWay = [
+  "No rule agreed before money starts moving, so it's made up as you go",
   "One person's personal account holds everyone's money",
-  "Only that person can see the real total",
   "Nothing stops the money moving early, or not at all",
   "Everyone else just has to trust them",
+  "Creating a separate bank account just to collect for one event, then it sits idle forever after",
+  "Manually tracking who paid what via bank alerts",
+  "Contributors having no way to verify total collected or where it went",
+  "Organizer screenshotting their balance as \"proof\" and people still not trusting it",
 ];
 
 const glasspotWay = [
+  "The payout and refund rule is set and locked before anyone contributes, and governs the pot until it closes",
   "Money sits in its own pot, never a personal account",
-  "Every contributor sees the total and every move made",
-  "Payout only fires when the rule the group agreed on is met",
+  "Payout only fires when the rule the group agreed on is met, automatically or by a trusted trigger",
   "Trust is enforced by the rule, not a personal favor",
+  "One pot per purpose, closed and done when it's served its purpose, no idle account left behind",
+  "Every contribution matched and logged automatically, no bank alerts to track by hand",
+  "Every contributor can check the exact total and every move, any time, without asking",
+  "The running balance is just there to see. No screenshot, no benefit of the doubt required",
 ];
 
 export function ProblemSolution() {
@@ -31,8 +39,8 @@ export function ProblemSolution() {
             thing holding it together. Glasspot just changes what happens first.
           </Text>
           <Text size="lg" color="secondary" className="mt-4">
-            No complicated dashboards, no crypto wallet learning curve. If you can do a bank
-            transfer, you already know how to use Glasspot.
+            No complicated dashboards, no fresh KYC to sit through, nothing new to learn. If
+            you can do a bank transfer, you already know how to use Glasspot.
           </Text>
         </div>
         <div className="mt-10 grid gap-4 sm:grid-cols-2">

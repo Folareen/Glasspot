@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
+import { OtpStep } from "@/components/pot/OtpStep";
 import { formatNaira, nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 
 type PayoutAmountModalProps = {
@@ -18,19 +19,39 @@ type PayoutAmountModalProps = {
 };
 
 export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutAmountModalProps) {
+  const [step, setStep] = useState<"amount" | "otp">("amount");
   const [amount, setAmount] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [amountError, setAmountError] = useState("");
 
   const balanceNaira = nairaAmountToNumber(balance);
 
   function handleClose() {
+    setStep("amount");
     setAmount("");
+    setAmountError("");
     onClose();
   }
 
-  function handleConfirm() {
+  function handleContinue() {
+    if (!amount) {
+      setStep("otp");
+      return;
+    }
     const naira = nairaAmountToNumber(amount);
-    if (amount && (!naira || naira <= 0 || naira > balanceNaira)) return;
+    if (!naira || naira <= 0) {
+      setAmountError("Enter an amount greater than 0.");
+      return;
+    }
+    if (naira > balanceNaira) {
+      setAmountError(`You can't send more than the pot's balance (${formatNaira(balance)}).`);
+      return;
+    }
+    setAmountError("");
+    setStep("otp");
+  }
+
+  function handleVerified() {
     setIsSubmitting(true);
     onConfirm(amount ? (toNairaAmount(amount) ?? undefined) : undefined);
     setIsSubmitting(false);
@@ -39,38 +60,52 @@ export function PayoutAmountModal({ open, onClose, onConfirm, balance }: PayoutA
 
   return (
     <Modal open={open} onClose={handleClose} title="Trigger payout?">
-      <div className="flex flex-col gap-4">
-        <Text color="secondary">
-          This releases money to the payout account on file. This cannot be undone.
-        </Text>
+      {step === "amount" ? (
+        <div className="flex flex-col gap-4">
+          <Text color="secondary">
+            This releases money to the payout account on file. This cannot be undone.
+          </Text>
 
-        <Field
-          label="Amount"
-          htmlFor="payout-amount"
-          helperText={`Optional. Leave blank to send the full balance (${formatNaira(balance)}).`}
-        >
-          <Input
-            id="payout-amount"
-            type="number"
-            inputMode="decimal"
-            min={0}
-            max={balanceNaira}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder={String(balanceNaira)}
-          />
-        </Field>
+          <Field
+            label="Amount"
+            htmlFor="payout-amount"
+            helperText={amountError ? undefined : `Optional. Leave blank to send the full balance (${formatNaira(balance)}).`}
+            error={amountError || undefined}
+          >
+            <Input
+              id="payout-amount"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              max={balanceNaira}
+              value={amount}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                setAmountError("");
+              }}
+              placeholder={String(balanceNaira)}
+              error={Boolean(amountError)}
+            />
+          </Field>
 
-        <div className="flex gap-3">
-          <Button variant="secondary" className="flex-1" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button className="flex-1" onClick={handleConfirm} disabled={isSubmitting}>
-            {isSubmitting && <Spinner size="sm" />}
-            Trigger payout
-          </Button>
+          <div className="flex gap-3">
+            <Button variant="secondary" className="flex-1" onClick={handleClose}>
+              Cancel
+            </Button>
+            <Button className="flex-1" onClick={handleContinue} disabled={isSubmitting}>
+              {isSubmitting && <Spinner size="sm" />}
+              Continue
+            </Button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <OtpStep
+          description="Enter the code we sent to your email to confirm this payout."
+          confirmLabel="Trigger payout"
+          onBack={() => setStep("amount")}
+          onVerified={handleVerified}
+        />
+      )}
     </Modal>
   );
 }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
@@ -35,6 +36,7 @@ export default function NewPotPage() {
   const [stepIndex, setStepIndex] = useState(0);
   const [state, setState] = useState<WizardState>(initialWizardState);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const step = wizardSteps[stepIndex];
 
@@ -54,10 +56,16 @@ export default function NewPotPage() {
       router.push("/dashboard");
       return;
     }
+    setSubmitAttempted(false);
     setStepIndex((i) => i - 1);
   }
 
   function goNext() {
+    if (!canAdvance()) {
+      setSubmitAttempted(true);
+      return;
+    }
+    setSubmitAttempted(false);
     if (stepIndex < wizardSteps.length - 1) {
       setStepIndex((i) => i + 1);
     }
@@ -84,7 +92,13 @@ export default function NewPotPage() {
   return (
     <div>
       <AppHeader title={stepTitles[step]} action={<StepIndicator index={stepIndex} />} />
-      <Container className="max-w-2xl py-6">
+      <Container maxWidth="2xl" className="py-6 lg:py-10">
+        <PageHeading
+          title={stepTitles[step]}
+          action={<StepIndicator index={stepIndex} />}
+          className="mb-6 hidden lg:block"
+        />
+
         <button
           type="button"
           onClick={goBack}
@@ -94,21 +108,23 @@ export default function NewPotPage() {
           Back
         </button>
 
-        {step === "basics" && <BasicsStep state={state} onChange={patch} />}
+        {step === "basics" && (
+          <BasicsStep state={state} onChange={patch} showErrors={submitAttempted} />
+        )}
         {step === "mode" && (
           <PayoutModeStep value={state.payoutMode} onChange={(mode) => patch({ payoutMode: mode })} />
         )}
         {step === "config" && state.payoutMode === "target_based" && (
-          <TargetBasedConfigStep state={state} onChange={patch} />
+          <TargetBasedConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "config" && state.payoutMode === "manual" && (
-          <ManualConfigStep state={state} onChange={patch} />
+          <ManualConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "config" && state.payoutMode === "recurring" && (
-          <RecurringConfigStep state={state} onChange={patch} />
+          <RecurringConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "config" && state.payoutMode === "scheduled" && (
-          <ScheduledConfigStep state={state} onChange={patch} />
+          <ScheduledConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "review" && <ReviewStep state={state} />}
 
@@ -119,7 +135,7 @@ export default function NewPotPage() {
               Create pot
             </Button>
           ) : (
-            <Button className="w-full" onClick={goNext} disabled={!canAdvance()}>
+            <Button className="w-full" onClick={goNext} disabled={isSubmitting}>
               Continue
               <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
             </Button>

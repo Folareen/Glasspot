@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 
-type ButtonVariant = "primary" | "secondary" | "ghost";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 type ButtonSize = "sm" | "md" | "lg";
 
 const base =
@@ -11,6 +11,7 @@ const variantStyles: Record<ButtonVariant, string> = {
   primary: "bg-accent text-white hover:bg-accent-hover",
   secondary: "bg-surface border border-border text-text-primary hover:bg-surface-hover",
   ghost: "text-text-primary hover:bg-surface-hover",
+  danger: "bg-error text-white hover:bg-error/90",
 };
 
 // Minimum 44px tap target on every size per docs/design-system.md mobile guidance.

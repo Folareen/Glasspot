@@ -9,9 +9,24 @@ import type { WizardState } from "./wizard-types";
 type ManualConfigStepProps = {
   state: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
+  /** Show validation messages. Lifted from the parent wizard page's Continue/Save click, so errors only appear after a submit attempt. */
+  showErrors?: boolean;
 };
 
-export function ManualConfigStep({ state, onChange }: ManualConfigStepProps) {
+export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigStepProps) {
+  // Both-or-neither, mirroring isConfigStepValid (wizard-helpers.ts): the
+  // destination is optional, but if the user has started filling in one
+  // half, flag the other half as the thing missing rather than staying
+  // silent until they notice Continue is disabled.
+  const accountError =
+    showErrors && state.manualDestinationBank && !state.manualDestinationAccount
+      ? "Add an account number too."
+      : undefined;
+  const bankError =
+    showErrors && state.manualDestinationAccount && !state.manualDestinationBank
+      ? "Add a bank too."
+      : undefined;
+
   return (
     <div className="flex flex-col gap-5">
       <Card padding="md">
@@ -32,7 +47,12 @@ export function ManualConfigStep({ state, onChange }: ManualConfigStepProps) {
         </Text>
       </div>
 
-      <Field label="Payout account number" htmlFor="manual-account" helperText="Optional">
+      <Field
+        label="Payout account number"
+        htmlFor="manual-account"
+        helperText={accountError ? undefined : "Optional"}
+        error={accountError}
+      >
         <Input
           id="manual-account"
           inputMode="numeric"
@@ -40,14 +60,21 @@ export function ManualConfigStep({ state, onChange }: ManualConfigStepProps) {
           value={state.manualDestinationAccount}
           onChange={(e) => onChange({ manualDestinationAccount: e.target.value })}
           placeholder="0123456789"
+          error={Boolean(accountError)}
         />
       </Field>
 
-      <Field label="Payout bank" htmlFor="manual-bank" helperText="Optional">
+      <Field
+        label="Payout bank"
+        htmlFor="manual-bank"
+        helperText={bankError ? undefined : "Optional"}
+        error={bankError}
+      >
         <Select
           id="manual-bank"
           value={state.manualDestinationBank}
           onChange={(e) => onChange({ manualDestinationBank: e.target.value })}
+          error={Boolean(bankError)}
         >
           <option value="">Select a bank</option>
           {nigerianBanks.map((bank) => (

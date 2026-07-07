@@ -13,6 +13,7 @@ type ConfirmActionModalProps = {
   title: string;
   description: string;
   confirmLabel: string;
+  danger?: boolean;
 };
 
 export function ConfirmActionModal({
@@ -22,6 +23,7 @@ export function ConfirmActionModal({
   title,
   description,
   confirmLabel,
+  danger = false,
 }: ConfirmActionModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -40,7 +42,12 @@ export function ConfirmActionModal({
           <Button variant="secondary" className="flex-1" onClick={onClose}>
             Cancel
           </Button>
-          <Button className="flex-1" onClick={handleConfirm} disabled={isSubmitting}>
+          <Button
+            variant={danger ? "danger" : "primary"}
+            className="flex-1"
+            onClick={handleConfirm}
+            disabled={isSubmitting}
+          >
             {isSubmitting && <Spinner size="sm" />}
             {confirmLabel}
           </Button>

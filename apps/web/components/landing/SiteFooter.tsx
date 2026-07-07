@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
 import { Text } from "@/components/ui/Text";
+import { Badge } from "@/components/ui/Badge";
+import { GlasspotFullLogo } from "@/components/brand/GlasspotLogo";
+import { ShieldCheck } from "lucide-react";
 
 const linkClasses = "py-1.5 text-sm text-text-secondary transition-colors hover:text-text-primary";
 
@@ -9,14 +12,17 @@ export function SiteFooter() {
     <footer className="border-t border-border py-12">
       <Container className="flex flex-col gap-10 sm:flex-row sm:justify-between">
         <div className="max-w-xs">
-          <span className="font-display text-lg font-semibold text-text-primary">Glasspot</span>
+          <GlasspotFullLogo size={28} />
           <Text size="sm" color="secondary" className="mt-1">
             Group money, governed by agreement.
           </Text>
-          <Text size="xs" color="secondary" className="mt-4">
-            Payments powered by Nomba.
-          </Text>
-          <Text size="xs" color="secondary" className="mt-1">
+          <div className="mt-4">
+            <Badge variant="accent">
+              <ShieldCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+              Powered by Nomba
+            </Badge>
+          </div>
+          <Text size="xs" color="secondary" className="mt-3">
             Built for the Nomba 2026 Hackathon.
           </Text>
         </div>

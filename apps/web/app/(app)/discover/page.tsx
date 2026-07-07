@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Compass, Search } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Input } from "@/components/ui/Input";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -21,8 +22,10 @@ export default function DiscoverPage() {
 
   return (
     <>
-      <AppHeader title="Discover" />
-      <Container className="py-6">
+      <AppHeader title="Explore" />
+      <Container className="py-6 lg:py-10">
+        <PageHeading title="Explore" className="mb-6 hidden lg:block" />
+
         <div className="relative mb-6">
           <Search
             className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-text-secondary"

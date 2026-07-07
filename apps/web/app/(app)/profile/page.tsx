@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ChevronRight, LogOut, Wallet } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { Container } from "@/components/ui/Container";
@@ -30,7 +31,8 @@ export default function ProfilePage() {
   return (
     <>
       <AppHeader title="Profile" />
-      <Container className="py-6">
+      <Container className="py-6 lg:py-10">
+        <PageHeading title="Profile" className="mb-6 hidden lg:block" />
         {currentUser && (
           <div className="mb-8 flex items-center gap-4">
             <Avatar name={currentUser.fullName} size="md" />
@@ -75,7 +77,7 @@ export default function ProfilePage() {
           <button type="button" onClick={handleLogout} className="block w-full text-left">
             <Card padding="sm" className="transition-colors duration-150 hover:bg-surface-hover">
               <div className="flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-error-soft text-error">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface-hover text-text-secondary">
                   <LogOut className="h-5 w-5" strokeWidth={1.5} />
                 </span>
                 <Text weight="medium" className="flex-1">

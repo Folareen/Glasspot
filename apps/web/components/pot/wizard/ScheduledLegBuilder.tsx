@@ -7,12 +7,34 @@ import { Text } from "@/components/ui/Text";
 import { Card } from "@/components/ui/Card";
 import { Divider } from "@/components/ui/Divider";
 import { nigerianBanks } from "@/lib/mock/fixtures";
+import { isPositiveAmount } from "./wizard-helpers";
 import type { ScheduledLeg } from "@/lib/mock/types";
+
+type LegErrors = {
+  account?: string;
+  bank?: string;
+  amount?: string;
+  date?: string;
+};
+
+const NO_ERRORS: LegErrors = {};
+
+/** Per-leg field errors, mirroring isConfigStepValid's "scheduled" case (wizard-helpers.ts) field for field. */
+function legErrors(leg: ScheduledLeg): LegErrors {
+  return {
+    account: leg.destinationAccount ? undefined : "Enter the account number.",
+    bank: leg.destinationBank ? undefined : "Choose the bank.",
+    amount: isPositiveAmount(leg.amount) ? undefined : "Enter an amount greater than 0.",
+    date: leg.scheduledDate ? undefined : "Choose a date.",
+  };
+}
 
 type ScheduledLegBuilderProps = {
   ordered: boolean;
   legs: ScheduledLeg[];
   onChange: (legs: ScheduledLeg[]) => void;
+  /** Show validation messages. Lifted from the parent wizard page's Continue/Save click, so errors only appear after a submit attempt. */
+  showErrors?: boolean;
 };
 
 function emptyLeg(sequenceOrder: number): ScheduledLeg {
@@ -26,7 +48,7 @@ function emptyLeg(sequenceOrder: number): ScheduledLeg {
   };
 }
 
-export function ScheduledLegBuilder({ ordered, legs, onChange }: ScheduledLegBuilderProps) {
+export function ScheduledLegBuilder({ ordered, legs, onChange, showErrors }: ScheduledLegBuilderProps) {
   const legLabel = ordered ? "Turn" : "Payout";
 
   function updateLeg(index: number, patch: Partial<ScheduledLeg>) {
@@ -51,75 +73,83 @@ export function ScheduledLegBuilder({ ordered, legs, onChange }: ScheduledLegBui
           : "Add each payout. Every leg gets its own destination, amount, and date, and fires independently once its date arrives — the same destination can repeat across legs."}
       </Text>
 
-      {legs.map((leg, index) => (
-        <Card key={index} padding="md">
-          <div className="mb-3 flex items-center justify-between">
-            <Text weight="semibold">{legLabel} {index + 1}</Text>
-            {legs.length > 1 && (
-              <button
-                type="button"
-                onClick={() => removeLeg(index)}
-                aria-label={`Remove ${legLabel.toLowerCase()} ${index + 1}`}
-                className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-error"
-              >
-                <Trash2 className="h-4 w-4" strokeWidth={1.5} />
-              </button>
-            )}
-          </div>
-          <div className="flex flex-col gap-4">
-            <Field label="Account number" htmlFor={`leg-account-${index}`} required>
-              <Input
-                id={`leg-account-${index}`}
-                inputMode="numeric"
-                maxLength={10}
-                value={leg.destinationAccount}
-                onChange={(e) => updateLeg(index, { destinationAccount: e.target.value })}
-                placeholder="0123456789"
-              />
-            </Field>
-            <Field label="Bank" htmlFor={`leg-bank-${index}`} required>
-              <Select
-                id={`leg-bank-${index}`}
-                value={leg.destinationBank}
-                onChange={(e) => updateLeg(index, { destinationBank: e.target.value })}
-              >
-                <option value="">Select a bank</option>
-                {nigerianBanks.map((bank) => (
-                  <option key={bank.code} value={bank.code}>
-                    {bank.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div className="grid grid-cols-2 gap-4">
-              <Field
-                label="Amount"
-                htmlFor={`leg-amount-${index}`}
-                helperText="In naira. Must be greater than 0."
-                required
-              >
-                <Input
-                  id={`leg-amount-${index}`}
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  value={leg.amount}
-                  onChange={(e) => updateLeg(index, { amount: e.target.value })}
-                  placeholder="2500"
-                />
-              </Field>
-              <Field label="Date" htmlFor={`leg-date-${index}`} required>
-                <Input
-                  id={`leg-date-${index}`}
-                  type="date"
-                  value={leg.scheduledDate}
-                  onChange={(e) => updateLeg(index, { scheduledDate: e.target.value })}
-                />
-              </Field>
+      {legs.map((leg, index) => {
+        const errors = showErrors ? legErrors(leg) : NO_ERRORS;
+        return (
+          <Card key={index} padding="md">
+            <div className="mb-3 flex items-center justify-between">
+              <Text weight="semibold">{legLabel} {index + 1}</Text>
+              {legs.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeLeg(index)}
+                  aria-label={`Remove ${legLabel.toLowerCase()} ${index + 1}`}
+                  className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-error"
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                </button>
+              )}
             </div>
-          </div>
-        </Card>
-      ))}
+            <div className="flex flex-col gap-4">
+              <Field label="Account number" htmlFor={`leg-account-${index}`} required error={errors.account}>
+                <Input
+                  id={`leg-account-${index}`}
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={leg.destinationAccount}
+                  onChange={(e) => updateLeg(index, { destinationAccount: e.target.value })}
+                  placeholder="0123456789"
+                  error={Boolean(errors.account)}
+                />
+              </Field>
+              <Field label="Bank" htmlFor={`leg-bank-${index}`} required error={errors.bank}>
+                <Select
+                  id={`leg-bank-${index}`}
+                  value={leg.destinationBank}
+                  onChange={(e) => updateLeg(index, { destinationBank: e.target.value })}
+                  error={Boolean(errors.bank)}
+                >
+                  <option value="">Select a bank</option>
+                  {nigerianBanks.map((bank) => (
+                    <option key={bank.code} value={bank.code}>
+                      {bank.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field
+                  label="Amount"
+                  htmlFor={`leg-amount-${index}`}
+                  helperText={errors.amount ? undefined : "In naira. Must be greater than 0."}
+                  required
+                  error={errors.amount}
+                >
+                  <Input
+                    id={`leg-amount-${index}`}
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    value={leg.amount}
+                    onChange={(e) => updateLeg(index, { amount: e.target.value })}
+                    placeholder="2500"
+                    error={Boolean(errors.amount)}
+                  />
+                </Field>
+                <Field label="Date" htmlFor={`leg-date-${index}`} required error={errors.date}>
+                  <Input
+                    id={`leg-date-${index}`}
+                    type="date"
+                    value={leg.scheduledDate}
+                    onChange={(e) => updateLeg(index, { scheduledDate: e.target.value })}
+                    error={Boolean(errors.date)}
+                  />
+                </Field>
+              </div>
+            </div>
+          </Card>
+        );
+      })}
 
       <Divider />
 
