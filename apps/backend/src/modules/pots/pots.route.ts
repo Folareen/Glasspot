@@ -10,6 +10,7 @@ import {
   listInvitesHandler,
   listMembersHandler,
   listPotsHandler,
+  listTransactionsHandler,
   removeMemberHandler,
   requestPayoutOtpHandler,
   requestRefundOtpHandler,
@@ -24,6 +25,7 @@ import {
   ContributeInput,
   CreatePotInput,
   InviteIdParams,
+  ListPotsQuery,
   MemberParams,
   PotIdParams,
   RequestPayoutOtpInput,
@@ -49,11 +51,12 @@ async function potsRoutes(server: FastifyInstance) {
     createPotHandler
   );
 
-  server.get(
+  server.get<{ Querystring: ListPotsQuery }>(
     "/",
     {
       preHandler: [server.optionalAuthenticate],
       schema: {
+        querystring: $ref("listPotsQuerySchema"),
         response: { 200: $ref("potListResponseSchema") },
       },
     },
@@ -176,6 +179,18 @@ async function potsRoutes(server: FastifyInstance) {
       },
     },
     contributeHandler
+  );
+
+  server.get<{ Params: PotIdParams }>(
+    "/:id/transactions",
+    {
+      preHandler: [server.optionalAuthenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        response: { 200: $ref("transactionListResponseSchema") },
+      },
+    },
+    listTransactionsHandler
   );
 
   server.get<{ Params: PotIdParams }>(
