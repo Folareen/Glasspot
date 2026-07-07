@@ -185,6 +185,15 @@ const potResponseSchema = z.object({
 
 const potListResponseSchema = z.array(potResponseSchema);
 
+// GET /pots query params. scope='public': every public pot regardless of membership (Discover).
+// scope='mine': only pots the caller belongs to, public or private (dashboard's "my pots").
+// Omitted: the original default merged list (all public + caller's own private). q filters by
+// a case-insensitive title substring, applied after scope — see PotsService.list.
+const listPotsQuerySchema = z.object({
+  scope: z.enum(["public", "mine"]).optional(),
+  q: z.string().optional(),
+});
+
 // NOT a discriminated union, unlike createPotSchema — this is a deliberate
 // departure, not an oversight. AJV's removeAdditional: true (Fastify's
 // default) doesn't reject a payload with extra properties against an
@@ -380,6 +389,13 @@ const transactionResponseSchema = z.object({
 // shape depending on the pot's refund mode.
 const refundResponseSchema = z.array(transactionResponseSchema);
 
+// GET /pots/:id/transactions — every transaction posted against this pot's
+// ledger account (funding, contribution, payout, refund, fee, transfer,
+// reversal), newest first. Serves both the pot detail Activity tab and
+// "list contributions" (a funded contribution is just type: 'contribution'
+// here) — see PotsService.listTransactions.
+const transactionListResponseSchema = z.array(transactionResponseSchema);
+
 // Returned by POST /pots/:id/contributions — a pending funding intent, not
 // yet a ledger transaction (see contributions.service.ts: the ledger is
 // only touched once Nomba's funding webhook confirms real money moved).
@@ -411,6 +427,7 @@ const contributionResponseSchema = z.object({
 export type CreatePotInput = z.infer<typeof createPotSchema>;
 export type UpdatePotInput = z.infer<typeof updatePotSchema>;
 export type PotIdParams = z.infer<typeof potIdParamsSchema>;
+export type ListPotsQuery = z.infer<typeof listPotsQuerySchema>;
 export type AddMemberInput = z.infer<typeof addMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
@@ -435,6 +452,7 @@ export type InviteResponse = z.infer<typeof inviteResponseSchema>;
 export type AddMemberResponse = z.infer<typeof addMemberResponseSchema>;
 export type InviteListResponse = z.infer<typeof inviteListResponseSchema>;
 export type TransactionResponse = z.infer<typeof transactionResponseSchema>;
+export type TransactionListResponse = z.infer<typeof transactionListResponseSchema>;
 export type RefundResponse = z.infer<typeof refundResponseSchema>;
 export type ContributionResponse = z.infer<typeof contributionResponseSchema>;
 
@@ -445,6 +463,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     potResponseSchema,
     potListResponseSchema,
     potIdParamsSchema,
+    listPotsQuerySchema,
     addMemberSchema,
     updateMemberRoleSchema,
     memberParamsSchema,
@@ -460,6 +479,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     requestPayoutOtpSchema,
     triggerRefundSchema,
     transactionResponseSchema,
+    transactionListResponseSchema,
     refundResponseSchema,
     contributionResponseSchema,
   },

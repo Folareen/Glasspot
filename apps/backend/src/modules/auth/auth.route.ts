@@ -7,12 +7,10 @@ import {
   registerHandler,
   resendOtpHandler,
   resetPasswordHandler,
-  updateRefundProfileHandler,
   verifyEmailHandler,
   verifyLoginOtpHandler,
 } from "./auth.controller";
 import { $ref } from "./auth.schema";
-import { UpdateRefundProfileInput } from "./auth.schema";
 
 /** Registers all /auth/* routes with their per-endpoint rate limits — verification endpoints allow 10 req/min, issuance endpoints (login, resend-otp) allow 5 req/min. */
 async function authRoutes(server: FastifyInstance) {
@@ -110,18 +108,6 @@ async function authRoutes(server: FastifyInstance) {
       },
     },
     logoutHandler
-  );
-
-  server.patch<{ Body: UpdateRefundProfileInput }>(
-    "/me/refund-profile",
-    {
-      preHandler: [server.authenticate],
-      schema: {
-        body: $ref("updateRefundProfileSchema"),
-        response: { 200: $ref("refundProfileResponseSchema") },
-      },
-    },
-    updateRefundProfileHandler
   );
 
   server.post(

@@ -12,6 +12,7 @@ import {
   ContributeInput,
   CreatePotInput,
   InviteIdParams,
+  ListPotsQuery,
   MemberParams,
   PotIdParams,
   RequestPayoutOtpInput,
@@ -103,10 +104,13 @@ export async function createPotHandler(
   }
 }
 
-/** Lists public pots plus, if the caller is authenticated, their private pots too. */
-export async function listPotsHandler(request: FastifyRequest, reply: FastifyReply) {
+/** Lists pots visible to the caller. ?scope=public/mine narrows the result (see PotsService.list); omitted, defaults to public pots plus the caller's own private ones. ?q filters by title substring. */
+export async function listPotsHandler(
+  request: FastifyRequest<{ Querystring: ListPotsQuery }>,
+  reply: FastifyReply
+) {
   try {
-    const pots = await PotsService.list(currentUserId(request));
+    const pots = await PotsService.list(currentUserId(request), request.query.scope, request.query.q);
     return reply.code(200).send(await Promise.all(pots.map(serializePot)));
   } catch (e) {
     return handlePotError(e, reply);
@@ -267,6 +271,25 @@ export async function contributeHandler(
     // response of an earlier identical call (see withIdempotencyKey) — so
     // no further conversion happens on this path.
     return reply.code(statusCode).send(body);
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/** Lists a pot's transactions (funding, contribution, payout, refund, fee, transfer, reversal — all in one feed, newest first), after checking the pot is viewable by the requester. Serves both the pot detail Activity tab and "list contributions", since a funded contribution is just type: 'contribution' here. */
+export async function listTransactionsHandler(
+  request: FastifyRequest<{ Params: PotIdParams }>,
+  reply: FastifyReply
+) {
+  try {
+    await getViewablePotOrThrow(request.params.id, currentUserId(request));
+    const transactions = await PotsService.listTransactions(request.params.id);
+    return reply.code(200).send(
+      transactions.map((t) => ({
+        ...t,
+        amount: koboToNairaString(t.amount),
+      }))
+    );
   } catch (e) {
     return handlePotError(e, reply);
   }

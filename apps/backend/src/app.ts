@@ -8,6 +8,8 @@ import bullBoardPlugin from "@/lib/plugins/bull-board";
 import env from "@/config/env";
 import authRoutes from "@/modules/auth/auth.route";
 import { authSchemas } from "@/modules/auth/auth.schema";
+import meRoutes from "@/modules/me/me.route";
+import { meSchemas } from "@/modules/me/me.schema";
 import potsRoutes from "@/modules/pots/pots.route";
 import { potSchemas } from "@/modules/pots/pots.schema";
 import banksRoutes from "@/modules/banks/banks.route";
@@ -22,6 +24,9 @@ export function buildApp(): FastifyInstance {
   const app = Fastify({ logger: process.env.TESTING !== "true" });
 
   for (const schema of authSchemas) {
+    app.addSchema(schema);
+  }
+  for (const schema of meSchemas) {
     app.addSchema(schema);
   }
   for (const schema of potSchemas) {
@@ -44,6 +49,7 @@ export function buildApp(): FastifyInstance {
     async (api) => {
       api.register(healthRoutes);
       api.register(authRoutes, { prefix: "/auth" });
+      api.register(meRoutes, { prefix: "/me" });
       api.register(potsRoutes, { prefix: "/pots" });
       api.register(banksRoutes, { prefix: "/banks" });
       api.register(failedJobsRoutes, { prefix: "/failed-jobs" });

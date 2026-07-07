@@ -10,7 +10,6 @@ import {
   RegisterInput,
   ResendOtpInput,
   ResetPasswordInput,
-  UpdateRefundProfileInput,
   VerifyEmailInput,
   VerifyLoginOtpInput,
 } from "./auth.schema";
@@ -135,20 +134,6 @@ export async function logoutHandler(
     const userId = request.user.sub;
     await AuthService.logout(userId);
     return reply.code(200).send({ message: "Logged out" });
-  } catch (e) {
-    return handleAuthError(e, request, reply);
-  }
-}
-
-/** Sets the caller's default refund destination bank account (validated against Nomba's bank-lookup API) and responds 200 with the stored profile. */
-export async function updateRefundProfileHandler(
-  request: FastifyRequest<{ Body: UpdateRefundProfileInput }>,
-  reply: FastifyReply
-) {
-  try {
-    const userId = request.user.sub;
-    const profile = await AuthService.updateRefundProfile(userId, request.body);
-    return reply.code(200).send(profile);
   } catch (e) {
     return handleAuthError(e, request, reply);
   }
