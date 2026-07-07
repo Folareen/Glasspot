@@ -70,6 +70,28 @@ the visual design system this all implements.
 - Metadata (title, description, PWA manifest linkage) set via the Metadata API, not manual `<head>`
   tags.
 
+## Desktop vs. mobile chrome
+
+- Mobile stays exactly as designed: single column, bottom tab bar (`BottomNav`), full-bleed cards.
+  Don't restructure mobile layout when doing desktop work.
+- At `lg:` and up, the authenticated app (`(app)` route group) switches to a persistent left
+  sidebar (`components/layout/Sidebar.tsx`): logo, "New pot" button, nav links, current-user
+  footer. `BottomNav` hides at `lg:` (`lg:hidden`) since the sidebar replaces it as the nav surface.
+  `AppShell` offsets main content with `lg:pl-64` to sit next to the sidebar.
+- This is deliberately not a dense SaaS dashboard: no top-level analytics/charts, no multi-panel
+  workspace, no additional top nav bar duplicating the sidebar's links. `AppHeader` (page title,
+  back button, page-level action) still renders identically at every width — the sidebar owns
+  cross-page navigation, `AppHeader` owns the current page's identity and actions.
+- Content still uses `Container`'s `maxWidth` prop to cap reading/form width (`"2xl"` for forms and
+  detail pages, the `"6xl"` default for list/browse pages) rather than letting content stretch to
+  fill the space freed up by the sidebar — a capped column next to the sidebar reads as an
+  intentional desktop layout, a full-bleed stretched form does not.
+- Extending `Container`'s max-width: add the Tailwind class to `ContainerMaxWidth`/`maxWidthStyles`
+  in `components/ui/Container.tsx` and pass `maxWidth="..."`, never pass a `max-w-*` override via
+  `className` — `cn()` is a plain string-joiner (no `tailwind-merge`), so a conflicting `max-w-*` in
+  `className` and in the component's own base classes both land in the class list with no
+  deterministic override, which is exactly the bug this prop replaced.
+
 ## PWA
 
 - `manifest.json` + icon set + theme-color live at the app root, wired through Next's metadata/

@@ -2,15 +2,16 @@ import { ScheduledLegBuilder } from "./ScheduledLegBuilder";
 import { Toggle } from "@/components/ui/Toggle";
 import { Divider } from "@/components/ui/Divider";
 import { Text } from "@/components/ui/Text";
-import type { ScheduledLeg } from "@/lib/mock/types";
-import type { WizardState } from "./wizard-types";
+import type { WizardScheduledLeg, WizardState } from "./wizard-types";
 
 type ScheduledConfigStepProps = {
   state: WizardState;
   onChange: (patch: Partial<WizardState>) => void;
+  /** Show validation messages. Lifted from the parent wizard page's Continue/Save click, so errors only appear after a submit attempt. */
+  showErrors?: boolean;
 };
 
-export function ScheduledConfigStep({ state, onChange }: ScheduledConfigStepProps) {
+export function ScheduledConfigStep({ state, onChange, showErrors }: ScheduledConfigStepProps) {
   const legs = state.scheduledLegs.length > 0 ? state.scheduledLegs : [
     {
       destinationAccount: "",
@@ -18,11 +19,10 @@ export function ScheduledConfigStep({ state, onChange }: ScheduledConfigStepProp
       sequenceOrder: 0,
       amount: "",
       scheduledDate: "",
-      firedAt: null,
     },
   ];
 
-  function handleLegsChange(nextLegs: ScheduledLeg[]) {
+  function handleLegsChange(nextLegs: WizardScheduledLeg[]) {
     onChange({ scheduledLegs: nextLegs });
   }
 
@@ -43,7 +43,12 @@ export function ScheduledConfigStep({ state, onChange }: ScheduledConfigStepProp
           : "Every payout fires on its own date regardless of the others — good for staged or installment disbursements."}
       </Text>
       <Divider />
-      <ScheduledLegBuilder ordered={state.scheduledOrdered} legs={legs} onChange={handleLegsChange} />
+      <ScheduledLegBuilder
+        ordered={state.scheduledOrdered}
+        legs={legs}
+        onChange={handleLegsChange}
+        showErrors={showErrors}
+      />
     </div>
   );
 }

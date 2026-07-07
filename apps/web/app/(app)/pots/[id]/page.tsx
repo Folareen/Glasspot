@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { use } from "react";
-import { Pencil, Plus, UserPlus } from "lucide-react";
+import { Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Card } from "@/components/ui/Card";
 import { Text } from "@/components/ui/Text";
@@ -15,20 +16,54 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Divider } from "@/components/ui/Divider";
 import { Tabs } from "@/components/ui/Tabs";
-import { AvatarStack } from "@/components/ui/AvatarStack";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { DataTable } from "@/components/ui/DataTable";
+import { Pagination, type PageSize } from "@/components/ui/Pagination";
+import { TableToolbar } from "@/components/ui/TableToolbar";
+import { TableFullscreenModal } from "@/components/ui/TableFullscreenModal";
+import { Spinner } from "@/components/ui/Spinner";
 import { Users, ReceiptText } from "lucide-react";
-import { useMockStore } from "@/lib/mock/store";
+import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
+import { cn } from "@/lib/cn";
+import {
+  ApiError,
+  activatePot,
+  cancelInvite,
+  closePot,
+  getPot,
+  getPotInvites,
+  getPotMembers,
+  getPotTransactions,
+  removeMember,
+} from "@/lib/api";
 import { describePayoutRule } from "@/components/pot/payout-rule-copy";
 import { PayoutModeIcon, payoutModeLabels } from "@/components/pot/PayoutModeIcon";
-import { ContributionRow } from "@/components/pot/ContributionRow";
-import { MemberRow } from "@/components/pot/MemberRow";
+import { PotTransactionRow, activityColumns } from "@/components/pot/PotTransactionRow";
+import { PotMemberRow, memberColumns, type MemberListRow } from "@/components/pot/PotMemberRow";
+import { ActionRow } from "@/components/pot/ActionRow";
 import { ContributeModal } from "@/components/pot/ContributeModal";
+import { AwaitingPaymentModal } from "@/components/pot/AwaitingPaymentModal";
 import { InviteMemberModal } from "@/components/pot/InviteMemberModal";
 import { ConfirmActionModal } from "@/components/pot/ConfirmActionModal";
+import { RefundConfirmModal } from "@/components/pot/RefundConfirmModal";
+import { CloseConfirmModal } from "@/components/pot/CloseConfirmModal";
 import { PayoutDestinationModal } from "@/components/pot/PayoutDestinationModal";
 import { PayoutAmountModal } from "@/components/pot/PayoutAmountModal";
+import type { ContributionResponse, PotResponse, TransactionType } from "@/lib/types";
+
+const activityFilters: { id: string; label: string; types?: TransactionType[] }[] = [
+  { id: "all", label: "All" },
+  { id: "contribution", label: "Contributions", types: ["contribution", "funding"] },
+  { id: "payout", label: "Payouts", types: ["payout"] },
+  { id: "refund", label: "Refunds", types: ["refund", "reversal"] },
+];
+
+const memberFilters = [
+  { id: "all", label: "Members" },
+  { id: "invites", label: "Invites" },
+  { id: "admins", label: "Admins" },
+];
 
 type PotDetailPageProps = {
   params: Promise<{ id: string }>;
@@ -38,45 +73,127 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
   const { showToast } = useToast();
-  const {
-    currentUser,
-    getPot,
-    getMembersForPot,
-    getContributionsForPot,
-    activatePot,
-    closePot,
-    triggerPayout,
-    triggerRefund,
-    removeMember,
-  } = useMockStore();
+  const { currentUser } = useAuth();
+
+  const [pot, setPot] = useState<PotResponse | null | undefined>(undefined);
+  const [memberRows, setMemberRows] = useState<MemberListRow[]>([]);
+  const [transactions, setTransactions] = useState<import("@/lib/types").TransactionResponse[]>([]);
 
   const [contributeOpen, setContributeOpen] = useState(false);
+  const [pendingContribution, setPendingContribution] = useState<ContributionResponse | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [activateOpen, setActivateOpen] = useState(false);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
+  const [removeMemberTarget, setRemoveMemberTarget] = useState<MemberListRow | null>(null);
+  const [activityFilter, setActivityFilter] = useState("all");
+  const [activityPageSize, setActivityPageSize] = useState<PageSize>(10);
+  const [activityPage, setActivityPage] = useState(1);
+  const [activityFullscreen, setActivityFullscreen] = useState(false);
+  const [memberFilter, setMemberFilter] = useState("all");
+  const [membersFullscreen, setMembersFullscreen] = useState(false);
 
-  const pot = getPot(id);
-  if (!pot) notFound();
+  const isAdmin = memberRows.some(
+    (m) => m.kind === "member" && m.userId === currentUser?.id && m.role === "admin"
+  );
 
-  const members = getMembersForPot(id);
-  const contributions = getContributionsForPot(id);
+  const loadPot = useCallback(async () => {
+    try {
+      const data = await getPot(id);
+      setPot(data);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        setPot(null);
+        return;
+      }
+      showToast(e instanceof ApiError ? e.message : "Couldn't load this pot", "error");
+    }
+  }, [id, showToast]);
 
-  const isAdmin = members.some((m) => m.userId === currentUser?.id && m.role === "admin");
+  const loadMembers = useCallback(async () => {
+    try {
+      const members = await getPotMembers(id);
+      const rows: MemberListRow[] = members.map((m) => ({ kind: "member" as const, ...m }));
+      try {
+        const invites = await getPotInvites(id);
+        const pending = invites
+          .filter((i) => i.status === "pending")
+          .map((i) => ({ kind: "invite" as const, id: i.id, potId: i.potId, email: i.email, role: i.role }));
+        setMemberRows([...rows, ...pending]);
+      } catch {
+        // Non-admins get a 403 on GET /pots/:id/invites — fine, just show real members.
+        setMemberRows(rows);
+      }
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't load members", "error");
+    }
+  }, [id, showToast]);
+
+  const loadTransactions = useCallback(async () => {
+    try {
+      setTransactions(await getPotTransactions(id));
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't load activity", "error");
+    }
+  }, [id, showToast]);
+
+  useEffect(() => {
+    // loadPot/loadMembers/loadTransactions are shared with several onConfirmed callbacks below
+    // (re-fetching after a payout/refund/activate/etc succeeds), so they're real named callbacks,
+    // not effect-only logic inlined here — the alternative the lint rule wants (writing the fetch
+    // promise chain directly in the effect body) would mean duplicating this exact logic at every
+    // call site instead of sharing it.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadPot();
+    loadMembers();
+    loadTransactions();
+  }, [loadPot, loadMembers, loadTransactions]);
+
+  const completedTransactions = useMemo(
+    () =>
+      [...transactions]
+        .filter((transaction) => transaction.status === "completed")
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [transactions]
+  );
+
+  if (pot === undefined) {
+    return (
+      <div className="flex justify-center py-16">
+        <Spinner size="md" />
+      </div>
+    );
+  }
+  if (pot === null) {
+    notFound();
+  }
+  const currentPot: PotResponse = pot;
+
   const targetAmount =
-    pot.payoutMode === "target_based" && "targetAmount" in pot.payoutConfig
+    pot.payoutMode === "target_based" && pot.payoutConfig && "targetAmount" in pot.payoutConfig
       ? pot.payoutConfig.targetAmount
       : undefined;
   const progress = targetAmount
     ? Math.round((Number(pot.balance) / Number(targetAmount)) * 100)
     : null;
 
+  // goalAmount is a display-only fundraising goal available on any payout
+  // mode, distinct from target_based's payoutConfig.targetAmount (which
+  // actually fires the payout). Only shown when there's no payout-triggering
+  // target already occupying the progress bar, so the two concepts never
+  // compete for the same space.
+  const goalProgress =
+    !targetAmount && pot.goalAmount
+      ? Math.round((Number(pot.balance) / Number(pot.goalAmount)) * 100)
+      : null;
+
   // Only manual mode can be triggered on demand — target_based fires
   // exclusively via its own automatic rule (target date/amount reached),
   // never by an admin's discretion. See docs's payout mode split.
   const hasFixedManualDestination =
     pot.payoutMode === "manual" &&
+    pot.payoutConfig &&
     "destinationAccount" in pot.payoutConfig &&
     Boolean(pot.payoutConfig.destinationAccount) &&
     Boolean(pot.payoutConfig.destinationBank);
@@ -90,28 +207,199 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const canTriggerRefund =
     isAdmin && pot.status === "open" && !pot.pendingOperation && Number(pot.balance) > 0;
 
-  const canClose = isAdmin && pot.status === "open" && Number(pot.balance) === 0;
+  const canClose = isAdmin && pot.status === "open";
+  const hasActions = canTriggerPayout || canTriggerRefund || canClose;
+
+  const activityFilterDef = activityFilters.find((filter) => filter.id === activityFilter);
+  const filteredTransactions = activityFilterDef?.types
+    ? completedTransactions.filter((transaction) => activityFilterDef.types!.includes(transaction.type))
+    : completedTransactions;
+
+  const pagedTransactions =
+    activityPageSize === "all"
+      ? filteredTransactions
+      : filteredTransactions.slice((activityPage - 1) * activityPageSize, activityPage * activityPageSize);
+
+  const filteredMembers =
+    memberFilter === "invites"
+      ? memberRows.filter((m) => m.kind === "invite")
+      : memberFilter === "admins"
+        ? memberRows.filter((m) => m.role === "admin")
+        : memberRows;
+
+  const activityExportRows = filteredTransactions.map((transaction) => [
+    transaction.type,
+    new Date(transaction.createdAt).toISOString(),
+    transaction.amount,
+    transaction.status,
+  ]);
+
+  const membersExportRows = filteredMembers.map((member) => [
+    member.kind === "invite" ? member.email : member.fullName,
+    member.kind === "invite" ? "" : member.username,
+    member.role,
+    member.kind === "invite" ? "pending" : "active",
+  ]);
+
+  function renderActivityFilters() {
+    return (
+      <div className="mb-4 flex flex-wrap gap-2">
+        {activityFilters.map((filter) => (
+          <button
+            key={filter.id}
+            type="button"
+            onClick={() => {
+              setActivityFilter(filter.id);
+              setActivityPage(1);
+            }}
+            className={cn(
+              "h-9 rounded-full px-3.5 text-xs font-medium transition-colors duration-150",
+              activityFilter === filter.id
+                ? "bg-accent text-white"
+                : "border border-border bg-surface text-text-secondary hover:text-text-primary"
+            )}
+          >
+            {filter.label}
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  function renderActivityTable() {
+    if (filteredTransactions.length === 0) {
+      return (
+        <EmptyState
+          icon={<ReceiptText className="h-6 w-6" strokeWidth={1.5} />}
+          title="No activity yet"
+          description="Completed transactions for this pot will show up here."
+        />
+      );
+    }
+
+    return (
+      <>
+        <TableToolbar
+          className="mb-4"
+          pageSize={activityPageSize}
+          onPageSizeChange={(size) => {
+            setActivityPageSize(size);
+            setActivityPage(1);
+          }}
+          exportFilename={`${currentPot.title}-activity`}
+          exportHeaders={["Type", "Date", "Amount", "Status"]}
+          exportRows={activityExportRows}
+          onExpand={() => setActivityFullscreen(true)}
+        />
+        <DataTable
+          columns={activityColumns}
+          rows={pagedTransactions.map((transaction) => (
+            <PotTransactionRow key={transaction.id} transaction={transaction} />
+          ))}
+        />
+        <Pagination
+          className="mt-4"
+          pageSize={activityPageSize}
+          page={activityPage}
+          onPageChange={setActivityPage}
+          totalItems={filteredTransactions.length}
+        />
+      </>
+    );
+  }
+
+  function renderMembersFilters() {
+    return (
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {memberFilters.map((filter) => (
+            <button
+              key={filter.id}
+              type="button"
+              onClick={() => setMemberFilter(filter.id)}
+              className={cn(
+                "h-9 rounded-full px-3.5 text-xs font-medium transition-colors duration-150",
+                memberFilter === filter.id
+                  ? "bg-accent text-white"
+                  : "border border-border bg-surface text-text-secondary hover:text-text-primary"
+              )}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+        {isAdmin && (
+          <Button size="sm" variant="secondary" onClick={() => setInviteOpen(true)}>
+            <UserPlus className="h-4 w-4" strokeWidth={1.5} />
+            Add
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  function renderMembersTable() {
+    if (filteredMembers.length === 0) {
+      return <EmptyState icon={<Users className="h-6 w-6" strokeWidth={1.5} />} title="No one here yet" />;
+    }
+
+    return (
+      <>
+        <TableToolbar
+          className="mb-4"
+          exportFilename={`${currentPot.title}-members`}
+          exportHeaders={["Name", "Username", "Role", "Status"]}
+          exportRows={membersExportRows}
+          onExpand={() => setMembersFullscreen(true)}
+        />
+        <DataTable
+          columns={memberColumns}
+          rows={filteredMembers.map((member) => (
+            <PotMemberRow
+              key={member.id}
+              row={member}
+              action={
+                isAdmin && (member.kind === "invite" || member.userId !== currentUser?.id) ? (
+                  <button
+                    type="button"
+                    onClick={() => setRemoveMemberTarget(member)}
+                    className="text-xs font-medium text-text-secondary transition-colors duration-150 hover:text-error"
+                  >
+                    {member.kind === "invite" ? "Cancel invite" : "Remove"}
+                  </button>
+                ) : undefined
+              }
+            />
+          ))}
+        />
+      </>
+    );
+  }
+
+  const editAction =
+    pot.status === "draft" && isAdmin ? (
+      <button
+        type="button"
+        onClick={() => router.push(`/pots/${pot.id}/edit`)}
+        aria-label="Edit pot"
+        className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-text-primary"
+      >
+        <Pencil className="h-5 w-5" strokeWidth={1.5} />
+      </button>
+    ) : undefined;
 
   return (
     <div>
-      <AppHeader
-        title={pot.title}
-        backHref="/dashboard"
-        action={
-          pot.status === "draft" && isAdmin ? (
-            <button
-              type="button"
-              onClick={() => router.push(`/pots/${pot.id}/edit`)}
-              aria-label="Edit pot"
-              className="flex h-11 w-11 items-center justify-center text-text-secondary transition-colors duration-150 hover:text-text-primary"
-            >
-              <Pencil className="h-5 w-5" strokeWidth={1.5} />
-            </button>
-          ) : undefined
-        }
-      />
+      <AppHeader title={pot.title} backHref="/home" action={editAction} />
 
-      <Container className="max-w-2xl py-6">
+      <Container maxWidth="2xl" className="py-6 lg:py-10">
+        <PageHeading
+          title={pot.title}
+          backHref="/home"
+          backLabel="Your pots"
+          action={editAction}
+          className="mb-6 hidden lg:block"
+        />
         <Card padding="lg" className="mb-6">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -140,6 +428,15 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             </div>
           )}
 
+          {goalProgress !== null && (
+            <div className="mt-4">
+              <ProgressBar value={goalProgress} tone="success" />
+              <Text size="xs" color="secondary" className="mt-1">
+                {goalProgress}% of <Money naira={pot.goalAmount ?? "0.00"} size="xs" color="secondary" /> goal
+              </Text>
+            </div>
+          )}
+
           {pot.description && (
             <Text color="secondary" className="mt-4">
               {pot.description}
@@ -150,98 +447,86 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
           <Text size="sm">{describePayoutRule(pot)}</Text>
 
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-5 flex flex-col gap-2">
             {pot.status === "draft" && isAdmin && (
-              <Button className="flex-1" onClick={() => setActivateOpen(true)}>
+              <Button className="w-full" onClick={() => setActivateOpen(true)}>
                 Open this pot
               </Button>
             )}
             {pot.status === "open" && (
-              <Button className="flex-1" onClick={() => setContributeOpen(true)}>
+              <Button className="w-full" onClick={() => setContributeOpen(true)}>
                 <Plus className="h-4 w-4" strokeWidth={1.5} />
                 Contribute
-              </Button>
-            )}
-            {canTriggerPayout && (
-              <Button variant="secondary" className="flex-1" onClick={() => setPayoutOpen(true)}>
-                Trigger payout
-              </Button>
-            )}
-            {canTriggerRefund && (
-              <Button variant="secondary" className="flex-1" onClick={() => setRefundOpen(true)}>
-                Refund
-              </Button>
-            )}
-            {canClose && (
-              <Button variant="ghost" className="flex-1" onClick={() => setCloseOpen(true)}>
-                Close pot
               </Button>
             )}
           </div>
         </Card>
 
         <Tabs
+          variant="underline"
           tabs={[
-            { id: "contributions", label: "Contributions" },
+            { id: "activity", label: "Activity" },
             { id: "members", label: "Members" },
+            ...(hasActions ? [{ id: "actions", label: "Actions" }] : []),
           ]}
         >
           {(activeTabId) => (
             <>
-              {activeTabId === "contributions" && (
+              {activeTabId === "activity" && (
                 <div>
-                  {contributions.length === 0 ? (
-                    <EmptyState
-                      icon={<ReceiptText className="h-6 w-6" strokeWidth={1.5} />}
-                      title="No contributions yet"
-                      description="Contributions to this pot will show up here."
-                    />
-                  ) : (
-                    <Card padding="md" className="divide-y divide-border">
-                      {contributions.map((contribution) => (
-                        <ContributionRow key={contribution.id} contribution={contribution} />
-                      ))}
-                    </Card>
-                  )}
+                  {renderActivityFilters()}
+                  {renderActivityTable()}
                 </div>
               )}
 
               {activeTabId === "members" && (
                 <div>
-                  <div className="mb-3 flex items-center justify-between">
-                    <AvatarStack names={members.slice(0, 5).map((m) => m.fullName || m.email)} extraCount={Math.max(0, members.length - 5)} />
-                    {isAdmin && (
-                      <Button size="sm" variant="secondary" onClick={() => setInviteOpen(true)}>
-                        <UserPlus className="h-4 w-4" strokeWidth={1.5} />
-                        Add
-                      </Button>
-                    )}
-                  </div>
-                  {members.length === 0 ? (
-                    <EmptyState icon={<Users className="h-6 w-6" strokeWidth={1.5} />} title="No members yet" />
-                  ) : (
-                    <Card padding="md" className="divide-y divide-border">
-                      {members.map((member) => (
-                        <MemberRow
-                          key={member.id}
-                          member={member}
-                          action={
-                            isAdmin && member.userId !== currentUser?.id ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  removeMember(pot.id, member.id);
-                                  showToast(`${member.fullName || member.email} removed`, "default");
-                                }}
-                                className="text-xs font-medium text-text-secondary transition-colors duration-150 hover:text-error"
-                              >
-                                Remove
-                              </button>
-                            ) : undefined
-                          }
-                        />
-                      ))}
-                    </Card>
+                  {renderMembersFilters()}
+                  {renderMembersTable()}
+                </div>
+              )}
+
+              {activeTabId === "actions" && hasActions && (
+                <div className="flex flex-col gap-3">
+                  {canTriggerPayout && (
+                    <ActionRow
+                      icon={<Send className="h-5 w-5" strokeWidth={1.5} />}
+                      title="Trigger payout"
+                      description={describePayoutRule(pot)}
+                      buttonLabel="Send"
+                      onClick={() => setPayoutOpen(true)}
+                    />
+                  )}
+                  {!canTriggerPayout && isAdmin && pot.status === "open" && pot.payoutMode !== "manual" && (
+                    <ActionRow
+                      icon={<Send className="h-5 w-5" strokeWidth={1.5} />}
+                      title="Payout"
+                      description={`${payoutModeLabels[pot.payoutMode]} pots pay out on their own rule, not on demand. ${describePayoutRule(pot)}`}
+                      disabled
+                    />
+                  )}
+                  {canTriggerRefund && (
+                    <ActionRow
+                      icon={<RotateCcw className="h-5 w-5" strokeWidth={1.5} />}
+                      title="Refund"
+                      description={
+                        pot.refundType === "contributors"
+                          ? "Send the balance back to every contributor, split by what they put in."
+                          : "Send the full balance to your saved refund account."
+                      }
+                      buttonLabel="Refund"
+                      onClick={() => setRefundOpen(true)}
+                    />
+                  )}
+                  {canClose && (
+                    <ActionRow
+                      icon={<Trash2 className="h-5 w-5" strokeWidth={1.5} />}
+                      title="Close pot"
+                      description="Stops new contributions for good. Any balance left needs a refund first."
+                      buttonLabel="Close"
+                      danger
+                      onClick={() => setCloseOpen(true)}
+                    />
                   )}
                 </div>
               )}
@@ -250,15 +535,52 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         </Tabs>
       </Container>
 
-      <ContributeModal open={contributeOpen} onClose={() => setContributeOpen(false)} pot={pot} />
-      <InviteMemberModal open={inviteOpen} onClose={() => setInviteOpen(false)} potId={pot.id} />
+      <TableFullscreenModal open={activityFullscreen} onClose={() => setActivityFullscreen(false)} title="Activity">
+        {renderActivityFilters()}
+        {renderActivityTable()}
+      </TableFullscreenModal>
+
+      <TableFullscreenModal open={membersFullscreen} onClose={() => setMembersFullscreen(false)} title="Members">
+        {renderMembersFilters()}
+        {renderMembersTable()}
+      </TableFullscreenModal>
+
+      <ContributeModal
+        open={contributeOpen}
+        onClose={() => setContributeOpen(false)}
+        pot={pot}
+        onContributed={(contribution) => setPendingContribution(contribution)}
+      />
+      <AwaitingPaymentModal
+        open={pendingContribution !== null}
+        onClose={() => setPendingContribution(null)}
+        potId={pot.id}
+        contribution={pendingContribution}
+        onResolved={() => {
+          showToast("Contribution received", "success");
+          setPendingContribution(null);
+          loadPot();
+          loadTransactions();
+        }}
+      />
+      <InviteMemberModal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        potId={pot.id}
+        onAdded={loadMembers}
+      />
 
       <ConfirmActionModal
         open={activateOpen}
         onClose={() => setActivateOpen(false)}
-        onConfirm={() => {
-          activatePot(pot.id);
-          showToast("Pot is now open for contributions", "success");
+        onConfirm={async () => {
+          try {
+            await activatePot(pot.id);
+            showToast("Pot is now open for contributions", "success");
+            loadPot();
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't open this pot", "error");
+          }
         }}
         title="Open this pot?"
         description="Once open, the the payout and refund rules are locked in and can no longer be changed."
@@ -269,50 +591,85 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
         <PayoutDestinationModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
+          potId={pot.id}
           balance={pot.balance}
-          onConfirm={(destination, amount) => {
-            triggerPayout(pot.id, destination, amount);
+          onConfirmed={() => {
             showToast("Payout triggered", "success");
+            loadPot();
+            loadTransactions();
           }}
         />
       ) : (
         <PayoutAmountModal
           open={payoutOpen}
           onClose={() => setPayoutOpen(false)}
+          potId={pot.id}
           balance={pot.balance}
-          onConfirm={(amount) => {
-            triggerPayout(pot.id, undefined, amount);
+          onConfirmed={() => {
             showToast("Payout triggered", "success");
+            loadPot();
+            loadTransactions();
           }}
         />
       )}
 
-      <ConfirmActionModal
+      <RefundConfirmModal
         open={refundOpen}
         onClose={() => setRefundOpen(false)}
-        onConfirm={() => {
-          triggerRefund(pot.id);
+        potId={pot.id}
+        onConfirmed={() => {
           showToast("Refund triggered", "success");
+          loadPot();
+          loadTransactions();
         }}
-        title="Refund this pot?"
         description={
           pot.refundType === "contributors"
             ? "Every contributor gets their own money back."
             : "The full balance goes to your saved refund account."
         }
-        confirmLabel="Trigger refund"
+      />
+
+      <CloseConfirmModal
+        open={closeOpen}
+        onClose={() => setCloseOpen(false)}
+        onConfirm={async () => {
+          try {
+            await closePot(pot.id);
+            showToast("Pot closed", "success");
+            loadPot();
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't close this pot", "error");
+          }
+        }}
+        balance={pot.balance}
       />
 
       <ConfirmActionModal
-        open={closeOpen}
-        onClose={() => setCloseOpen(false)}
-        onConfirm={() => {
-          closePot(pot.id);
-          showToast("Pot closed", "success");
+        open={removeMemberTarget !== null}
+        onClose={() => setRemoveMemberTarget(null)}
+        onConfirm={async () => {
+          if (!removeMemberTarget) return;
+          try {
+            if (removeMemberTarget.kind === "invite") {
+              await cancelInvite(pot.id, removeMemberTarget.id);
+              showToast(`Invite to ${removeMemberTarget.email} canceled`);
+            } else {
+              await removeMember(pot.id, removeMemberTarget.userId);
+              showToast(`${removeMemberTarget.fullName || removeMemberTarget.email} removed`);
+            }
+            loadMembers();
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't complete that action", "error");
+          }
         }}
-        title="Close this pot?"
-        description="Closing a pot is final. You can only close a pot once its balance is zero."
-        confirmLabel="Close pot"
+        title={removeMemberTarget?.kind === "invite" ? "Cancel this invite?" : "Remove this member?"}
+        description={
+          removeMemberTarget?.kind === "invite"
+            ? "They won't be able to join this pot with that invite anymore."
+            : "They'll lose access to this pot and won't be able to contribute or see updates unless invited again."
+        }
+        confirmLabel={removeMemberTarget?.kind === "invite" ? "Cancel invite" : "Remove member"}
+        danger={removeMemberTarget?.kind !== "invite"}
       />
     </div>
   );

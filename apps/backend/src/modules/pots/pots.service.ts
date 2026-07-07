@@ -1,11 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import db, {
   pots,
   potMembers,
   users,
   transactions,
+  ledgerEntries,
+  accounts,
   contributions,
   contributionPayments,
   targetBasedPayoutConfigs,
@@ -14,6 +16,12 @@ import db, {
   scheduledPayoutConfigs,
   scheduledPayoutLegs,
   type Pot,
+  type Transaction,
+  type TargetBasedPayoutConfig,
+  type ManualPayoutConfig,
+  type RecurringPayoutConfig,
+  type ScheduledPayoutConfig,
+  type ScheduledPayoutLeg,
 } from "@/db";
 import { PotError } from "./pots.errors";
 import { assertIsAdmin, getPotOrThrow } from "./pot-authorization";
@@ -42,9 +50,28 @@ type PayoutModeConfigPair =
   | { payoutMode: "recurring"; payoutConfig: z.infer<typeof recurringPayoutConfigSchema> }
   | { payoutMode: "scheduled"; payoutConfig: z.infer<typeof scheduledPayoutConfigSchema> };
 
+// Raw (kobo/Date, not yet wire-serialized) return shape of PotsService.getPayoutConfig — a real
+// discriminated union (tagged by `mode`) so pots.controller.ts's serializePayoutConfig can switch
+// on payoutMode and narrow without an unsound cast, since none of the four config tables share a
+// natural discriminant column of their own.
+export type PayoutConfigRow =
+  | ({ mode: "target_based" } & TargetBasedPayoutConfig)
+  | ({ mode: "manual" } & ManualPayoutConfig)
+  | ({ mode: "recurring" } & RecurringPayoutConfig)
+  | ({ mode: "scheduled" } & ScheduledPayoutConfig & { legs: ScheduledPayoutLeg[] });
+
 /** Generates a random URL-safe slug for a pot's share link. */
 function generateShareSlug(): string {
   return randomBytes(8).toString("base64url");
+}
+
+/** Case-insensitive title substring filter for PotsService.list; returns rows unchanged if q is omitted or blank. */
+function filterByTitle(rows: Pot[], q: string | undefined): Pot[] {
+  const query = q?.trim().toLowerCase();
+  if (!query) {
+    return rows;
+  }
+  return rows.filter((pot) => pot.title.toLowerCase().includes(query));
 }
 
 // pots.schema.ts's z.coerce.date() fields are typed `Date` after z.infer, but Fastify validates
@@ -194,6 +221,111 @@ export const PotsService = {
     return LedgerService.getBalance(potAccount.id);
   },
 
+  /** Reads back this pot's payoutMode-specific config row (kobo/Date fields still raw — serializePot converts to wire format), or null for a manual-mode pot with no fixed destination configured. */
+  async getPayoutConfig(potId: string, payoutMode: Pot["payoutMode"]): Promise<PayoutConfigRow | null> {
+    switch (payoutMode) {
+      case "target_based": {
+        const [config] = await db
+          .select()
+          .from(targetBasedPayoutConfigs)
+          .where(eq(targetBasedPayoutConfigs.potId, potId))
+          .limit(1);
+        return config ? { mode: "target_based", ...config } : null;
+      }
+      case "manual": {
+        const [config] = await db
+          .select()
+          .from(manualPayoutConfigs)
+          .where(eq(manualPayoutConfigs.potId, potId))
+          .limit(1);
+        return config ? { mode: "manual", ...config } : null;
+      }
+      case "recurring": {
+        const [config] = await db
+          .select()
+          .from(recurringPayoutConfigs)
+          .where(eq(recurringPayoutConfigs.potId, potId))
+          .limit(1);
+        return config ? { mode: "recurring", ...config } : null;
+      }
+      case "scheduled": {
+        const [config] = await db
+          .select()
+          .from(scheduledPayoutConfigs)
+          .where(eq(scheduledPayoutConfigs.potId, potId))
+          .limit(1);
+        if (!config) return null;
+        const legs = await db
+          .select()
+          .from(scheduledPayoutLegs)
+          .where(eq(scheduledPayoutLegs.scheduledConfigId, config.id))
+          .orderBy(scheduledPayoutLegs.sequenceOrder);
+        return { mode: "scheduled", ...config, legs };
+      }
+    }
+  },
+
+  /**
+   * Every transaction that has posted a ledger entry against this pot's account (funding,
+   * contribution, payout, refund, fee, transfer, reversal — a funded contribution is just
+   * type: 'contribution' here, there is no separate contributions list), newest first. Joins
+   * through ledgerEntries/accounts rather than a potId column on transactions itself — see
+   * ledger-entries.ts/accounts.ts, transactions has no direct FK to pots.
+   */
+  async listTransactions(potId: string): Promise<Transaction[]> {
+    const potAccount = await AccountsService.getOrCreatePotAccount(potId);
+    const rows = await db
+      .select({ transaction: transactions })
+      .from(ledgerEntries)
+      .innerJoin(transactions, eq(ledgerEntries.transactionId, transactions.id))
+      .where(eq(ledgerEntries.accountId, potAccount.id))
+      .orderBy(desc(transactions.createdAt));
+
+    // One entry per (transaction, account) pair in practice, but de-dupe by
+    // id defensively rather than assume the join can never fan out.
+    const seen = new Set<string>();
+    const result: Transaction[] = [];
+    for (const { transaction } of rows) {
+      if (!seen.has(transaction.id)) {
+        seen.add(transaction.id);
+        result.push(transaction);
+      }
+    }
+    return result;
+  },
+
+  /**
+   * Cross-pot activity feed for GET /me/transactions — every transaction posted against any pot
+   * userId is a member of (regardless of role), newest first, each tagged with its potId/potTitle
+   * since entries here span multiple pots. Same ledgerEntries -> accounts -> transactions join as
+   * listTransactions, additionally joined to pots (via accounts.ownerId) for the title and scoped
+   * to the caller's memberships via potMembers.
+   */
+  async listTransactionsForUser(userId: string): Promise<(Transaction & { potId: string; potTitle: string })[]> {
+    const rows = await db
+      .select({ transaction: transactions, potId: pots.id, potTitle: pots.title })
+      .from(potMembers)
+      .innerJoin(pots, eq(potMembers.potId, pots.id))
+      .innerJoin(
+        accounts,
+        and(eq(accounts.ownerType, "pot"), eq(accounts.ownerId, pots.id))
+      )
+      .innerJoin(ledgerEntries, eq(ledgerEntries.accountId, accounts.id))
+      .innerJoin(transactions, eq(ledgerEntries.transactionId, transactions.id))
+      .where(eq(potMembers.userId, userId))
+      .orderBy(desc(transactions.createdAt));
+
+    const seen = new Set<string>();
+    const result: (Transaction & { potId: string; potTitle: string })[] = [];
+    for (const row of rows) {
+      if (!seen.has(row.transaction.id)) {
+        seen.add(row.transaction.id);
+        result.push({ ...row.transaction, potId: row.potId, potTitle: row.potTitle });
+      }
+    }
+    return result;
+  },
+
   /** Creates a pot in 'draft' status, inserts its mode-specific payout config, and adds creatorId as its first admin member. */
   async create(creatorId: string, input: CreatePotInput) {
     const [pot] = await db
@@ -228,15 +360,35 @@ export const PotsService = {
     return pot;
   },
 
-  /** Returns all public pots plus, if userId is given, the private pots that user belongs to. */
-  async list(userId: string | undefined) {
+  /**
+   * Returns pots visible to the caller, optionally narrowed by scope/search.
+   * scope='public': every public pot, regardless of membership.
+   * scope='mine': only pots (public or private) the caller is a member of — requires userId.
+   * scope omitted: the original default — all public pots plus, if authenticated, the
+   * caller's own private pots (public+private, deduped, matching the old merged-list behavior).
+   * q, if given, filters by a case-insensitive title substring match, applied after scope.
+   */
+  async list(userId: string | undefined, scope?: "public" | "mine", q?: string) {
+    if (scope === "mine") {
+      if (!userId) {
+        throw new PotError("Authentication required", 401);
+      }
+      const myMemberships = await db
+        .select({ potId: potMembers.potId })
+        .from(potMembers)
+        .where(eq(potMembers.userId, userId));
+      const myPotIds = myMemberships.map((m) => m.potId);
+      const myPots = myPotIds.length === 0 ? [] : await db.select().from(pots).where(inArray(pots.id, myPotIds));
+      return filterByTitle(myPots, q);
+    }
+
     // Public pots are visible to everyone. Private pots only show up for
     // an authenticated member — filtered in application code rather than
     // a single SQL query since "member of" requires a join per-pot type.
     const allPublic = await db.select().from(pots).where(eq(pots.potType, "public"));
 
-    if (!userId) {
-      return allPublic;
+    if (scope === "public" || !userId) {
+      return filterByTitle(allPublic, q);
     }
 
     const myMemberships = await db
@@ -252,7 +404,7 @@ export const PotsService = {
             myPotIds.has(p.id)
           );
 
-    return [...allPublic, ...privatePotsIAmIn];
+    return filterByTitle([...allPublic, ...privatePotsIAmIn], q);
   },
 
   /** Admin-only. Draft-only — payoutMode/refundType/config are immutable once a pot is 'open' (see pots.ts status semantics). */
@@ -456,7 +608,7 @@ export const PotsService = {
     const [triggeringAdmin] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     if (!triggeringAdmin?.defaultRefundAccount || !triggeringAdmin.defaultRefundBank) {
       throw new PotError(
-        "Set a default refund bank account (PATCH /auth/me/refund-profile) before triggering an admin refund",
+        "Set a default refund bank account (PATCH /me/refund-profile) before triggering an admin refund",
         409
       );
     }

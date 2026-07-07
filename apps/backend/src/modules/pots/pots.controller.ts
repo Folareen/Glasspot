@@ -1,5 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
-import { PotsService } from "./pots.service";
+import { PotsService, type PayoutConfigRow } from "./pots.service";
 import { PotMembersService } from "./pot-members.service";
 import { PotInvitesService } from "./pot-invites.service";
 import { ContributionsService } from "./contributions.service";
@@ -12,6 +12,7 @@ import {
   ContributeInput,
   CreatePotInput,
   InviteIdParams,
+  ListPotsQuery,
   MemberParams,
   PotIdParams,
   RequestPayoutOtpInput,
@@ -23,6 +24,50 @@ import {
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import type { Pot } from "@/db";
 
+/** Converts one payoutMode config row (raw kobo bigints/Date fields from PotsService.getPayoutConfig, tagged by `mode`) to its wire shape, or null for manual mode with no fixed destination. Scheduled's legs array is converted leg-by-leg. */
+function serializePayoutConfig(config: PayoutConfigRow | null) {
+  if (!config) return null;
+  switch (config.mode) {
+    case "target_based":
+      return {
+        destinationAccount: config.destinationAccount,
+        destinationBank: config.destinationBank,
+        destinationAccountName: config.destinationAccountName,
+        targetDate: config.targetDate ? config.targetDate.toISOString() : null,
+        targetAmount: config.targetAmount !== null ? koboToNairaString(config.targetAmount) : null,
+        fired: config.fired,
+      };
+    case "manual":
+      return {
+        destinationAccount: config.destinationAccount,
+        destinationBank: config.destinationBank,
+        destinationAccountName: config.destinationAccountName,
+      };
+    case "recurring":
+      return {
+        destinationAccount: config.destinationAccount,
+        destinationBank: config.destinationBank,
+        destinationAccountName: config.destinationAccountName,
+        amount: koboToNairaString(config.amount),
+        intervalDays: config.intervalDays,
+        nextRunAt: config.nextRunAt.toISOString(),
+      };
+    case "scheduled":
+      return {
+        ordered: config.ordered,
+        legs: config.legs.map((leg) => ({
+          destinationAccount: leg.destinationAccount,
+          destinationBank: leg.destinationBank,
+          destinationAccountName: leg.destinationAccountName,
+          sequenceOrder: leg.sequenceOrder,
+          amount: koboToNairaString(leg.amount),
+          scheduledDate: leg.scheduledDate.toISOString(),
+          fired: leg.fired,
+        })),
+      };
+  }
+}
+
 // potResponseSchema declares minContribution/maxContribution/goalAmount/
 // balance as naira "NN.NN" strings (see pots.schema.ts's nairaAmount
 // comment), but Drizzle returns them as real kobo bigints — every handler
@@ -32,15 +77,21 @@ import type { Pot } from "@/db";
 // moment any of them is a non-null bigint instead of a string. Also
 // attaches the pot's current ledger balance (see PotsService.getBalance)
 // so callers can show amount contributed against
-// minContribution/maxContribution/goalAmount without a separate request.
+// minContribution/maxContribution/goalAmount without a separate request,
+// and the pot's payoutMode-specific payoutConfig (see PotsService.getPayoutConfig)
+// so the frontend never needs a second round trip to render the payout rule.
 async function serializePot(pot: Pot) {
-  const balance = await PotsService.getBalance(pot.id);
+  const [balance, payoutConfig] = await Promise.all([
+    PotsService.getBalance(pot.id),
+    PotsService.getPayoutConfig(pot.id, pot.payoutMode),
+  ]);
   return {
     ...pot,
     minContribution: koboToNairaString(pot.minContribution),
     maxContribution: pot.maxContribution !== null ? koboToNairaString(pot.maxContribution) : null,
     goalAmount: pot.goalAmount !== null ? koboToNairaString(pot.goalAmount) : null,
     balance: koboToNairaString(balance),
+    payoutConfig: serializePayoutConfig(payoutConfig),
   };
 }
 
@@ -103,10 +154,13 @@ export async function createPotHandler(
   }
 }
 
-/** Lists public pots plus, if the caller is authenticated, their private pots too. */
-export async function listPotsHandler(request: FastifyRequest, reply: FastifyReply) {
+/** Lists pots visible to the caller. ?scope=public/mine narrows the result (see PotsService.list); omitted, defaults to public pots plus the caller's own private ones. ?q filters by title substring. */
+export async function listPotsHandler(
+  request: FastifyRequest<{ Querystring: ListPotsQuery }>,
+  reply: FastifyReply
+) {
   try {
-    const pots = await PotsService.list(currentUserId(request));
+    const pots = await PotsService.list(currentUserId(request), request.query.scope, request.query.q);
     return reply.code(200).send(await Promise.all(pots.map(serializePot)));
   } catch (e) {
     return handlePotError(e, reply);
@@ -267,6 +321,25 @@ export async function contributeHandler(
     // response of an earlier identical call (see withIdempotencyKey) — so
     // no further conversion happens on this path.
     return reply.code(statusCode).send(body);
+  } catch (e) {
+    return handlePotError(e, reply);
+  }
+}
+
+/** Lists a pot's transactions (funding, contribution, payout, refund, fee, transfer, reversal — all in one feed, newest first), after checking the pot is viewable by the requester. Serves both the pot detail Activity tab and "list contributions", since a funded contribution is just type: 'contribution' here. */
+export async function listTransactionsHandler(
+  request: FastifyRequest<{ Params: PotIdParams }>,
+  reply: FastifyReply
+) {
+  try {
+    await getViewablePotOrThrow(request.params.id, currentUserId(request));
+    const transactions = await PotsService.listTransactions(request.params.id);
+    return reply.code(200).send(
+      transactions.map((t) => ({
+        ...t,
+        amount: koboToNairaString(t.amount),
+      }))
+    );
   } catch (e) {
     return handlePotError(e, reply);
   }

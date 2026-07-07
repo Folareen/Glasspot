@@ -35,7 +35,15 @@ export const PotInvitesService = {
         .values({ potId, userId: existingUser.id, role, invitedByUserId })
         .returning();
 
-      return { kind: "member" as const, member };
+      return {
+        kind: "member" as const,
+        member: {
+          ...member,
+          fullName: existingUser.fullName,
+          username: existingUser.username,
+          email: existingUser.email,
+        },
+      };
     }
 
     const existingPending = await db.query.potInvites.findFirst({

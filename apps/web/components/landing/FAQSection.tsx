@@ -2,6 +2,7 @@ import { Container } from "@/components/ui/Container";
 import { Heading } from "@/components/ui/Heading";
 import { Text } from "@/components/ui/Text";
 import { Accordion } from "@/components/ui/Accordion";
+import { Badge } from "@/components/ui/Badge";
 import { ShieldCheck } from "lucide-react";
 
 const faqs = [
@@ -40,12 +41,17 @@ const faqs = [
     answer:
       "Both work. A pot can be private, so only people who've been added can see or pay into it, or public, so anyone with the link can contribute. The creator decides which, when the pot is set up.",
   },
+  {
+    question: "Can I use Glasspot just for myself, not a group?",
+    answer:
+      "Yes. Glasspot also works for personal money separation, keep a savings target or project budget in its own pot without opening a new bank account.",
+  },
 ];
 
 export function FAQSection() {
   return (
     <section id="faq" className="border-t border-border bg-indigo-soft py-16 sm:py-24">
-      <Container className="max-w-2xl">
+      <Container maxWidth="2xl">
         <Heading level={2} font="display">
           Questions people actually ask
         </Heading>
@@ -55,11 +61,11 @@ export function FAQSection() {
         <div className="mt-8">
           <Accordion items={faqs} />
         </div>
-        <div className="mt-8 flex items-center gap-2 text-text-secondary">
-          <ShieldCheck className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-          <Text size="sm" color="secondary">
-            Payments powered by Nomba, a licensed Nigerian payment infrastructure provider.
-          </Text>
+        <div className="mt-8">
+          <Badge variant="accent">
+            <ShieldCheck className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+            Payments powered by Nomba, a licensed Nigerian payment infrastructure provider
+          </Badge>
         </div>
       </Container>
     </section>

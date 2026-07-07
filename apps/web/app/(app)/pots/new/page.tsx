@@ -4,12 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useToast } from "@/lib/toast";
-import { useMockStore } from "@/lib/mock/store";
+import { ApiError, createPot } from "@/lib/api";
 import { BasicsStep } from "@/components/pot/wizard/BasicsStep";
 import { PayoutModeStep } from "@/components/pot/wizard/PayoutModeStep";
 import { TargetBasedConfigStep } from "@/components/pot/wizard/TargetBasedConfigStep";
@@ -31,10 +32,10 @@ const stepTitles: Record<(typeof wizardSteps)[number], string> = {
 export default function NewPotPage() {
   const router = useRouter();
   const { showToast } = useToast();
-  const { createPot } = useMockStore();
   const [stepIndex, setStepIndex] = useState(0);
   const [state, setState] = useState<WizardState>(initialWizardState);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const step = wizardSteps[stepIndex];
 
@@ -51,40 +52,57 @@ export default function NewPotPage() {
 
   function goBack() {
     if (stepIndex === 0) {
-      router.push("/dashboard");
+      router.push("/home");
       return;
     }
+    setSubmitAttempted(false);
     setStepIndex((i) => i - 1);
   }
 
   function goNext() {
+    if (!canAdvance()) {
+      setSubmitAttempted(true);
+      return;
+    }
+    setSubmitAttempted(false);
     if (stepIndex < wizardSteps.length - 1) {
       setStepIndex((i) => i + 1);
     }
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!state.payoutMode) return;
     setIsSubmitting(true);
-    const pot = createPot({
-      title: state.title.trim(),
-      description: state.description.trim() || undefined,
-      potType: state.potType,
-      refundType: state.refundType,
-      minContribution: isPositiveAmount(state.minContribution) ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
-      maxContribution: isPositiveAmount(state.maxContribution) ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
-      goalAmount: isPositiveAmount(state.goalAmount) ? (toNairaAmount(state.goalAmount) ?? undefined) : undefined,
-      payoutMode: state.payoutMode,
-      payoutConfig: buildPayoutConfig(state),
-    });
-    showToast("Pot created as a draft", "success");
-    router.push(`/pots/${pot.id}`);
+    try {
+      const pot = await createPot({
+        title: state.title.trim(),
+        description: state.description.trim() || undefined,
+        potType: state.potType,
+        refundType: state.refundType,
+        minContribution: isPositiveAmount(state.minContribution) ? (toNairaAmount(state.minContribution) ?? undefined) : undefined,
+        maxContribution: isPositiveAmount(state.maxContribution) ? (toNairaAmount(state.maxContribution) ?? undefined) : undefined,
+        goalAmount: isPositiveAmount(state.goalAmount) ? (toNairaAmount(state.goalAmount) ?? undefined) : undefined,
+        payoutMode: state.payoutMode,
+        payoutConfig: buildPayoutConfig(state),
+      });
+      showToast("Pot created as a draft", "success");
+      router.push(`/pots/${pot.id}`);
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Couldn't create this pot", "error");
+      setIsSubmitting(false);
+    }
   }
 
   return (
     <div>
       <AppHeader title={stepTitles[step]} action={<StepIndicator index={stepIndex} />} />
-      <Container className="max-w-2xl py-6">
+      <Container maxWidth="2xl" className="py-6 lg:py-10">
+        <PageHeading
+          title={stepTitles[step]}
+          action={<StepIndicator index={stepIndex} />}
+          className="mb-6 hidden lg:block"
+        />
+
         <button
           type="button"
           onClick={goBack}
@@ -94,21 +112,23 @@ export default function NewPotPage() {
           Back
         </button>
 
-        {step === "basics" && <BasicsStep state={state} onChange={patch} />}
+        {step === "basics" && (
+          <BasicsStep state={state} onChange={patch} showErrors={submitAttempted} />
+        )}
         {step === "mode" && (
           <PayoutModeStep value={state.payoutMode} onChange={(mode) => patch({ payoutMode: mode })} />
         )}
         {step === "config" && state.payoutMode === "target_based" && (
-          <TargetBasedConfigStep state={state} onChange={patch} />
+          <TargetBasedConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "config" && state.payoutMode === "manual" && (
-          <ManualConfigStep state={state} onChange={patch} />
+          <ManualConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "config" && state.payoutMode === "recurring" && (
-          <RecurringConfigStep state={state} onChange={patch} />
+          <RecurringConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "config" && state.payoutMode === "scheduled" && (
-          <ScheduledConfigStep state={state} onChange={patch} />
+          <ScheduledConfigStep state={state} onChange={patch} showErrors={submitAttempted} />
         )}
         {step === "review" && <ReviewStep state={state} />}
 
@@ -119,7 +139,7 @@ export default function NewPotPage() {
               Create pot
             </Button>
           ) : (
-            <Button className="w-full" onClick={goNext} disabled={!canAdvance()}>
+            <Button className="w-full" onClick={goNext} disabled={isSubmitting}>
               Continue
               <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
             </Button>

@@ -1,3 +1,5 @@
+import { initialWizardState, type WizardState } from "@/components/pot/wizard/wizard-types";
+
 // Mirrors apps/backend/src/db/schema/pots.ts's payoutModeEnum.
 export type MvpPayoutMode = "target_based" | "manual" | "recurring" | "scheduled";
 export type PotType = "public" | "private";
@@ -11,6 +13,57 @@ export type UseCase = {
   potType: PotType;
   refundType: RefundType;
 };
+
+/**
+ * Derives a starting wizard state for the landing page's "Try it" flow from
+ * a use case's own fields, rather than hand-authoring a template per use
+ * case (22+ of them). The numbers/dates are placeholders the user is
+ * expected to edit before creating — this only needs to be a plausible
+ * starting point, not a correct one.
+ */
+export function buildTemplateFromUseCase(useCase: UseCase): WizardState {
+  const base: WizardState = {
+    ...initialWizardState,
+    title: useCase.title,
+    description: useCase.description,
+    potType: useCase.potType,
+    refundType: useCase.refundType,
+    payoutMode: useCase.payoutMode,
+  };
+
+  const inFourWeeks = new Date();
+  inFourWeeks.setDate(inFourWeeks.getDate() + 28);
+  const fourWeeksIso = inFourWeeks.toISOString().slice(0, 10);
+
+  switch (useCase.payoutMode) {
+    case "target_based":
+      return { ...base, targetAmountNaira: "100000.00" };
+    case "recurring":
+      return {
+        ...base,
+        recurringAmountNaira: "5000.00",
+        recurringIntervalDays: "30",
+        recurringNextRunAt: fourWeeksIso,
+      };
+    case "scheduled":
+      return {
+        ...base,
+        scheduledOrdered: true,
+        scheduledLegs: [
+          {
+            destinationAccount: "",
+            destinationBank: "",
+            sequenceOrder: 0,
+            amount: "5000.00",
+            scheduledDate: fourWeeksIso,
+          },
+        ],
+      };
+    case "manual":
+    default:
+      return base;
+  }
+}
 
 export const payoutModeMeta: Record<MvpPayoutMode, { label: string; description: string }> = {
   scheduled: {
@@ -38,8 +91,8 @@ export const potTypeBadge: Record<PotType, string> = {
 };
 
 export const refundTypeBadge: Record<RefundType, string> = {
-  admin: "Refunds via admin",
-  contributors: "Refunds to contributors",
+  admin: "Admin refunds",
+  contributors: "Contributor refunds",
 };
 
 export const featuredUseCases: UseCase[] = [

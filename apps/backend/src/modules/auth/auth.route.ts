@@ -1,16 +1,16 @@
 import { FastifyInstance } from "fastify";
 import {
+  forgotPasswordHandler,
   loginHandler,
   logoutHandler,
   refreshHandler,
   registerHandler,
   resendOtpHandler,
-  updateRefundProfileHandler,
+  resetPasswordHandler,
   verifyEmailHandler,
   verifyLoginOtpHandler,
 } from "./auth.controller";
 import { $ref } from "./auth.schema";
-import { UpdateRefundProfileInput } from "./auth.schema";
 
 /** Registers all /auth/* routes with their per-endpoint rate limits — verification endpoints allow 10 req/min, issuance endpoints (login, resend-otp) allow 5 req/min. */
 async function authRoutes(server: FastifyInstance) {
@@ -110,16 +110,32 @@ async function authRoutes(server: FastifyInstance) {
     logoutHandler
   );
 
-  server.patch<{ Body: UpdateRefundProfileInput }>(
-    "/me/refund-profile",
+  server.post(
+    "/forgot-password",
     {
-      preHandler: [server.authenticate],
+      config: {
+        rateLimit: { max: 5, timeWindow: "1 minute" },
+      },
       schema: {
-        body: $ref("updateRefundProfileSchema"),
-        response: { 200: $ref("refundProfileResponseSchema") },
+        body: $ref("forgotPasswordSchema"),
+        response: { 200: $ref("messageResponseSchema") },
       },
     },
-    updateRefundProfileHandler
+    forgotPasswordHandler
+  );
+
+  server.post(
+    "/reset-password",
+    {
+      config: {
+        rateLimit: { max: 10, timeWindow: "1 minute" },
+      },
+      schema: {
+        body: $ref("resetPasswordSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    resetPasswordHandler
   );
 }
 

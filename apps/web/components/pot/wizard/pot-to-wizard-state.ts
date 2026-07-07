@@ -4,10 +4,10 @@ import type {
   RecurringPayoutConfig,
   ScheduledPayoutConfig,
   TargetBasedPayoutConfig,
-} from "@/lib/mock/types";
+} from "@/lib/types";
 import { initialWizardState, type WizardState } from "./wizard-types";
 
-function toDateInput(iso?: string) {
+function toDateInput(iso?: string | null) {
   return iso ? iso.slice(0, 10) : "";
 }
 
@@ -17,7 +17,7 @@ function toDateInput(iso?: string) {
 // field directly) so a missing/optional field still normalizes to "" like
 // every other wizard string field, and so this is the one place to touch
 // if the wire shape ever changes.
-function toWizardAmount(naira?: string) {
+function toWizardAmount(naira?: string | null) {
   return naira ?? "";
 }
 
@@ -46,11 +46,15 @@ export function potToWizardState(pot: PotResponse): WizardState {
   }
 
   if (pot.payoutMode === "manual") {
-    const config = pot.payoutConfig as ManualPayoutConfig;
+    // null here means "no fixed destination configured" (the only payoutMode where the config
+    // row itself is optional — see PotsService.getPayoutConfig/insertPayoutConfig on the backend)
+    // rather than a real ManualPayoutConfig with every field null; both mean the same thing to
+    // the wizard, so they're handled identically.
+    const config = pot.payoutConfig as ManualPayoutConfig | null;
     return {
       ...base,
-      manualDestinationAccount: config.destinationAccount ?? "",
-      manualDestinationBank: config.destinationBank ?? "",
+      manualDestinationAccount: config?.destinationAccount ?? "",
+      manualDestinationBank: config?.destinationBank ?? "",
     };
   }
 
@@ -72,7 +76,9 @@ export function potToWizardState(pot: PotResponse): WizardState {
       ...base,
       scheduledOrdered: config.ordered,
       scheduledLegs: config.legs.map((leg) => ({
-        ...leg,
+        destinationAccount: leg.destinationAccount,
+        destinationBank: leg.destinationBank,
+        sequenceOrder: leg.sequenceOrder,
         amount: toWizardAmount(leg.amount),
         scheduledDate: toDateInput(leg.scheduledDate),
       })),

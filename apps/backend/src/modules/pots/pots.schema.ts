@@ -163,6 +163,59 @@ const createPotSchema = z.discriminatedUnion("payoutMode", [
   }),
 ]);
 
+// Response shape of each payoutMode's config, as actually read back from its table by
+// PotsService.getPayoutConfig and serialized by serializePot — naira strings/ISO date strings on
+// the wire, distinct from the *input* schemas above (targetBasedPayoutConfigSchema etc.) which
+// use z.coerce.date()/nairaAmount for a request body. null for target_based/recurring/scheduled
+// would mean the pot was created without ever inserting its (required) config row, which
+// shouldn't happen; null for manual means no fixed destination was configured (see
+// manualPayoutConfigs' comment) — the only response-shape difference between input and output
+// here is these response schemas drop the DB-only id/potId/createdAt/fired bookkeeping fields.
+const targetBasedPayoutConfigResponseSchema = z.object({
+  ...destinationSchema,
+  destinationAccountName: z.string(),
+  targetDate: z.string().nullable(),
+  targetAmount: z.string().nullable(),
+  fired: z.boolean(),
+});
+
+const manualPayoutConfigResponseSchema = z.object({
+  destinationAccount: z.string().nullable(),
+  destinationBank: z.string().nullable(),
+  destinationAccountName: z.string().nullable(),
+});
+
+const recurringPayoutConfigResponseSchema = z.object({
+  ...destinationSchema,
+  destinationAccountName: z.string(),
+  amount: z.string(),
+  intervalDays: z.number().int(),
+  nextRunAt: z.string(),
+});
+
+const scheduledPayoutLegResponseSchema = z.object({
+  ...destinationSchema,
+  destinationAccountName: z.string(),
+  sequenceOrder: z.number().int(),
+  amount: z.string(),
+  scheduledDate: z.string(),
+  fired: z.boolean(),
+});
+
+const scheduledPayoutConfigResponseSchema = z.object({
+  ordered: z.boolean(),
+  legs: z.array(scheduledPayoutLegResponseSchema),
+});
+
+const payoutConfigResponseSchema = z
+  .union([
+    targetBasedPayoutConfigResponseSchema,
+    manualPayoutConfigResponseSchema,
+    recurringPayoutConfigResponseSchema,
+    scheduledPayoutConfigResponseSchema,
+  ])
+  .nullable();
+
 const potResponseSchema = z.object({
   id: z.string().uuid(),
   creatorId: z.string().uuid(),
@@ -171,12 +224,16 @@ const potResponseSchema = z.object({
   potType: z.enum(potTypeValues),
   status: z.enum(["draft", "open", "closed"]),
   payoutMode: z.enum(payoutModeValues),
+  payoutConfig: payoutConfigResponseSchema,
   refundType: z.enum(refundTypeValues),
   shareSlug: z.string(),
   minContribution: z.string(),
   maxContribution: z.string().nullable(),
   goalAmount: z.string().nullable(),
   balance: z.string(),
+  // Set while a payout/refund's outbound transfer(s) are in flight — see pots.ts's
+  // potPendingOperationEnum comment. null the rest of the time.
+  pendingOperation: z.enum(["payout", "refund"]).nullable(),
   activatedAt: z.string().nullable(),
   closedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -184,6 +241,15 @@ const potResponseSchema = z.object({
 });
 
 const potListResponseSchema = z.array(potResponseSchema);
+
+// GET /pots query params. scope='public': every public pot regardless of membership (Discover).
+// scope='mine': only pots the caller belongs to, public or private (dashboard's "my pots").
+// Omitted: the original default merged list (all public + caller's own private). q filters by
+// a case-insensitive title substring, applied after scope — see PotsService.list.
+const listPotsQuerySchema = z.object({
+  scope: z.enum(["public", "mine"]).optional(),
+  q: z.string().optional(),
+});
 
 // NOT a discriminated union, unlike createPotSchema — this is a deliberate
 // departure, not an oversight. AJV's removeAdditional: true (Fastify's
@@ -264,6 +330,11 @@ const memberResponseSchema = z.object({
   role: z.enum(potMemberRoleValues),
   invitedByUserId: z.string().uuid().nullable(),
   joinedAt: z.string(),
+  // Joined from users at query time (see PotMembersService.list) so the frontend can render a
+  // member list without a second lookup per member.
+  fullName: z.string(),
+  username: z.string(),
+  email: z.string(),
 });
 
 const memberListResponseSchema = z.array(memberResponseSchema);
@@ -380,6 +451,13 @@ const transactionResponseSchema = z.object({
 // shape depending on the pot's refund mode.
 const refundResponseSchema = z.array(transactionResponseSchema);
 
+// GET /pots/:id/transactions — every transaction posted against this pot's
+// ledger account (funding, contribution, payout, refund, fee, transfer,
+// reversal), newest first. Serves both the pot detail Activity tab and
+// "list contributions" (a funded contribution is just type: 'contribution'
+// here) — see PotsService.listTransactions.
+const transactionListResponseSchema = z.array(transactionResponseSchema);
+
 // Returned by POST /pots/:id/contributions — a pending funding intent, not
 // yet a ledger transaction (see contributions.service.ts: the ledger is
 // only touched once Nomba's funding webhook confirms real money moved).
@@ -411,6 +489,7 @@ const contributionResponseSchema = z.object({
 export type CreatePotInput = z.infer<typeof createPotSchema>;
 export type UpdatePotInput = z.infer<typeof updatePotSchema>;
 export type PotIdParams = z.infer<typeof potIdParamsSchema>;
+export type ListPotsQuery = z.infer<typeof listPotsQuerySchema>;
 export type AddMemberInput = z.infer<typeof addMemberSchema>;
 export type UpdateMemberRoleInput = z.infer<typeof updateMemberRoleSchema>;
 export type MemberParams = z.infer<typeof memberParamsSchema>;
@@ -435,6 +514,7 @@ export type InviteResponse = z.infer<typeof inviteResponseSchema>;
 export type AddMemberResponse = z.infer<typeof addMemberResponseSchema>;
 export type InviteListResponse = z.infer<typeof inviteListResponseSchema>;
 export type TransactionResponse = z.infer<typeof transactionResponseSchema>;
+export type TransactionListResponse = z.infer<typeof transactionListResponseSchema>;
 export type RefundResponse = z.infer<typeof refundResponseSchema>;
 export type ContributionResponse = z.infer<typeof contributionResponseSchema>;
 
@@ -445,6 +525,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     potResponseSchema,
     potListResponseSchema,
     potIdParamsSchema,
+    listPotsQuerySchema,
     addMemberSchema,
     updateMemberRoleSchema,
     memberParamsSchema,
@@ -460,6 +541,7 @@ export const { schemas: potSchemas, $ref } = buildJsonSchemas(
     requestPayoutOtpSchema,
     triggerRefundSchema,
     transactionResponseSchema,
+    transactionListResponseSchema,
     refundResponseSchema,
     contributionResponseSchema,
   },

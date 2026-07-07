@@ -1,4 +1,4 @@
-import type { PayoutConfig } from "@/lib/mock/types";
+import type { CreatePotInput } from "@/lib/api";
 import { nairaAmountToNumber, toNairaAmount } from "@/lib/money";
 import type { WizardState } from "./wizard-types";
 
@@ -16,7 +16,7 @@ function wireAmount(raw: string): string {
   return toNairaAmount(raw) ?? "0.00";
 }
 
-export function buildPayoutConfig(state: WizardState): PayoutConfig {
+export function buildPayoutConfig(state: WizardState): CreatePotInput["payoutConfig"] {
   switch (state.payoutMode) {
     case "manual":
       return state.manualDestinationAccount && state.manualDestinationBank

@@ -20,8 +20,12 @@ next-env.d.ts
 .DS_Store
 *.pem
 
+# claude code local state
+.claude/
+
 # vercel
 .vercel
 
 db-data
+db-data-test
 .env.test
