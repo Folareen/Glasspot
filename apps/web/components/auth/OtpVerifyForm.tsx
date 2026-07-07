@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { OtpInput } from "@/components/auth/OtpInput";
 import { useResendTimer } from "@/components/auth/useResendTimer";
 import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { useAuth } from "@/lib/auth";
@@ -32,6 +34,9 @@ export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVe
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // Read once on mount, not re-checked per render — this is purely to decide whether to show the
+  // "we'll create it for you" banner below; the real read-and-create happens in handleSubmit.
+  const [draftTitle] = useState(() => (mode === "signup" ? getDraftPot()?.title.trim() : undefined));
 
   const isComplete = code.length === 6;
 
@@ -110,6 +115,15 @@ export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVe
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      {draftTitle && (
+        <Card tone="accent" padding="sm" className="flex items-start gap-2.5">
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+          <Text size="sm" color="secondary">
+            Verify to create <span className="font-medium text-text-primary">{draftTitle}</span> —
+            we&apos;ll take you straight to it.
+          </Text>
+        </Card>
+      )}
       <div className="flex flex-col gap-1.5">
         <OtpInput
           value={code}

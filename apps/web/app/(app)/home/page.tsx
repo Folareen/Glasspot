@@ -74,7 +74,7 @@ export default function DashboardPage() {
           {sortedPots.length > 0 && (
             <div className="relative mb-6">
               <Search
-                className="pointer-events-none absolute left-4  h-4 w-4 bg-red-50 top-1/2 -translate-y-1/2 text-text-secondary"
+                className="pointer-events-none absolute left-4  h-4 w-4 top-1/2 -translate-y-1/2 text-text-secondary"
                 strokeWidth={1.5}
               />
               <Input

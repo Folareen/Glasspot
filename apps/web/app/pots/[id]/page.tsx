@@ -487,9 +487,9 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                   }}
                 >
                   {linkCopied ? (
-                    <Check className="h-10 w-10" strokeWidth={1.5} />
+                    <Check className="h-5 w-5" strokeWidth={1.5} />
                   ) : (
-                    <Link2 className="h-10 w-10" strokeWidth={1.5} />
+                    <Link2 className="h-5 w-5" strokeWidth={1.5} />
                   )}
                 </Button>
               </div>
