@@ -9,14 +9,12 @@ import { Select } from "@/components/ui/Select";
 import { Button } from "@/components/ui/Button";
 import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
-import { useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
-import { ApiError, createPot } from "@/lib/api";
 import { saveDraftPot } from "@/lib/draftPot";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
-import { buildPayoutConfig, isConfigStepValid, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
-import { sanitizeAmountInput, toNairaAmount } from "@/lib/money";
+import { isConfigStepValid } from "@/components/pot/wizard/wizard-helpers";
+import { sanitizeAmountInput } from "@/lib/money";
 import { buildTemplateFromUseCase, payoutModeMeta, type UseCase } from "./use-cases-data";
 import type { WizardState } from "@/components/pot/wizard/wizard-types";
 
@@ -93,12 +91,9 @@ function readDestinationConfirmedName(state: WizardState): string | null {
 
 export function TryItModal({ open, onClose, useCase }: TryItModalProps) {
   const router = useRouter();
-  const { currentUser } = useAuth();
   const { showToast } = useToast();
   const { banks } = useBanks();
-  const isAuthenticated = currentUser !== null;
   const [state, setState] = useState<WizardState | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
 
   const activeState = state ?? (useCase ? buildTemplateFromUseCase(useCase) : null);
@@ -136,46 +131,20 @@ export function TryItModal({ open, onClose, useCase }: TryItModalProps) {
     patch(patchDestination(activeState, next));
   }
 
-  async function handleCreate() {
+  // This modal renders on the public landing page, which has no AuthProvider (see
+  // app/layout.tsx — kept off marketing pages so they never fire GET /me on load), so it can't
+  // check whether the visitor already has a session. Always save the draft and send them to
+  // signup; login.tsx already links to /signup for the has-no-account case, and OtpVerifyForm
+  // picks the draft back up and creates the real pot after either signup or login completes.
+  function handleCreate() {
     if (!activeState || !activeState.title.trim()) return;
     if (!isConfigStepValid(activeState)) {
       setShowErrors(true);
       return;
     }
 
-    if (!isAuthenticated) {
-      saveDraftPot(activeState);
-      router.push("/signup");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      const pot = await createPot({
-        title: activeState.title.trim(),
-        description: activeState.description.trim() || undefined,
-        potType: activeState.potType,
-        refundType: activeState.refundType,
-        minContribution: isPositiveAmount(activeState.minContribution)
-          ? (toNairaAmount(activeState.minContribution) ?? undefined)
-          : undefined,
-        maxContribution: isPositiveAmount(activeState.maxContribution)
-          ? (toNairaAmount(activeState.maxContribution) ?? undefined)
-          : undefined,
-        goalAmount: isPositiveAmount(activeState.goalAmount)
-          ? (toNairaAmount(activeState.goalAmount) ?? undefined)
-          : undefined,
-        payoutMode: activeState.payoutMode ?? "manual",
-        payoutConfig: buildPayoutConfig(activeState),
-      });
-      showToast("Pot created as a draft", "success");
-      handleOpenChange(false);
-      router.push(`/pots/${pot.id}/edit`);
-    } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Couldn't create this pot", "error");
-      setIsSubmitting(false);
-      return;
-    }
+    saveDraftPot(activeState);
+    router.push("/signup");
   }
 
   return (
@@ -325,9 +294,8 @@ export function TryItModal({ open, onClose, useCase }: TryItModalProps) {
             </Select>
           </Field>
 
-          <Button className="w-full" onClick={handleCreate} disabled={!activeState.title.trim() || isSubmitting}>
-            {isSubmitting && <Spinner size="sm" />}
-            {isAuthenticated ? "Create this pot" : "Continue to create this pot"}
+          <Button className="w-full" onClick={handleCreate} disabled={!activeState.title.trim()}>
+            Continue to create this pot
           </Button>
         </div>
       )}

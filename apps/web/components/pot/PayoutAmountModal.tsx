@@ -56,7 +56,7 @@ export function PayoutAmountModal({ open, onClose, potId, onConfirmed, balance }
       return;
     }
     if (naira > maxSendableNaira) {
-      setAmountError(`You can send up to ${formatNaira(fullBalancePayout)} — a flat ${formatNaira(OUTBOUND_FEE)} fee applies on top.`);
+      setAmountError(`You can send up to ${formatNaira(fullBalancePayout)}. A flat ${formatNaira(OUTBOUND_FEE)} fee applies on top.`);
       return;
     }
     setAmountError("");
@@ -119,7 +119,7 @@ export function PayoutAmountModal({ open, onClose, potId, onConfirmed, balance }
               </Field>
               {amount && !amountError && (
                 <Text size="sm" color="secondary">
-                  {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot — {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
+                  {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot: {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
                 </Text>
               )}
 

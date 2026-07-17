@@ -75,7 +75,7 @@ export const targetBasedPayoutConfigSchema = z
   )
   .refine(
     (c) => c.targetAmount === undefined || nairaStringToKobo(c.targetAmount) > OUTBOUND_FEE,
-    { message: `targetAmount must exceed ₦${koboToNairaString(OUTBOUND_FEE)} — the pot's balance nets the flat outbound fee out at payout time, so a target at or below it would never actually pay out anything`, path: ["targetAmount"] }
+    { message: `targetAmount must exceed ₦${koboToNairaString(OUTBOUND_FEE)}. The pot's balance nets the flat outbound fee out at payout time, so a target at or below it would never actually pay out anything`, path: ["targetAmount"] }
   );
 
 // Manual mode's destination is optional at creation time, unlike

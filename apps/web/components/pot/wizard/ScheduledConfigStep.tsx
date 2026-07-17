@@ -40,8 +40,8 @@ export function ScheduledConfigStep({ state, onChange, showErrors }: ScheduledCo
       />
       <Text size="xs" color="secondary">
         {state.scheduledOrdered
-          ? "Each person waits their turn — the next payout only fires once the one before it has gone out, even if its date has already passed."
-          : "Every payout fires on its own date regardless of the others — good for staged or installment disbursements."}
+          ? "Each person waits their turn. The next payout only fires once the one before it has gone out, even if its date has already passed."
+          : "Every payout fires on its own date regardless of the others, good for staged or installment disbursements."}
       </Text>
       <Divider />
       <ScheduledLegBuilder

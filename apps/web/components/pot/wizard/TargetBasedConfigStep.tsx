@@ -142,9 +142,9 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           helperText={
             targetAmountTooLow
               ? undefined
-              : `In naira, optional. Leave blank to rely on the date instead. This pot pays out its full balance when the target is met — a flat ${formatNaira(OUTBOUND_FEE)} payout fee comes out of that balance, so add it to this number if you want the recipient to get the full amount.`
+              : `In naira, optional. Leave blank to rely on the date instead. This pot pays out its full balance when the target is met. A flat ${formatNaira(OUTBOUND_FEE)} payout fee comes out of that balance, so add it to this number if you want the recipient to get the full amount.`
           }
-          error={targetAmountTooLow ? `Must be more than ${formatNaira(OUTBOUND_FEE)} — the payout fee.` : undefined}
+          error={targetAmountTooLow ? `Must be more than ${formatNaira(OUTBOUND_FEE)}, the payout fee.` : undefined}
         >
           <Input
             id="target-amount"

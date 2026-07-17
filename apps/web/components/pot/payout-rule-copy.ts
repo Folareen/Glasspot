@@ -32,7 +32,7 @@ export function describePayoutRule(pot: PotResponse): string {
       // fires again every time contributions bring the balance back up to that amount.
       return hasDate
         ? `${trigger} It pays out once, then closes.`
-        : `${trigger} It can pay out again any time the balance reaches that amount — it doesn't close on its own.`;
+        : `${trigger} It can pay out again any time the balance reaches that amount. It doesn't close on its own.`;
     }
     case "recurring": {
       if (!("amount" in config)) return "This pot pays out on a fixed interval, repeating automatically.";

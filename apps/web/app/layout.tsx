@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Fraunces, Inter } from "next/font/google";
-import { AuthProvider } from "@/lib/auth";
 import { ToastProvider } from "@/lib/toast";
 import "./globals.css";
 
@@ -20,7 +19,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Glasspot — contributions that move by agreed rules, in plain sight",
+  title: "Glasspot: contributions that move by agreed rules, in plain sight",
   description:
     "Set the rule before anyone pays. Whether it fires automatically or an admin triggers it, every move is visible to the contributors.",
   manifest: "/manifest.webmanifest",
@@ -41,9 +40,7 @@ export default function RootLayout({
       className={`${fraunces.variable} ${inter.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <AuthProvider>
-          <ToastProvider>{children}</ToastProvider>
-        </AuthProvider>
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

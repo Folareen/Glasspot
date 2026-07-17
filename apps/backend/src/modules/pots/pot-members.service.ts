@@ -47,7 +47,7 @@ export const PotMembersService = {
     if (currentRole === "admin" && input.role === "member") {
       const adminCount = await countAdmins(potId);
       if (adminCount <= 1) {
-        throw new PotError("Cannot demote the last admin — assign another admin first", 409);
+        throw new PotError("Cannot demote the last admin. Assign another admin first", 409);
       }
     }
 
@@ -89,7 +89,7 @@ export const PotMembersService = {
     if (currentRole === "admin") {
       const adminCount = await countAdmins(potId);
       if (adminCount <= 1) {
-        throw new PotError("Cannot remove the last admin — assign another admin first", 409);
+        throw new PotError("Cannot remove the last admin. Assign another admin first", 409);
       }
     }
 

@@ -40,7 +40,7 @@ export function AddMemberModal({ open, onClose, potId, onAdded }: AddMemberModal
       const isPending = "status" in result && result.status === "pending";
       showToast(
         isPending
-          ? `${trimmedEmail} added — they'll join automatically once they sign up`
+          ? `${trimmedEmail} added. They'll join automatically once they sign up`
           : `${trimmedEmail} added to the pot`,
         "success"
       );
