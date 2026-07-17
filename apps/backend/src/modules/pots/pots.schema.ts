@@ -263,23 +263,44 @@ const listPotsQuerySchema = z.object({
   q: z.string().optional(),
 });
 
-// NOT a discriminated union, unlike createPotSchema — this is a deliberate
-// departure, not an oversight. AJV's removeAdditional: true (Fastify's
-// default) doesn't reject a payload with extra properties against an
-// anyOf/oneOf branch that doesn't declare them; it silently STRIPS the
-// extras and lets that branch match anyway. With a "no payout change"
-// branch present (needed since a draft edit may touch only title, only
-// payout config, or both), that permissive branch is a strict subset of
-// every mode branch's properties, so AJV always matched request.body
-// against it first — payoutMode/payoutConfig were silently deleted from
-// every update request before the handler ever saw them (a real bug,
-// caught by booting the server and PATCHing a live draft pot: the
-// response kept the OLD payoutMode despite a valid new one being sent).
-// A single flat, permissive object sidesteps the ambiguity entirely —
-// there is no second branch for AJV to wrongly prefer. payoutConfig's
-// shape is validated against payoutMode in PotsService.update instead,
-// which is the authoritative check anyway (nothing here can validate
-// "payoutConfig matches payoutMode" cheaply without the union).
+// payoutConfig is a single flat, permissive object here too — same reason
+// as payoutMode/payoutConfig at the top level (see above): AJV's anyOf
+// (Fastify's compiled form of z.union, with removeAdditional: true) picks
+// the first branch a payload happens to satisfy and silently STRIPS any
+// property that branch doesn't declare, rather than rejecting the payload.
+// manualPayoutConfigSchema (every field optional) is a subset of every
+// other mode's shape, so a union here always matched it first and deleted
+// scheduled's `ordered`/`legs` (or recurring's `amount`/`intervalDays`/etc)
+// before PotsService.update ever saw them — reproduced by saving a
+// scheduled-mode pot edit: payoutConfig arrived at validatePayoutModeConfig
+// as `{}`, failing with "payoutConfig does not match payoutMode
+// 'scheduled': Required" even though the client sent a fully-formed leg.
+// Every field below is optional (including inside the legs array) so AJV
+// has nothing branch-specific left to strip; validatePayoutModeConfig in
+// pots.service.ts is the authoritative shape check per payoutMode, same as
+// it already was for the union version.
+const updatePotPayoutConfigSchema = z.object({
+  destinationAccount: z.string().min(1).optional(),
+  destinationBank: z.string().min(1).optional(),
+  targetDate: z.coerce.date().optional(),
+  targetAmount: nairaAmount.optional(),
+  amount: nairaAmount.optional(),
+  intervalDays: z.number().int().min(1).optional(),
+  nextRunAt: z.coerce.date().optional(),
+  ordered: z.boolean().optional(),
+  legs: z
+    .array(
+      z.object({
+        destinationAccount: z.string().min(1).optional(),
+        destinationBank: z.string().min(1).optional(),
+        sequenceOrder: z.number().int().nonnegative().optional(),
+        amount: nairaAmount.optional(),
+        scheduledDate: z.coerce.date().optional(),
+      })
+    )
+    .optional(),
+});
+
 const updatePotSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional(),
@@ -289,14 +310,7 @@ const updatePotSchema = z.object({
   maxContribution: nairaAmount.optional(),
   goalAmount: nairaAmount.optional(),
   payoutMode: z.enum(payoutModeValues).optional(),
-  payoutConfig: z
-    .union([
-      targetBasedPayoutConfigSchema,
-      manualPayoutConfigSchema,
-      recurringPayoutConfigSchema,
-      scheduledPayoutConfigSchema,
-    ])
-    .optional(),
+  payoutConfig: updatePotPayoutConfigSchema.optional(),
 });
 
 const potIdParamsSchema = z.object({
