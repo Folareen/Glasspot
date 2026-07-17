@@ -838,13 +838,19 @@ function distributeExactly(
 }
 
 /**
- * Narrows `legs` down to the subset that ends up with a positive share once each firing leg's own
- * flat ₦50 outbound fee is reserved from `balance` — reserving a fee for a leg whose rounded share
- * comes out to zero would strand that ₦50 in the pot forever, since nothing ever fires for it and
- * nothing gives the reservation back. Mutates every leg's `.amount` in place via distributeExactly
- * (firing legs get their real share, dropped legs land on exactly 0n) and returns the surviving
- * legs — an empty array if the balance can't even cover one leg's fee, in which case every leg's
- * `.amount` is explicitly zeroed too.
+ * Splits `balance` pro-rata across `legs` by their own numerator/denominator share of the WHOLE
+ * balance (via distributeExactly), THEN subtracts each firing leg's own flat ₦50 outbound fee from
+ * its own already-computed amount — never off a shared pool first. That distinction matters:
+ * pooling every leg's fee out of `balance` before splitting (the previous approach) makes every
+ * contributor subsidize every OTHER contributor's fee in proportion to their own contribution
+ * share, instead of each contributor paying only their own ₦50 — e.g. contributions of
+ * 100/200/200 out of a 500 balance with 3 firing legs should net 50/150/150 (each loses exactly
+ * its own ₦50), not a pooled-then-split 70/140/140 (each loses a 1:2:2 slice of the combined
+ * ₦150). A leg whose post-fee amount is <= 0 is dropped and the remaining legs are re-split
+ * against the FULL balance again (not the shrunk pool), since a dropped leg's fee was never really
+ * "spent" — repeats until every firing leg clears its own fee. Mutates every leg's `.amount` in
+ * place (firing legs get their real net share, dropped legs land on exactly 0n) and returns the
+ * surviving legs — an empty array if no leg can clear its own fee even alone.
  */
 function narrowToFeeCoveredLegs<T extends { numerator: bigint; denominator: bigint; amount: bigint }>(
   legs: T[],
@@ -852,14 +858,13 @@ function narrowToFeeCoveredLegs<T extends { numerator: bigint; denominator: bigi
 ): T[] {
   let firing = legs;
   while (firing.length > 0) {
-    const distributable = balance - BigInt(firing.length) * OUTBOUND_FEE;
-    if (distributable <= 0n) {
-      for (const leg of firing) leg.amount = 0n;
-      return [];
-    }
-    distributeExactly(firing, distributable);
+    distributeExactly(firing, balance);
+    for (const leg of firing) leg.amount -= OUTBOUND_FEE;
     const nextFiring = firing.filter((leg) => leg.amount > 0n);
     if (nextFiring.length === firing.length) return firing;
+    for (const leg of firing) {
+      if (leg.amount <= 0n) leg.amount = 0n;
+    }
     firing = nextFiring;
   }
   return [];

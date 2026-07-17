@@ -3,6 +3,7 @@ import db, {
   settlementBatches,
   reconciliationRecords,
   transactions,
+  contributions,
   type SettlementBatch,
 } from "@/db";
 import { nomba } from "@/integrations/nomba";
@@ -46,16 +47,18 @@ function toRecordStatus(
 export const ReconciliationService = {
   /** Runs one reconciliation pass for [dateFrom, dateTo) against Nomba's transaction API; safe to re-run over the same window since each call creates a fresh batch + finding rows. */
   async runForWindow(dateFrom: Date, dateTo: Date): Promise<SettlementBatch> {
-    // "Expected" means a transaction whose reference/merchantTxRef should surface somewhere in
-    // Nomba's own transaction list for this window — contribution (inbound funding), payout, and
-    // refund (outbound transfers) all correlate 1:1 with a real Nomba-side call. Filtering on
-    // isNotNull(externalReference) instead would silently exclude every payout/refund: outbound
-    // transactions in this codebase never populate externalReference (only inbound contributions
-    // do, at posting time) — merchantTxRef IS transactions.reference for the outbound side (see
-    // worker.ts's callNomba, which passes data.reference as merchantTxRef), so reference alone is
-    // already the correlating key regardless of whether externalReference happens to be set.
-    const expectedInWindow = await db
-      .select({ reference: transactions.reference, amount: transactions.amount })
+    // "Expected" means a transaction whose correlating ref should surface somewhere in Nomba's
+    // own transaction list for this window — contribution (inbound funding), payout, and refund
+    // (outbound transfers) all correlate 1:1 with a real Nomba-side call, but under DIFFERENT
+    // fields: payout/refund report back merchantTxRef, which IS transactions.reference (see
+    // worker.ts's callNomba, which passes data.reference as merchantTxRef) — but contribution
+    // (inbound vact_transfer) reports back virtualAccountReference, which is
+    // contributions.virtualAccountRef, a value generated independently of transactions.reference
+    // (`contribution_${contribution.id}`) and never sent to Nomba. Joining through contributions
+    // here (rather than comparing transactions.reference directly) is what makes inbound rows
+    // matchable at all — see nomba.types.ts's Transaction doc comment.
+    const expectedTransactions = await db
+      .select({ id: transactions.id, reference: transactions.reference, type: transactions.type, amount: transactions.amount })
       .from(transactions)
       .where(
         and(
@@ -64,6 +67,27 @@ export const ReconciliationService = {
           lte(transactions.createdAt, dateTo)
         )
       );
+
+    const contributionRefsByTransactionId = new Map<string, string>();
+    const contributionTransactionIds = expectedTransactions
+      .filter((t) => t.type === "contribution")
+      .map((t) => t.id);
+    if (contributionTransactionIds.length > 0) {
+      const rows = await db
+        .select({ transactionId: contributions.transactionId, virtualAccountRef: contributions.virtualAccountRef })
+        .from(contributions)
+        .where(inArray(contributions.transactionId, contributionTransactionIds));
+      for (const row of rows) {
+        if (row.transactionId) contributionRefsByTransactionId.set(row.transactionId, row.virtualAccountRef);
+      }
+    }
+
+    // The ref Nomba would actually report for this transaction: virtualAccountRef for
+    // contributions, transactions.reference (== merchantTxRef) for payout/refund.
+    const correlatingRefFor = (t: (typeof expectedTransactions)[number]): string =>
+      t.type === "contribution" ? (contributionRefsByTransactionId.get(t.id) ?? t.reference) : t.reference;
+
+    const expectedInWindow = expectedTransactions.map((t) => ({ ref: correlatingRefFor(t), amount: t.amount }));
 
     const [batch] = await db
       .insert(settlementBatches)
@@ -76,28 +100,38 @@ export const ReconciliationService = {
       })
       .returning();
 
+    /** Resolves a Nomba correlatingRef (merchantTxRef or virtualAccountReference) back to the local transactions row it corresponds to, trying the direct reference first and falling back to a contributions join. */
+    const findTransactionByRef = async (ref: string) => {
+      const [direct] = await db.select().from(transactions).where(eq(transactions.reference, ref));
+      if (direct) return direct;
+
+      const [viaContribution] = await db
+        .select({ transaction: transactions })
+        .from(contributions)
+        .innerJoin(transactions, eq(transactions.id, contributions.transactionId))
+        .where(eq(contributions.virtualAccountRef, ref));
+      return viaContribution?.transaction ?? null;
+    };
+
     const report = await nomba.reconcile({
       dateFrom: dateFrom.toISOString(),
       dateTo: dateTo.toISOString(),
       status: "success",
-      findLocalByRef: async (merchantTxRef): Promise<LocalPaymentRecord | null> => {
-        const [transaction] = await db.select().from(transactions).where(eq(transactions.reference, merchantTxRef));
+      findLocalByRef: async (ref): Promise<LocalPaymentRecord | null> => {
+        const transaction = await findTransactionByRef(ref);
         if (!transaction) return null;
         return { amount: Number(koboToNairaString(transaction.amount)) };
       },
-      listExpectedRefs: async () => expectedInWindow.map((r) => r.reference),
+      listExpectedRefs: async () => expectedInWindow.map((r) => r.ref),
       onLineItem: async (item: ReconciliationLineItem) => {
-        const [transaction] = await db
-          .select({ id: transactions.id })
-          .from(transactions)
-          .where(eq(transactions.reference, item.merchantTxRef));
+        const transaction = await findTransactionByRef(item.correlatingRef);
 
         // A null/undefined amount is expected (e.g. an orphan has no localAmount); an
         // unconvertible one degrades to "unknown" for this record rather than aborting the batch.
         await db.insert(reconciliationRecords).values({
           settlementBatchId: batch.id,
           transactionId: transaction?.id,
-          externalReference: item.merchantTxRef,
+          externalReference: item.correlatingRef,
           internalAmount: nombaNairaToKobo(item.localAmount),
           externalAmount: nombaNairaToKobo(item.nombaAmount),
           status: toRecordStatus(item.status),

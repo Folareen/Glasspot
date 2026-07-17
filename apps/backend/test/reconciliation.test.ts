@@ -5,12 +5,14 @@ import { randomUUID } from "node:crypto";
 import { createTestApp } from "./helpers/app";
 import { resetDb, closeDb } from "./helpers/db";
 import { closeQueues } from "./helpers/queue";
-import { createTestUser, createTestPot } from "./helpers/factories";
+import { createTestUser, createTestPot, createFundedContribution } from "./helpers/factories";
 import { AccountsService } from "../src/modules/ledger/accounts.service";
 import { LedgerService } from "../src/modules/ledger/ledger.service";
 import { ReconciliationService } from "../src/modules/ledger/reconciliation.service";
-import { outboundFeeLegs, OUTBOUND_FEE } from "../src/lib/fees";
+import { outboundFeeLegs, inboundFeeLegs, OUTBOUND_FEE } from "../src/lib/fees";
 import { nomba } from "../src/integrations/nomba";
+import db, { contributions } from "../src/db";
+import { eq } from "drizzle-orm";
 import type { Transaction as NombaTransaction } from "../src/integrations/nomba/nomba.types";
 import type { FastifyInstance } from "fastify";
 
@@ -91,6 +93,7 @@ describe("ReconciliationService.runForWindow", () => {
         id: "nomba_tx_1",
         status: "success",
         amount: 500.0, // Nomba's reported NET transfer amount, in naira — 50_000n kobo
+        type: "withdrawal",
         merchantTxRef: reference,
       },
     ]);
@@ -199,6 +202,148 @@ describe("ReconciliationService.runForWindow", () => {
       ),
       metadata: { potId: pot.id },
     });
+
+    // Nomba's transaction list comes back completely empty for this window.
+    mockFetchTransactions(t, []);
+
+    const dateFrom = new Date(Date.now() - 60 * 60 * 1000);
+    const dateTo = new Date(Date.now() + 60 * 1000);
+    const batch = await ReconciliationService.runForWindow(dateFrom, dateTo);
+
+    assert.equal(batch.status, "mismatched");
+  });
+
+  test("an inbound contribution matches Nomba's virtualAccountReference, not transactions.reference", async (t) => {
+    // Regression: a funded contribution's transactions.reference is `contribution_${contribution.id}`
+    // (its own primary key) — a value never sent to Nomba. Nomba's vact_transfer rows report back
+    // virtualAccountReference instead, which is contributions.virtualAccountRef, a completely
+    // independent ref generated at virtual-account-creation time. Matching must join through
+    // contributions rather than comparing transactions.reference directly.
+    const admin = await createTestUser();
+    const pot = await createTestPot(admin.id);
+    const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+    const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
+    const platformRevenue = await AccountsService.getOrCreateSystemAccount("platform_revenue");
+    const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount("nomba_fee_expense");
+    const nombaClearing = await AccountsService.getOrCreateSystemAccount("nomba_clearing");
+
+    const intendedAmount = 100_000n;
+    const contribution = await createFundedContribution(pot.id, { intendedAmount });
+
+    const transaction = await LedgerService.postTransaction({
+      type: "contribution",
+      reference: `contribution_${contribution.id}`,
+      amount: intendedAmount,
+      entries: inboundFeeLegs(
+        {
+          platformFloatId: platformFloat.id,
+          potAccountId: potAccount.id,
+          platformRevenueId: platformRevenue.id,
+          nombaFeeExpenseId: nombaFeeExpense.id,
+          nombaClearingId: nombaClearing.id,
+        },
+        intendedAmount
+      ),
+      metadata: { potId: pot.id },
+    });
+    await db.update(contributions).set({ transactionId: transaction.id }).where(eq(contributions.id, contribution.id));
+
+    mockFetchTransactions(t, [
+      {
+        id: "API-VACT_TRA-nomba_tx_3",
+        status: "SUCCESS",
+        amount: 1000.0, // 100_000n kobo, matches intendedAmount exactly
+        type: "vact_transfer",
+        virtualAccountReference: contribution.virtualAccountRef,
+      },
+    ]);
+
+    const dateFrom = new Date(Date.now() - 60 * 60 * 1000);
+    const dateTo = new Date(Date.now() + 60 * 1000);
+    const batch = await ReconciliationService.runForWindow(dateFrom, dateTo);
+
+    assert.equal(batch.status, "matched", "a correctly-recognized contribution must reconcile as matched, keyed by virtualAccountReference");
+    assert.equal(batch.expectedAmount, intendedAmount);
+    assert.equal(batch.reportedAmount, intendedAmount);
+  });
+
+  test("a genuine amount discrepancy on an inbound contribution still surfaces as mismatched", async (t) => {
+    const admin = await createTestUser();
+    const pot = await createTestPot(admin.id);
+    const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+    const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
+    const platformRevenue = await AccountsService.getOrCreateSystemAccount("platform_revenue");
+    const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount("nomba_fee_expense");
+    const nombaClearing = await AccountsService.getOrCreateSystemAccount("nomba_clearing");
+
+    const intendedAmount = 100_000n;
+    const contribution = await createFundedContribution(pot.id, { intendedAmount });
+
+    const transaction = await LedgerService.postTransaction({
+      type: "contribution",
+      reference: `contribution_${contribution.id}`,
+      amount: intendedAmount,
+      entries: inboundFeeLegs(
+        {
+          platformFloatId: platformFloat.id,
+          potAccountId: potAccount.id,
+          platformRevenueId: platformRevenue.id,
+          nombaFeeExpenseId: nombaFeeExpense.id,
+          nombaClearingId: nombaClearing.id,
+        },
+        intendedAmount
+      ),
+      metadata: { potId: pot.id },
+    });
+    await db.update(contributions).set({ transactionId: transaction.id }).where(eq(contributions.id, contribution.id));
+
+    // Nomba reports a genuinely different amount than what we posted locally.
+    mockFetchTransactions(t, [
+      {
+        id: "API-VACT_TRA-nomba_tx_4",
+        status: "SUCCESS",
+        amount: 900.0, // 90_000n kobo — really does differ from our local 100_000n
+        type: "vact_transfer",
+        virtualAccountReference: contribution.virtualAccountRef,
+      },
+    ]);
+
+    const dateFrom = new Date(Date.now() - 60 * 60 * 1000);
+    const dateTo = new Date(Date.now() + 60 * 1000);
+    const batch = await ReconciliationService.runForWindow(dateFrom, dateTo);
+
+    assert.equal(batch.status, "mismatched");
+  });
+
+  test("a funded contribution Nomba has no record of at all is reported missing_on_nomba", async (t) => {
+    const admin = await createTestUser();
+    const pot = await createTestPot(admin.id);
+    const potAccount = await AccountsService.getOrCreatePotAccount(pot.id);
+    const platformFloat = await AccountsService.getOrCreateSystemAccount("platform_float");
+    const platformRevenue = await AccountsService.getOrCreateSystemAccount("platform_revenue");
+    const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount("nomba_fee_expense");
+    const nombaClearing = await AccountsService.getOrCreateSystemAccount("nomba_clearing");
+
+    const intendedAmount = 100_000n;
+    const contribution = await createFundedContribution(pot.id, { intendedAmount });
+
+    const transaction = await LedgerService.postTransaction({
+      type: "contribution",
+      reference: `contribution_${contribution.id}`,
+      amount: intendedAmount,
+      entries: inboundFeeLegs(
+        {
+          platformFloatId: platformFloat.id,
+          potAccountId: potAccount.id,
+          platformRevenueId: platformRevenue.id,
+          nombaFeeExpenseId: nombaFeeExpense.id,
+          nombaClearingId: nombaClearing.id,
+        },
+        intendedAmount
+      ),
+      metadata: { potId: pot.id },
+    });
+    await db.update(contributions).set({ transactionId: transaction.id }).where(eq(contributions.id, contribution.id));
 
     // Nomba's transaction list comes back completely empty for this window.
     mockFetchTransactions(t, []);
