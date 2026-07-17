@@ -10,16 +10,25 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { Spinner } from "@/components/ui/Spinner";
 import { PotCard } from "@/components/pot/PotCard";
+import { TabList } from "@/components/ui/Tabs";
 import { ApiError, listPots } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import type { PotResponse } from "@/lib/types";
+import type { PotResponse, PotStatus } from "@/lib/types";
 
 const statusOrder = { open: 0, draft: 1, closed: 2 };
+
+const statusTabs: { id: "all" | PotStatus; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "open", label: "Open" },
+  { id: "draft", label: "Draft" },
+  { id: "closed", label: "Closed" },
+];
 
 export default function DashboardPage() {
   const { showToast } = useToast();
   const [pots, setPots] = useState<PotResponse[] | null>(null);
   const [query, setQuery] = useState("");
+  const [activeTabId, setActiveTabId] = useState<"all" | PotStatus>("all");
 
   useEffect(() => {
     listPots({ scope: "mine" })
@@ -39,9 +48,6 @@ export default function DashboardPage() {
   }
 
   const sortedPots = [...pots].sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
-  const visiblePots = sortedPots.filter((pot) =>
-    pot.title.toLowerCase().includes(query.trim().toLowerCase())
-  );
 
   return (
     <>
@@ -72,19 +78,28 @@ export default function DashboardPage() {
           />
 
           {sortedPots.length > 0 && (
-            <div className="relative mb-6">
-              <Search
-                className="pointer-events-none absolute left-4  h-4 w-4 top-1/2 -translate-y-1/2 text-text-secondary"
-                strokeWidth={1.5}
-              />
-              <Input
-                type="search"
-                placeholder="Search your pots"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-11"
-              />
-            </div>
+            <>
+              <div className="relative mb-4">
+                <Search
+                  className="pointer-events-none absolute left-4  h-4 w-4 top-1/2 -translate-y-1/2 text-text-secondary"
+                  strokeWidth={1.5}
+                />
+                <Input
+                  type="search"
+                  placeholder="Search your pots"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="pl-11"
+                />
+              </div>
+              <div className="mb-6">
+                <TabList
+                  tabs={statusTabs}
+                  activeTabId={activeTabId}
+                  onChange={(tabId) => setActiveTabId(tabId as "all" | PotStatus)}
+                />
+              </div>
+            </>
           )}
         </Container>
       </div>
@@ -97,18 +112,36 @@ export default function DashboardPage() {
             description="Create your first pot to start pooling money."
             action={<Button href="/pots/new">Create a pot</Button>}
           />
-        ) : visiblePots.length === 0 ? (
-          <EmptyState
-            icon={<Search className="h-7 w-7" strokeWidth={1.5} />}
-            title="No pots found"
-            description={`Nothing matches "${query}". Try a different search.`}
-          />
         ) : (
-          <div className="flex flex-col gap-3">
-            {visiblePots.map((pot) => (
-              <PotCard key={pot.id} pot={pot} />
-            ))}
-          </div>
+          (() => {
+            const visiblePots = sortedPots.filter(
+              (pot) =>
+                (activeTabId === "all" || pot.status === activeTabId) &&
+                pot.title.toLowerCase().includes(query.trim().toLowerCase())
+            );
+
+            if (visiblePots.length === 0) {
+              return (
+                <EmptyState
+                  icon={<Search className="h-7 w-7" strokeWidth={1.5} />}
+                  title="No pots found"
+                  description={
+                    query.trim()
+                      ? `Nothing matches "${query}". Try a different search.`
+                      : "No pots with this status."
+                  }
+                />
+              );
+            }
+
+            return (
+              <div className="flex flex-col gap-3">
+                {visiblePots.map((pot) => (
+                  <PotCard key={pot.id} pot={pot} />
+                ))}
+              </div>
+            );
+          })()
         )}
       </Container>
     </>

@@ -1,23 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 import { OtpInput } from "@/components/auth/OtpInput";
 import { useResendTimer } from "@/components/auth/useResendTimer";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { Heading } from "@/components/ui/Heading";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
 import { ApiError, createPot, resendOtp, verifyEmail, verifyLoginOtp } from "@/lib/api";
 import { getDraftPot, clearDraftPot } from "@/lib/draftPot";
+import { clearPendingVerifyEmail, getPendingVerifyEmail } from "@/lib/pendingVerifyEmail";
 import { buildPayoutConfig, isPositiveAmount } from "@/components/pot/wizard/wizard-helpers";
 import { toNairaAmount } from "@/lib/money";
 
 type OtpVerifyFormProps = {
-  email: string;
   mode: "login" | "signup";
   successMessage: string;
   /** Where to send the user after a successful login — set when they were bounced here from a
@@ -39,7 +40,7 @@ export function OtpVerifyForm(props: OtpVerifyFormProps) {
   );
 }
 
-function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVerifyFormProps) {
+function OtpVerifyFormInner({ mode, successMessage, redirectTo }: OtpVerifyFormProps) {
   const router = useRouter();
   const { refresh } = useAuth();
   const { showToast } = useToast();
@@ -47,6 +48,17 @@ function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVeri
   const [code, setCode] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // Read from sessionStorage rather than a URL param so the email never appears in the
+  // address bar, browser history, or server access logs. Missing entirely (e.g. the user
+  // landed here directly, or opened the link in a different tab) means there's nothing to
+  // verify — bounce back to start the flow properly rather than rendering a broken form.
+  const [email] = useState(() => getPendingVerifyEmail());
+
+  useEffect(() => {
+    if (!email) {
+      router.replace(mode === "login" ? "/login" : "/signup");
+    }
+  }, [email, mode, router]);
   // Read once on mount, not re-checked per render — this is purely to decide whether to show the
   // "we'll create it for you" banner below; the real read-and-create happens in handleSubmit.
   // Checked for both modes: TryItModal always sends a brand-new visitor to /signup, but a
@@ -59,6 +71,7 @@ function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVeri
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!email) return;
     if (!isComplete) {
       setError("Enter all 6 digits.");
       return;
@@ -72,6 +85,7 @@ function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVeri
         await verifyEmail({ email, code });
       }
       await refresh();
+      clearPendingVerifyEmail();
       showToast(successMessage, "success");
 
       const draft = getDraftPot();
@@ -124,7 +138,7 @@ function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVeri
   }
 
   async function handleResend() {
-    if (secondsLeft > 0) return;
+    if (secondsLeft > 0 || !email) return;
     try {
       await resendOtp({ email, purpose: mode === "login" ? "login" : "signup_verification" });
       reset();
@@ -134,8 +148,26 @@ function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVeri
     }
   }
 
+  if (!email) {
+    return (
+      <div className="flex justify-center py-8">
+        <Spinner size="md" />
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6">
+      <div className="mb-2 text-center">
+        <Heading level={3}>{mode === "login" ? "Enter your code" : "Verify your email"}</Heading>
+        <Text color="secondary" className="mt-1">
+          Enter the code we sent to {email}
+          {mode === "signup" ? " to finish setting up your account." : "."}
+        </Text>
+        <Text size="sm" color="secondary" className="mt-2">
+          Can&apos;t find it? Check your spam or junk folder.
+        </Text>
+      </div>
       {draftTitle && (
         <Card tone="accent" padding="sm" className="flex items-start gap-2.5">
           <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />

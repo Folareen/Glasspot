@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { ApiError, register } from "@/lib/api";
+import { setPendingVerifyEmail } from "@/lib/pendingVerifyEmail";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Nigerian phone numbers: local 11-digit form starting 0 (08012345678) or
@@ -74,7 +75,8 @@ export function SignupForm() {
         password,
         phone: phone.trim() || undefined,
       });
-      router.push(`/signup/verify?email=${encodeURIComponent(email.trim())}`);
+      setPendingVerifyEmail(email.trim());
+      router.push("/signup/verify");
     } catch (e) {
       setErrors({ email: e instanceof ApiError ? e.message : "Couldn't create your account" });
       setIsSubmitting(false);

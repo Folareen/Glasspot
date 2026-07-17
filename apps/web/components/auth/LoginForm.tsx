@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { ApiError, login, resendOtp } from "@/lib/api";
+import { setPendingVerifyEmail } from "@/lib/pendingVerifyEmail";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -48,9 +49,11 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
     setIsSubmitting(true);
     try {
       await login({ email: email.trim(), password });
-      const params = new URLSearchParams({ email: email.trim() });
+      setPendingVerifyEmail(email.trim());
+      const params = new URLSearchParams();
       if (redirectTo) params.set("redirect", redirectTo);
-      router.push(`/login/verify?${params.toString()}`);
+      const query = params.toString();
+      router.push(query ? `/login/verify?${query}` : "/login/verify");
     } catch (e) {
       // AuthService.login rejects with 403 specifically (and only) when the account exists,
       // the password is correct, but the email was never verified after signup — the account has
@@ -63,7 +66,8 @@ export function LoginForm({ redirectTo }: LoginFormProps) {
         } catch {
           // Best-effort — verify page's own "Resend code" still works if this one failed.
         }
-        router.push(`/signup/verify?email=${encodeURIComponent(email.trim())}`);
+        setPendingVerifyEmail(email.trim());
+        router.push("/signup/verify");
         return;
       }
       setErrors({ password: e instanceof ApiError ? e.message : "Couldn't log you in" });
