@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "pot_pending_members_pot_id_email_pending_key" ON "pot_pending_members" USING btree ("pot_id","email") WHERE "pot_pending_members"."status" = 'pending';

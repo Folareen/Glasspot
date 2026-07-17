@@ -67,6 +67,16 @@ function nairaToKoboExact(amount: number): bigint {
   return negative ? -kobo : kobo;
 }
 
+/**
+ * The ref that correlates a Nomba transaction back to a local record — merchantTxRef for
+ * outbound transactions (payouts/refunds), virtualAccountReference for inbound vact_transfer
+ * ones (contributions). See Transaction's doc comment (nomba.types.ts) for why these two fields
+ * are mutually exclusive rather than one always being present.
+ */
+function correlatingRef(tx: Transaction): string | undefined {
+  return tx.merchantTxRef || tx.virtualAccountReference;
+}
+
 
 export class NombaClient {
   private baseUrl: string;
@@ -278,7 +288,14 @@ export class NombaClient {
   // Transactions / reconciliation
   // ---------------------------------------------------------------
 
-  /** GET /v1/transactions/accounts — fetches one page of transactions in a date range (optionally filtered by status), for use in reconciliation. */
+  /**
+   * POST /v1/transactions/accounts/{subAccountId} — fetches one page of transactions for the
+   * configured sub-account (not the parent account) in a date range, optionally filtered by
+   * status, for use in reconciliation. dateFrom/dateTo are query params; status is sent in the
+   * body per Nomba's filter-sub-account-transactions endpoint (confirmed against a live sandbox
+   * call — the parent-scoped GET /v1/transactions/accounts previously used here doesn't return
+   * sub-account funding rows).
+   */
   async fetchTransactions(params: {
     dateFrom: string;
     dateTo: string;
@@ -286,26 +303,30 @@ export class NombaClient {
     cursor?: string;
   }): Promise<{ results: Transaction[]; cursor?: string }> {
     const query = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
-    if (params.status) query.set("status", params.status);
     if (params.cursor) query.set("cursor", params.cursor);
-    return this.get(`/v1/transactions/accounts?${query.toString()}`);
+    const body = params.status ? { status: params.status } : {};
+    return this.post(
+      `/v1/transactions/accounts/${encodeURIComponent(this.config.subAccountId)}?${query.toString()}`,
+      body
+    );
   }
 
 
   /**
    * Nightly reconciliation: pulls every Nomba transaction in the window and diffs it against the
-   * local ledger, matched by merchantTxRef (never Nomba's internal id, which can rotate on
-   * retries). Returns a structured report with per-transaction line items and a per-customer
-   * rollup: "orphan" (Nomba has it, we don't), "overpaid"/"underpaid" (both have it, amounts
-   * differ), "matched", or "missing_on_nomba" (expected but never landed, only if
-   * `listExpectedRefs` is given).
+   * local ledger, matched by correlatingRef() — merchantTxRef for outbound transactions (payouts,
+   * refunds), virtualAccountReference for inbound vact_transfer ones (contributions); never
+   * Nomba's internal id, which can rotate on retries. Returns a structured report with
+   * per-transaction line items and a per-customer rollup: "orphan" (Nomba has it, we don't),
+   * "overpaid"/"underpaid" (both have it, amounts differ), "matched", or "missing_on_nomba"
+   * (expected but never landed, only if `listExpectedRefs` is given).
    */
   async reconcile(params: {
     dateFrom: string;
     dateTo: string;
     status?: string;
-    /** look up our local ledger record by merchantTxRef; return null if not found */
-    findLocalByRef: (merchantTxRef: string) => Promise<LocalPaymentRecord | null>;
+    /** look up our local ledger record by correlatingRef; return null if not found */
+    findLocalByRef: (correlatingRef: string) => Promise<LocalPaymentRecord | null>;
     /** optional: refs our ledger expected in this window, to catch payments that never arrived */
     listExpectedRefs?: () => Promise<string[]>;
     /** optional: called for every line item as it's found, e.g. to alert in real time */
@@ -326,11 +347,12 @@ export class NombaClient {
       });
 
       for (const tx of page.results) {
-        if (!tx.merchantTxRef) continue;
-        seenRefs.add(tx.merchantTxRef);
+        const ref = correlatingRef(tx);
+        if (!ref) continue;
+        seenRefs.add(ref);
 
-        const local = await params.findLocalByRef(tx.merchantTxRef);
-        const item = this.buildLineItem(tx.merchantTxRef, tx, local);
+        const local = await params.findLocalByRef(ref);
+        const item = this.buildLineItem(ref, tx, local);
         lineItems.push(item);
         await params.onLineItem?.(item);
       }
@@ -351,7 +373,7 @@ export class NombaClient {
         const local = await params.findLocalByRef(ref);
         const item: ReconciliationLineItem = {
           status: "missing_on_nomba",
-          merchantTxRef: ref,
+          correlatingRef: ref,
           customerId: local?.customerId,
           localAmount: local?.amount,
         };
@@ -366,7 +388,7 @@ export class NombaClient {
   /** Classifies a single Nomba transaction against its (possibly missing) local record as one of: orphan, matched, overpaid, or underpaid. */
   private buildLineItem(ref: string, tx: Transaction, local: LocalPaymentRecord | null): ReconciliationLineItem {
     if (!local) {
-      return { status: "orphan", merchantTxRef: ref, nombaAmount: tx.amount, nombaTransaction: tx };
+      return { status: "orphan", correlatingRef: ref, nombaAmount: tx.amount, nombaTransaction: tx };
     }
     // difference = what Nomba actually received minus what we expected locally, computed in exact
     // kobo bigint (never a plain float subtraction on tx.amount/local.amount directly — both are
@@ -380,7 +402,7 @@ export class NombaClient {
     const status: ReconciliationStatus = differenceKobo === 0n ? "matched" : differenceKobo > 0n ? "overpaid" : "underpaid";
     return {
       status,
-      merchantTxRef: ref,
+      correlatingRef: ref,
       customerId: local.customerId,
       nombaAmount: tx.amount,
       localAmount: local.amount,

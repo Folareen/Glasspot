@@ -5,6 +5,7 @@ import { assertMembershipIsOpen, getMemberRole } from "./pot-authorization";
 import { AddMemberInput } from "./pots.schema";
 import { sendMail } from "@/lib/mailer";
 import { addedToPotEmail } from "@/lib/added-to-pot-email";
+import { isUniqueViolation } from "@/lib/db-errors";
 
 /** Normalizes an email the same way for lookup/storage — users.email has no DB-level case-folding (see users.ts). */
 function normalizeEmail(email: string): string {
@@ -56,18 +57,18 @@ export const PendingMembersService = {
       };
     }
 
-    const existingPending = await db.query.potPendingMembers.findFirst({
-      where: (p, { and: andOp, eq: eqOp }) =>
-        andOp(eqOp(p.potId, potId), eqOp(p.email, email), eqOp(p.status, "pending")),
-    });
-    if (existingPending) {
-      throw new PotError("This email is already pending for this pot", 409);
+    // Insert first and let the partial unique index (pot_pending_members_pot_id_email_pending_key)
+    // catch a genuine duplicate — a pre-check-then-insert here would leave a race window where two
+    // concurrent requests for the same pot+email both pass the check and both insert/email.
+    let pending;
+    try {
+      [pending] = await db.insert(potPendingMembers).values({ potId, email, role, addedByUserId }).returning();
+    } catch (err) {
+      if (isUniqueViolation(err)) {
+        throw new PotError("This email is already pending for this pot", 409);
+      }
+      throw err;
     }
-
-    const [pending] = await db
-      .insert(potPendingMembers)
-      .values({ potId, email, role, addedByUserId })
-      .returning();
 
     await sendMail({ to: email, ...addedToPotEmail({ potTitle: pot.title, potId }) });
 

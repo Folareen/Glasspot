@@ -81,12 +81,22 @@ export interface VirtualAccount {
   [key: string]: unknown;
 }
 
+/**
+ * type "vact_transfer" (virtual-account funding — inbound contributions) never sets
+ * merchantTxRef; it sets virtualAccountReference instead, echoing back the accountRef
+ * originally passed to createVirtualAccount(). Every other type (payout/withdrawal/etc, i.e.
+ * our own outbound transferToBankAccount() calls) sets merchantTxRef and never
+ * virtualAccountReference. Confirmed against a live sandbox response, since Nomba's docs don't
+ * spell out the distinction.
+ */
 export interface Transaction {
   id: string;
   status: string;
   /** Naira, as returned by Nomba — not kobo. */
   amount: number;
+  type?: string;
   merchantTxRef?: string;
+  virtualAccountReference?: string;
   [key: string]: unknown;
 }
 
@@ -172,17 +182,18 @@ export interface WebhookTransactionData {
 export type ReconciliationStatus = "matched" | "overpaid" | "underpaid" | "orphan" | "missing_on_nomba";
 
 
-/** Your local ledger's view of a payment, keyed by merchantTxRef. */
+/** Your local ledger's view of a payment, keyed by whichever ref correlates it (see Transaction's doc comment: merchantTxRef for outbound, virtualAccountReference for inbound vact_transfer). */
 export interface LocalPaymentRecord {
   amount: number;
   /** used to group the report by customer - omit if you don't track this */
   customerId?: string;
   [key: string]: unknown;
 }
- 
+
 export interface ReconciliationLineItem {
   status: ReconciliationStatus;
-  merchantTxRef: string;
+  /** merchantTxRef for outbound transactions, virtualAccountReference for inbound vact_transfer ones — see Transaction's doc comment. */
+  correlatingRef: string;
   customerId?: string;
   nombaAmount?: number;
   localAmount?: number;
