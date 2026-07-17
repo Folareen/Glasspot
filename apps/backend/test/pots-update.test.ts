@@ -116,6 +116,47 @@ test("PATCH /pots/:id", async (t) => {
     assert.equal(response.json().payoutMode, "manual");
   });
 
+  await t.test("switching to scheduled mode reaches Nomba verification with ordered/legs intact (regression: AJV union stripped them)", async () => {
+    const { user, authHeader } = await createAuthenticatedUser(app);
+    const pot = await createTestPot(user.id, { payoutMode: "manual" });
+
+    // updatePotSchema.payoutConfig previously validated request.body via a Zod z.union compiled
+    // to AJV's anyOf. removeAdditional:true made AJV match the permissive manual branch first and
+    // silently strip `ordered`/`legs` as unrecognized properties, so PotsService.update received
+    // payoutConfig: {} — failing validatePayoutModeConfig with "payoutConfig does not match
+    // payoutMode 'scheduled': Required" even though a fully-formed leg was sent on the wire. See
+    // pots.schema.ts's updatePotPayoutConfigSchema comment for the fix.
+    //
+    // This can't assert a full 200: insertPayoutConfig calls the real Nomba account-verification
+    // API for every destination (no test double exists yet for it, see pots-create.test.ts's note
+    // on the same gap), so in this test environment it 400s at that later step instead. What this
+    // test pins down is that the request gets PAST validatePayoutModeConfig with legs/ordered
+    // intact — i.e. it does NOT fail with the schema-stripping error above — which is exactly the
+    // bug this fix addresses.
+    const response = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/pots/${pot.id}`,
+      headers: { authorization: authHeader },
+      payload: {
+        payoutMode: "scheduled",
+        payoutConfig: {
+          ordered: true,
+          legs: [
+            {
+              destinationAccount: "1000000001",
+              destinationBank: "000013",
+              sequenceOrder: 0,
+              amount: "5000.00",
+              scheduledDate: new Date("2026-08-14").toISOString(),
+            },
+          ],
+        },
+      },
+    });
+
+    assert.doesNotMatch(response.json().message, /payoutConfig does not match payoutMode/);
+  });
+
   await t.test("404s for a pot id that doesn't exist", async () => {
     const { authHeader } = await createAuthenticatedUser(app);
 
