@@ -23,6 +23,7 @@
  */
 
 import { createHmac, timingSafeEqual } from "crypto";
+import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
 import {
     NombaClientConfig,
     Bank,
@@ -43,7 +44,7 @@ import {
 }
 from "@/integrations/nomba/nomba.types";
 
-import { NombaApiError } from "@/integrations/nomba/nomba.error";
+import { NombaApiError, WebhookVerificationError } from "@/integrations/nomba/nomba.error";
 import { InMemoryWebhookIdStore, WebhookIdStore } from "@/integrations/nomba/webhooks";
 import { BankStore } from "@/integrations/nomba/bank-store";
 
@@ -51,6 +52,20 @@ import { BankStore } from "@/integrations/nomba/bank-store";
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 /** safety valve against an infinite reconcile() loop if Nomba ever returns a cursor that never terminates */
 const MAX_RECONCILE_PAGES = 10_000;
+
+/**
+ * Converts a naira float (Nomba's own reported amount, or a local caller's LocalPaymentRecord.amount)
+ * to an exact kobo bigint for reconciliation math — toFixed(2) is the one safe float touch (rounds
+ * to Nomba's own 2-decimal precision) before nairaStringToKobo's exact string-based conversion
+ * takes over, same pattern as reconciliation.service.ts's nombaNairaToKobo. Sign is peeled off
+ * first since nairaStringToKobo's regex only accepts unsigned input, but a difference here can
+ * legitimately be negative (underpaid).
+ */
+function nairaToKoboExact(amount: number): bigint {
+  const negative = amount < 0;
+  const kobo = nairaStringToKobo(Math.abs(amount).toFixed(2));
+  return negative ? -kobo : kobo;
+}
 
 
 export class NombaClient {
@@ -208,15 +223,21 @@ export class NombaClient {
     expectedAmountNaira: number,
     opts?: { narration?: string }
   ): Promise<TransferResult> {
-    const excess = payment.transaction.transactionAmount - expectedAmountNaira;
-    if (excess <= 0) {
+    // Route the subtraction through the exact kobo bigint path (never inline float arithmetic —
+    // docs/system-rules.md) so a value like 1200.10 - 1000.00 can't drift by a fraction of a kobo
+    // on the way to excess. toFixed(2) first since both figures are untrusted/derived floats, same
+    // pattern as contributions.service.ts's confirmFunding.
+    const transactionAmountKobo = nairaStringToKobo(payment.transaction.transactionAmount.toFixed(2));
+    const expectedAmountKobo = nairaStringToKobo(expectedAmountNaira.toFixed(2));
+    const excessKobo = transactionAmountKobo - expectedAmountKobo;
+    if (excessKobo <= 0n) {
       throw new Error("refundOverpayment() called but transactionAmount does not exceed expectedAmountNaira");
     }
     if (!payment.customer?.accountNumber || !payment.customer.senderName || !payment.customer.bankCode) {
       throw new Error("refundOverpayment() called with a payload missing the sender's bank details");
     }
     return this.transferToBankAccount({
-      amountNaira: excess,
+      amountNaira: Number(koboToNairaString(excessKobo)),
       accountNumber: payment.customer.accountNumber,
       accountName: payment.customer.senderName,
       bankCode: payment.customer.bankCode,
@@ -347,10 +368,16 @@ export class NombaClient {
     if (!local) {
       return { status: "orphan", merchantTxRef: ref, nombaAmount: tx.amount, nombaTransaction: tx };
     }
-    // difference = what Nomba actually received minus what we expected locally.
-    // positive = overpaid (received more than expected), negative = underpaid (received less).
-    const difference = tx.amount - local.amount;
-    const status: ReconciliationStatus = difference === 0 ? "matched" : difference > 0 ? "overpaid" : "underpaid";
+    // difference = what Nomba actually received minus what we expected locally, computed in exact
+    // kobo bigint (never a plain float subtraction on tx.amount/local.amount directly — both are
+    // untrusted external-ish naira floats, and subtracting them as floats risks a sub-kobo
+    // representation error changing a genuinely-matched transaction's status) then converted back
+    // to a naira number only for this line item's own reporting fields.
+    const nombaKobo = nairaToKoboExact(tx.amount);
+    const localKobo = nairaToKoboExact(local.amount);
+    const differenceKobo = nombaKobo - localKobo;
+    const difference = Number(koboToNairaString(differenceKobo));
+    const status: ReconciliationStatus = differenceKobo === 0n ? "matched" : differenceKobo > 0n ? "overpaid" : "underpaid";
     return {
       status,
       merchantTxRef: ref,
@@ -364,12 +391,19 @@ export class NombaClient {
 
   /** Turns the flat list of per-transaction line items from reconcile() into per-customer totals and status counts, so callers don't each re-filter/re-sum the same list themselves. */
   private buildReport(dateFrom: string, dateTo: string, lineItems: ReconciliationLineItem[]): ReconciliationReport {
+    // Accumulated in kobo bigint, never as running float totals (docs/system-rules.md: float
+    // drift is how reconciliation breaks six months in and nobody can find the missing kobo) —
+    // only converted back to naira numbers once, on CustomerReconciliationSummary's own public
+    // shape, at the end of this method.
+    type KoboTotals = { expectedTotal: bigint; receivedTotal: bigint; overpaidTotal: bigint; underpaidTotal: bigint };
+    const koboTotalsByCustomer = new Map<string, KoboTotals>();
     const byCustomerMap = new Map<string, CustomerReconciliationSummary>();
 
     for (const item of lineItems) {
       const key = item.customerId ?? "unknown";
       let summary = byCustomerMap.get(key);
-      if (!summary) {
+      let koboTotals = koboTotalsByCustomer.get(key);
+      if (!summary || !koboTotals) {
         summary = {
           customerId: key,
           expectedTotal: 0,
@@ -378,13 +412,23 @@ export class NombaClient {
           underpaidTotal: 0,
           lineItems: [],
         };
+        koboTotals = { expectedTotal: 0n, receivedTotal: 0n, overpaidTotal: 0n, underpaidTotal: 0n };
         byCustomerMap.set(key, summary);
+        koboTotalsByCustomer.set(key, koboTotals);
       }
       summary.lineItems.push(item);
-      if (item.localAmount != null) summary.expectedTotal += item.localAmount;
-      if (item.nombaAmount != null) summary.receivedTotal += item.nombaAmount;
-      if (item.status === "overpaid" && item.difference != null) summary.overpaidTotal += item.difference;
-      if (item.status === "underpaid" && item.difference != null) summary.underpaidTotal += -item.difference;
+      if (item.localAmount != null) koboTotals.expectedTotal += nairaToKoboExact(item.localAmount);
+      if (item.nombaAmount != null) koboTotals.receivedTotal += nairaToKoboExact(item.nombaAmount);
+      if (item.status === "overpaid" && item.difference != null) koboTotals.overpaidTotal += nairaToKoboExact(item.difference);
+      if (item.status === "underpaid" && item.difference != null) koboTotals.underpaidTotal += -nairaToKoboExact(item.difference);
+    }
+
+    for (const [key, koboTotals] of koboTotalsByCustomer) {
+      const summary = byCustomerMap.get(key)!;
+      summary.expectedTotal = Number(koboToNairaString(koboTotals.expectedTotal));
+      summary.receivedTotal = Number(koboToNairaString(koboTotals.receivedTotal));
+      summary.overpaidTotal = Number(koboToNairaString(koboTotals.overpaidTotal));
+      summary.underpaidTotal = Number(koboToNairaString(koboTotals.underpaidTotal));
     }
 
     const count = (status: ReconciliationStatus) => lineItems.filter((i) => i.status === status).length;
@@ -423,30 +467,33 @@ export class NombaClient {
     nombaTimestamp: string | undefined,
     handler: (event: WebhookEvent) => Promise<void> | void
   ): Promise<void> {
+    // A missing secret is a server misconfiguration, not a caller-fault verification failure — a
+    // plain Error here, distinct from WebhookVerificationError, so the route reports it as an
+    // internal error (500) rather than telling the caller their request was somehow invalid.
     if (!this.config.webhookSecret) {
       throw new Error("webhookSecret not configured");
     }
     if (!signature) {
-      throw new Error("Missing nomba-signature header");
+      throw new WebhookVerificationError("Missing nomba-signature header");
     }
     if (!nombaTimestamp) {
-      throw new Error("Missing nomba-timestamp header");
+      throw new WebhookVerificationError("Missing nomba-timestamp header");
     }
 
     let event: WebhookEvent<WebhookTransactionData>;
     try {
       event = JSON.parse(rawBody.toString()) as WebhookEvent<WebhookTransactionData>;
     } catch (err) {
-      throw new Error(`Webhook payload is not valid JSON: ${(err as Error).message}`);
+      throw new WebhookVerificationError(`Webhook payload is not valid JSON: ${(err as Error).message}`);
     }
 
     const expected = computeWebhookSignature(event, nombaTimestamp, this.config.webhookSecret);
     if (!safeEqualCaseInsensitive(signature, expected)) {
-      throw new Error("bad signature");
+      throw new WebhookVerificationError("bad signature");
     }
 
     if (!event.requestId) {
-      throw new Error("Webhook payload missing requestId - cannot dedupe safely");
+      throw new WebhookVerificationError("Webhook payload missing requestId - cannot dedupe safely");
     }
     // Webhooks may fire twice (network retries) - don't apply the same event twice.
     if (await this.webhookIdStore.has(event.requestId)) return;

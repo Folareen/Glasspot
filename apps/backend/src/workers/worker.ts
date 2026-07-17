@@ -1,4 +1,4 @@
-import { Worker, QueueEvents, DelayedError, type Job } from 'bullmq';
+import { Worker, QueueEvents, DelayedError, UnrecoverableError, type Job } from 'bullmq';
 import { createRedisConnection } from '@/config/redis';
 import env from '@/config/env';
 import { QueueName, PayoutCronJob, TransferJob } from '@/queues/names';
@@ -6,19 +6,18 @@ import { PayoutCronHandlers } from '@/modules/scheduler/payout-cron-handlers';
 import { FailedJobTracker } from '@/modules/scheduler/failed-job-tracker';
 import { TransferQueueService } from '@/modules/scheduler/transfer-queue.service';
 import { eq } from 'drizzle-orm';
-import db, { pots, targetBasedPayoutConfigs, contributionPayments } from '@/db';
+import db, { pots, contributionPayments, transactions } from '@/db';
 import { AccountsService } from '@/modules/ledger/accounts.service';
 import { LedgerService } from '@/modules/ledger/ledger.service';
+import { InsufficientBalanceError } from '@/modules/ledger/ledger.errors';
 import { nomba } from '@/integrations/nomba/index';
 import { NombaApiError } from '@/integrations/nomba/nomba.error';
 import { RedisTransferThrottle } from '@/integrations/nomba/transfer-throttle';
 import { clearPendingOperation, decrementPendingOperationLeg } from '@/modules/pots/pots.service';
+import { applyOnSuccess } from '@/modules/scheduler/apply-on-success';
 import type { DisbursementJobData } from '@/modules/scheduler/disbursement-job.types';
 import { koboToNairaString } from '@/lib/money';
-import { OUTBOUND_FEE, outboundFeeLegs } from '@/lib/fees';
-
-import { recurringPayoutConfigs, scheduledPayoutLegs } from '@/db';
-import type { DisbursementOnSuccess } from '@/modules/scheduler/disbursement-job.types';
+import { OUTBOUND_FEE, outboundFeeLegs, expiryRefundLegs } from '@/lib/fees';
 
 // Each Worker/QueueEvents gets its own Redis connection — see createRedisConnection()'s comment.
 const cronWorkerConnection = createRedisConnection();
@@ -114,7 +113,29 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
   const balance = await LedgerService.getBalance(potAccount.id);
   if (balance < amount + OUTBOUND_FEE) {
     await releaseLock(data);
-    throw new Error(`Pot ${data.potId} balance insufficient for ${data.kind} of ${amount} kobo plus the ₦50 outbound fee`);
+    // Deterministic — retrying won't change the outcome without new funding, so this must not
+    // consume the job's retry budget (see TRANSFER_JOB_OPTS's attempts:5/backoff, sized for
+    // transient Nomba/network failures, not this). UnrecoverableError skips all remaining
+    // attempts regardless of the job's configured attempts and goes straight to failed_jobs.
+    throw new UnrecoverableError(
+      `Pot ${data.potId} balance insufficient for ${data.kind} of ${amount} kobo plus the ₦50 outbound fee`
+    );
+  }
+
+  // A stalled-job redelivery (BullMQ redelivers if the worker dies mid-processing without
+  // acking) would otherwise re-enter this function for a reference that already has a
+  // 'processing' transaction from the earlier attempt — postTransaction's idempotency-by-reference
+  // means that earlier row is returned as-is rather than double-posted, but nothing stopped this
+  // function from still falling through to call Nomba a SECOND time with the same merchantTxRef.
+  // Nomba's own merchantTxRef idempotency (see TransferParams' doc comment) should catch a literal
+  // duplicate, but there's no dedicated "query this transfer's status by reference" API to confirm
+  // that before calling again — so if a 'processing' row already exists here, treat this as exactly
+  // that redelivery: don't call Nomba a second time, leave it to the existing resolution paths
+  // (webhook -> resolvePendingTransfer, or reconciliation) that already handle a 'processing'
+  // transaction whose real-world outcome isn't yet confirmed.
+  const [existing] = await db.select().from(transactions).where(eq(transactions.reference, data.reference));
+  if (existing && existing.status === 'processing') {
+    return existing;
   }
 
   const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
@@ -125,6 +146,7 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
       type: data.kind === 'payout' ? 'payout' : 'refund',
       reference: data.reference,
       status: 'processing',
+      amount,
       entries: outboundFeeLegs(
         {
           potAccountId: potAccount.id,
@@ -138,6 +160,7 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
       metadata: data.contributorUserId
         ? { potId: data.potId, contributorUserId: data.contributorUserId, destinationAccountName: resolved.accountName }
         : { potId: data.potId, destinationAccountName: resolved.accountName },
+      onSuccess: data.onSuccess,
     });
 
     await db.update(pots).set({ pendingOperationTransactionId: transaction.id }).where(eq(pots.id, data.potId));
@@ -151,12 +174,32 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
       if (data.onSuccess) {
         await applyOnSuccess(data.onSuccess);
       }
+    } else if (transfer.status !== 'PENDING_BILLING') {
+      // A definitive failure code (FAILED/INSUFFICIENT_BALANCE/ACCOUNT_NOT_FOUND/etc) — Nomba's
+      // 2xx response body told us synchronously this transfer did not go through, unlike
+      // PENDING_BILLING's "accepted but not settled yet." Confirmed not executed, so safe to
+      // reverse immediately rather than leaving the transaction stuck 'processing' and the lock
+      // held waiting on a webhook that may never arrive for a transfer that was never created.
+      await LedgerService.reverseTransaction(transaction.id, `${data.reference}_reversal`);
+      await releaseLock(data);
+      // Deterministic outcome (e.g. ACCOUNT_NOT_FOUND, BLACKLISTED) — retrying with identical
+      // params would just fail identically, wasting attempts that should be reserved for genuinely
+      // transient Nomba/network failures.
+      throw new UnrecoverableError(`Transfer for ${data.reference} came back with a definitive failure status: ${transfer.status}`);
     }
     // PENDING_BILLING: transaction stays 'processing', lock stays held —
     // resolved later via resolvePendingTransfer on the Nomba webhook.
 
     return transaction;
   } catch (err) {
+    // Already fully handled (reversed + lock released) right before being thrown, a few lines up
+    // in the definitive-failure-status branch — re-throw as-is so BullMQ still sees an
+    // UnrecoverableError, without this block redoing (and double-applying) that same reversal and
+    // lock release a second time.
+    if (err instanceof UnrecoverableError) {
+      throw err;
+    }
+
     // A NombaApiError with a real HTTP status means Nomba actually
     // received and rejected the request (bad request, insufficient
     // balance, etc) — confirmed not executed, safe to reverse. status 0
@@ -173,15 +216,27 @@ async function processLedgerDisbursement(data: Extract<DisbursementJobData, { ki
     if (transaction && confirmedNotExecuted) {
       await LedgerService.reverseTransaction(transaction.id, `${data.reference}_reversal`);
       await releaseLock(data);
+      // A confirmed Nomba rejection (real HTTP status) is deterministic — retrying the identical
+      // request would just fail identically, so this must not consume the job's retry budget.
+      throw new UnrecoverableError(
+        `Transfer for ${data.reference} was confirmed rejected by Nomba: ${err instanceof Error ? err.message : String(err)}`
+      );
     } else if (!transaction) {
-      // Failed before any ledger entry was posted (e.g. insufficient
-      // balance) — nothing to reverse, just release the lock.
+      // Failed before any ledger entry was posted — nothing to reverse, just release the lock.
       await releaseLock(data);
+      if (err instanceof InsufficientBalanceError) {
+        // Same deterministic case as the pre-check above (balance moved between that check and
+        // the atomic ledger post) — don't burn retry attempts on it either.
+        throw new UnrecoverableError(err.message);
+      }
     }
-    // else: transaction exists but the outcome is unknown — leave it
-    // 'processing' and the lock held, same as the PENDING_BILLING path.
+    // else: transaction exists but the outcome is unknown (status: 0 / no response) — leave it
+    // 'processing' and the lock held, same as the PENDING_BILLING path, and let this fall through
+    // to a normal re-throw below so BullMQ's default retry/backoff can retry a genuinely transient
+    // failure (the webhook or reconciliation will resolve the 'processing' row either way if a
+    // retry never lands).
 
-    throw err; // attempts:1 → straight to failed_jobs, no auto-retry
+    throw err;
   }
 }
 
@@ -189,55 +244,90 @@ function releaseLock(data: Extract<DisbursementJobData, { kind: 'payout' | 'pot_
   return data.isFanOutLeg ? decrementPendingOperationLeg(data.potId) : clearPendingOperation(data.potId);
 }
 
-/** Contribution-expiry refund — the contribution never reached 'funded' so nothing exists in the ledger to reverse; just moves money back to the sender and marks the payment refunded. */
+/**
+ * Contribution-expiry refund — the contribution never reached 'funded' so there's no pot/
+ * platform_float balance to draw down (confirmFunding never credited this payment), but real cash
+ * still leaves the platform's Nomba balance, so it still posts a ledger transaction like every
+ * other outbound transfer — debiting `suspense` instead of a pot account, same as
+ * overpaymentRefundLegs, via expiryRefundLegs. This is also what makes the transfer visible to
+ * ReconciliationService (which only scans `transactions`), rather than a real Nomba-side outbound
+ * transfer with nothing on our side to match it against.
+ */
 async function processContributionRefund(data: Extract<DisbursementJobData, { kind: 'contribution_refund' }>) {
-  const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
-  const { transfer } = await callNomba(data, resolved);
+  const amount = BigInt(data.amount);
 
-  if (transfer.status === 'SUCCESS') {
-    await db
-      .update(contributionPayments)
-      .set({ refunded: true })
-      .where(eq(contributionPayments.id, data.contributionPaymentId));
+  const [existing] = await db.select().from(transactions).where(eq(transactions.reference, data.reference));
+  if (existing && existing.status === 'processing') {
+    // Same stalled-job-redelivery guard as processLedgerDisbursement — don't call Nomba a second
+    // time for a reference whose real-world outcome isn't yet confirmed.
+    return existing;
   }
-  // PENDING_BILLING: leave refunded=false — ExpiryService's sweep will
-  // naturally re-check this payment; resolution still needs to come via
-  // Nomba's webhook, same "never blind-retry" rule as the ledger path.
 
-  return transfer;
-}
+  const suspense = await AccountsService.getOrCreateSystemAccount('suspense');
+  const resolved = await nomba.lookupBankAccount(data.destinationAccount, data.destinationBank);
 
-/** Applies a job's declared side effect only after the transfer has actually succeeded, so fired/nextRunAt state reflects reality, not just an attempt. */
-async function applyOnSuccess(onSuccess: DisbursementOnSuccess) {
-  switch (onSuccess.type) {
-    case 'mark_target_based_fired':
+  const platformFloatAccount = await AccountsService.getOrCreateSystemAccount('platform_float');
+  const platformRevenue = await AccountsService.getOrCreateSystemAccount('platform_revenue');
+  const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount('nomba_fee_expense');
+  const nombaClearing = await AccountsService.getOrCreateSystemAccount('nomba_clearing');
+
+  let transaction;
+  try {
+    transaction = await LedgerService.postTransaction({
+      type: 'refund',
+      reference: data.reference,
+      status: 'processing',
+      amount,
+      entries: expiryRefundLegs(
+        {
+          suspenseId: suspense.id,
+          platformFloatId: platformFloatAccount.id,
+          platformRevenueId: platformRevenue.id,
+          nombaFeeExpenseId: nombaFeeExpense.id,
+          nombaClearingId: nombaClearing.id,
+        },
+        amount
+      ),
+      metadata: { contributionId: data.contributionId, contributionPaymentId: data.contributionPaymentId },
+    });
+
+    const { transfer } = await callNomba(data, resolved);
+
+    if (transfer.status === 'SUCCESS') {
+      await LedgerService.markCompleted(transaction.id);
       await db
-        .update(targetBasedPayoutConfigs)
-        .set({ fired: true, firedAt: new Date() })
-        .where(eq(targetBasedPayoutConfigs.id, onSuccess.targetConfigId));
-      return;
+        .update(contributionPayments)
+        .set({ refunded: true })
+        .where(eq(contributionPayments.id, data.contributionPaymentId));
+    } else if (transfer.status !== 'PENDING_BILLING') {
+      // Definitive failure — confirmed not executed, safe to reverse immediately (system-rules.md:
+      // never blind-retry on an unknown outcome, but a real HTTP failure status is known).
+      await LedgerService.reverseTransaction(transaction.id, `${data.reference}_reversal`);
+      throw new UnrecoverableError(`Expiry refund for ${data.reference} came back with a definitive failure status: ${transfer.status}`);
+    }
+    // PENDING_BILLING: transaction stays 'processing', refunded stays false — resolved later via
+    // resolvePendingTransfer on the Nomba webhook, same as any other outbound transfer.
 
-    case 'advance_recurring_next_run_at': {
-      // Re-read current nextRunAt/intervalDays rather than trusting a
-      // value carried in the job payload from enqueue time — avoids
-      // compounding drift if this config was somehow touched between
-      // enqueue and this job actually running.
-      const [config] = await db
-        .select()
-        .from(recurringPayoutConfigs)
-        .where(eq(recurringPayoutConfigs.id, onSuccess.recurringConfigId));
-      if (!config) return;
-      const nextRunAt = new Date(config.nextRunAt.getTime() + config.intervalDays * 24 * 60 * 60 * 1000);
-      await db.update(recurringPayoutConfigs).set({ nextRunAt }).where(eq(recurringPayoutConfigs.id, config.id));
-      return;
+    return transaction;
+  } catch (err) {
+    if (err instanceof UnrecoverableError) {
+      throw err;
     }
 
-    case 'mark_scheduled_leg_fired':
-      await db
-        .update(scheduledPayoutLegs)
-        .set({ fired: true, firedAt: new Date() })
-        .where(eq(scheduledPayoutLegs.id, onSuccess.scheduledLegId));
-      return;
+    // Same confirmed-vs-unknown-outcome distinction as processLedgerDisbursement: a real Nomba
+    // HTTP status means the transfer definitely didn't happen, safe to reverse; status 0 (network
+    // error/timeout) means the outcome is unknown, so the transaction is left 'processing' for the
+    // webhook or reconciliation to resolve rather than risking a double-refund via blind retry.
+    const confirmedNotExecuted = !(err instanceof NombaApiError) || err.status !== 0;
+
+    if (transaction && confirmedNotExecuted) {
+      await LedgerService.reverseTransaction(transaction.id, `${data.reference}_reversal`);
+      throw new UnrecoverableError(
+        `Expiry refund for ${data.reference} was confirmed rejected by Nomba: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    throw err;
   }
 }
 

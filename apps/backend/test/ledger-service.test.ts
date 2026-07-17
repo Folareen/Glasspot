@@ -29,6 +29,7 @@ test("LedgerService", async (t) => {
     const transaction = await LedgerService.postTransaction({
       type: "funding",
       reference,
+      amount: 100_000n,
       entries: [
         { accountId: platformFloat.id, direction: "debit", amount: 100_000n },
         { accountId: potAccount.id, direction: "credit", amount: 100_000n },
@@ -55,6 +56,7 @@ test("LedgerService", async (t) => {
         LedgerService.postTransaction({
           type: "funding",
           reference: `test_${randomUUID()}`,
+          amount: 100_000n,
           entries: [
             { accountId: platformFloat.id, direction: "debit", amount: 100_000n },
             { accountId: potAccount.id, direction: "credit", amount: 99_000n }, // mismatched
@@ -78,6 +80,7 @@ test("LedgerService", async (t) => {
         LedgerService.postTransaction({
           type: "funding",
           reference: `test_${randomUUID()}`,
+          amount: 0n,
           entries: [
             { accountId: platformFloat.id, direction: "debit", amount: 0n },
             { accountId: potAccount.id, direction: "credit", amount: 0n },
@@ -89,7 +92,7 @@ test("LedgerService", async (t) => {
 
   await t.test("rejects entries with no items", async () => {
     await assert.rejects(
-      () => LedgerService.postTransaction({ type: "funding", reference: `test_${randomUUID()}`, entries: [] }),
+      () => LedgerService.postTransaction({ type: "funding", reference: `test_${randomUUID()}`, amount: 0n, entries: [] }),
       LedgerError
     );
   });
@@ -99,6 +102,7 @@ test("LedgerService", async (t) => {
       LedgerService.postTransaction({
         type: "funding",
         reference: `test_${randomUUID()}`,
+        amount: 1000n,
         entries: [
           { accountId: randomUUID(), direction: "debit", amount: 1000n },
           { accountId: randomUUID(), direction: "credit", amount: 1000n },
@@ -116,6 +120,7 @@ test("LedgerService", async (t) => {
     const input = {
       type: "funding" as const,
       reference,
+      amount: 50_000n,
       entries: [
         { accountId: platformFloat.id, direction: "debit" as const, amount: 50_000n },
         { accountId: potAccount.id, direction: "credit" as const, amount: 50_000n },
@@ -139,6 +144,7 @@ test("LedgerService", async (t) => {
     const input = {
       type: "funding" as const,
       reference,
+      amount: 25_000n,
       entries: [
         { accountId: platformFloat.id, direction: "debit" as const, amount: 25_000n },
         { accountId: potAccount.id, direction: "credit" as const, amount: 25_000n },
@@ -172,6 +178,7 @@ test("LedgerService", async (t) => {
     const original = await LedgerService.postTransaction({
       type: "contribution",
       reference: `test_${randomUUID()}`,
+      amount: 70_000n,
       entries: [
         { accountId: platformFloat.id, direction: "debit", amount: 70_000n },
         { accountId: potAccount.id, direction: "credit", amount: 70_000n },
@@ -194,6 +201,7 @@ test("LedgerService", async (t) => {
     const original = await LedgerService.postTransaction({
       type: "contribution",
       reference: `test_${randomUUID()}`,
+      amount: 10_000n,
       entries: [
         { accountId: platformFloat.id, direction: "debit", amount: 10_000n },
         { accountId: potAccount.id, direction: "credit", amount: 10_000n },

@@ -29,6 +29,7 @@ import { cn } from "@/lib/cn";
 import {
   ApiError,
   activatePot,
+  deletePot,
   removePendingMember,
   closePot,
   getPot,
@@ -89,6 +90,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const [pendingContribution, setPendingContribution] = useState<ContributionResponse | null>(null);
   const [addMemberOpen, setAddMemberOpen] = useState(false);
   const [activateOpen, setActivateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [refundOpen, setRefundOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -214,8 +216,19 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
     Number(pot.balance) > 0 &&
     pot.payoutMode === "manual";
 
+  // refundType='admin' pays out to whichever admin triggers it, to THEIR OWN saved refund
+  // account — see profile/refund-account/page.tsx. Without one on file the backend rejects the
+  // trigger outright, so check for it here too rather than let an admin burn an OTP code only to
+  // hit that error at the very end. refundType='contributors' refunds each contributor to their
+  // own account instead and has no such requirement.
+  const hasUsableRefundDestination =
+    pot.refundType !== "admin" || Boolean(currentUser?.defaultRefundAccount && currentUser.defaultRefundBank);
   const canTriggerRefund =
-    isAdmin && pot.status === "open" && !pot.pendingOperation && Number(pot.balance) > 0;
+    isAdmin &&
+    pot.status === "open" &&
+    !pot.pendingOperation &&
+    Number(pot.balance) > 0 &&
+    hasUsableRefundDestination;
 
   const canClose = isAdmin && pot.status === "open";
   const isCurrentMember = memberRows.some((m) => m.kind === "member" && m.userId === currentUser?.id);
@@ -461,9 +474,14 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
 
           <div className="mt-5 flex flex-col gap-2">
             {pot.status === "draft" && isAdmin && (
-              <Button className="w-full" onClick={() => setActivateOpen(true)}>
-                Open this pot
-              </Button>
+              <>
+                <Button className="w-full" onClick={() => setActivateOpen(true)}>
+                  Open this pot
+                </Button>
+                <Button variant="secondary" className="w-full" onClick={() => setDeleteOpen(true)}>
+                  Delete draft
+                </Button>
+              </>
             )}
             {pot.status === "open" && (
               <div className="flex gap-2">
@@ -556,6 +574,20 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                       onClick={() => setRefundOpen(true)}
                     />
                   )}
+                  {!canTriggerRefund &&
+                    isAdmin &&
+                    pot.status === "open" &&
+                    !pot.pendingOperation &&
+                    Number(pot.balance) > 0 &&
+                    !hasUsableRefundDestination && (
+                      <ActionRow
+                        icon={<RotateCcw className="h-5 w-5" strokeWidth={1.5} />}
+                        title="Refund"
+                        description="Add a refund account in your profile before you can trigger a refund as an admin."
+                        buttonLabel="Set up"
+                        onClick={() => router.push("/profile/refund-account")}
+                      />
+                    )}
                   {canClose && (
                     <ActionRow
                       icon={<Trash2 className="h-5 w-5" strokeWidth={1.5} />}
@@ -631,8 +663,26 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           }
         }}
         title="Open this pot?"
-        description="Once open, the the payout and refund rules are locked in and can no longer be changed."
+        description="Once open, the payout and refund rules are locked in and can no longer be changed."
         confirmLabel="Open pot"
+      />
+
+      <ConfirmActionModal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={async () => {
+          try {
+            await deletePot(pot.id);
+            showToast("Draft deleted", "success");
+            router.push(backHref);
+          } catch (e) {
+            showToast(e instanceof ApiError ? e.message : "Couldn't delete this draft", "error");
+          }
+        }}
+        title="Delete this draft?"
+        description="This permanently deletes the draft and everyone added to it so far. This can't be undone."
+        confirmLabel="Delete draft"
+        danger
       />
 
       {pot.payoutMode === "manual" && !hasFixedManualDestination ? (

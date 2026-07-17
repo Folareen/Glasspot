@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
@@ -9,7 +10,7 @@ import { Divider } from "@/components/ui/Divider";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
-import { sanitizeAmountInput } from "@/lib/money";
+import { addNaira, formatNaira, OUTBOUND_FEE, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
 import { isPositiveAmount } from "./wizard-helpers";
 import type { WizardScheduledLeg } from "./wizard-types";
 import type { Bank } from "@/lib/types";
@@ -26,7 +27,11 @@ const NO_ERRORS: LegErrors = {};
 /** Per-leg field errors, mirroring isConfigStepValid's "scheduled" case (wizard-helpers.ts) field for field. */
 function legErrors(leg: WizardScheduledLeg): LegErrors {
   return {
-    account: leg.destinationAccount ? undefined : "Enter the account number.",
+    account: !leg.destinationAccount
+      ? "Enter the account number."
+      : leg.destinationBank && !leg.destinationConfirmedName
+        ? "Wait for the account name to be confirmed."
+        : undefined,
     bank: leg.destinationBank ? undefined : "Choose the bank.",
     amount: isPositiveAmount(leg.amount) ? undefined : "Enter an amount greater than 0.",
     date: leg.scheduledDate ? undefined : "Choose a date.",
@@ -45,6 +50,7 @@ function emptyLeg(sequenceOrder: number): WizardScheduledLeg {
   return {
     destinationAccount: "",
     destinationBank: "",
+    destinationConfirmedName: null,
     sequenceOrder,
     amount: "",
     scheduledDate: "",
@@ -70,6 +76,15 @@ function LegCard({ leg, index, legLabel, errors, banks, canRemove, onUpdate, onR
     leg.destinationBank
   );
 
+  // See TargetBasedConfigStep.tsx's identical sync effect for why this is needed — lifts this
+  // leg's own confirmedName into wizard state so isConfigStepValid can require it.
+  useEffect(() => {
+    if (leg.destinationConfirmedName !== confirmedName) {
+      onUpdate({ destinationConfirmedName: confirmedName });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only confirmedName changing should re-sync; onUpdate/leg aren't independent triggers here.
+  }, [confirmedName]);
+
   return (
     <Card padding="md">
       <div className="mb-3 flex items-center justify-between">
@@ -92,7 +107,7 @@ function LegCard({ leg, index, legLabel, errors, banks, canRemove, onUpdate, onR
             inputMode="numeric"
             maxLength={10}
             value={leg.destinationAccount}
-            onChange={(e) => onUpdate({ destinationAccount: e.target.value })}
+            onChange={(e) => onUpdate({ destinationAccount: e.target.value.replace(/\D/g, "") })}
             placeholder="0123456789"
             error={Boolean(errors.account)}
           />
@@ -140,7 +155,7 @@ function LegCard({ leg, index, legLabel, errors, banks, canRemove, onUpdate, onR
           <Field
             label="Amount"
             htmlFor={`leg-amount-${index}`}
-            helperText={errors.amount ? undefined : "In naira. Must be greater than 0."}
+            helperText={errors.amount ? undefined : "In naira. Must be greater than 0. The recipient gets exactly this amount."}
             required
             error={errors.amount}
           >
@@ -164,6 +179,13 @@ function LegCard({ leg, index, legLabel, errors, banks, canRemove, onUpdate, onR
             />
           </Field>
         </div>
+
+        {isPositiveAmount(leg.amount) && (
+          <Text size="xs" color="secondary">
+            Pot needs {formatNaira(addNaira(toNairaAmount(leg.amount)!, OUTBOUND_FEE))} available on this date —{" "}
+            {formatNaira(toNairaAmount(leg.amount)!)} to the recipient plus the {formatNaira(OUTBOUND_FEE)} payout fee.
+          </Text>
+        )}
       </div>
     </Card>
   );

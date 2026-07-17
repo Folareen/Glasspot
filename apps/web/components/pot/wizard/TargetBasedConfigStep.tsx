@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -6,7 +7,7 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
-import { formatNaira, OUTBOUND_FEE, sanitizeAmountInput } from "@/lib/money";
+import { formatNaira, OUTBOUND_FEE, sanitizeAmountInput, subtractNaira, toNairaAmount } from "@/lib/money";
 import { isPositiveAmount, isValidTargetAmount } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
@@ -27,14 +28,30 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
   const targetAmountTooLow =
     isPositiveAmount(state.targetAmountNaira) && !isValidTargetAmount(state.targetAmountNaira);
 
-  const accountError =
-    showErrors && !state.targetDestinationAccount ? "Enter the payout account number." : undefined;
-  const bankError = showErrors && !state.targetDestinationBank ? "Choose the payout bank." : undefined;
   const {
     confirmedName,
     isLookingUp,
     error: lookupError,
   } = useBankAccountLookup(state.targetDestinationAccount, state.targetDestinationBank);
+
+  // Lifts useBankAccountLookup's own (account+bank-tagged) confirmedName into wizard state so
+  // isConfigStepValid — which lives in the parent wizard page, with no visibility into this
+  // component's local hook state — can require a confirmed destination before letting Continue
+  // proceed. See wizard-types.ts's targetDestinationConfirmedName comment.
+  useEffect(() => {
+    if (state.targetDestinationConfirmedName !== confirmedName) {
+      onChange({ targetDestinationConfirmedName: confirmedName });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only confirmedName changing should re-sync; onChange/state aren't independent triggers here.
+  }, [confirmedName]);
+
+  const accountError =
+    showErrors && !state.targetDestinationAccount
+      ? "Enter the payout account number."
+      : showErrors && state.targetDestinationAccount && state.targetDestinationBank && !confirmedName
+        ? "Wait for the account name to be confirmed."
+        : undefined;
+  const bankError = showErrors && !state.targetDestinationBank ? "Choose the payout bank." : undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -44,7 +61,7 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           inputMode="numeric"
           maxLength={10}
           value={state.targetDestinationAccount}
-          onChange={(e) => onChange({ targetDestinationAccount: e.target.value })}
+          onChange={(e) => onChange({ targetDestinationAccount: e.target.value.replace(/\D/g, "") })}
           placeholder="0123456789"
           error={Boolean(accountError)}
         />
@@ -94,7 +111,10 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           Pick at least one way this pot can pay out
         </Text>
         <Text size="xs" color="secondary" className="mt-0.5">
-          Any one of these happening triggers the payout, not all of them.
+          Any one of these happening triggers the payout, not all of them. If you set a target
+          date, this pot pays out once and then closes for good — even if the amount is reached
+          first. If you set only a target amount, with no date, this pot can pay out again and
+          again, any time contributions bring the balance back up to that amount.
         </Text>
       </div>
 
@@ -122,7 +142,7 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
           helperText={
             targetAmountTooLow
               ? undefined
-              : `In naira, optional. Leave blank to rely on the date instead. This pot pays out its full balance when the target is met, so include the flat ${formatNaira(OUTBOUND_FEE)} payout fee in this number — don't enter 0.`
+              : `In naira, optional. Leave blank to rely on the date instead. This pot pays out its full balance when the target is met — a flat ${formatNaira(OUTBOUND_FEE)} payout fee comes out of that balance, so add it to this number if you want the recipient to get the full amount.`
           }
           error={targetAmountTooLow ? `Must be more than ${formatNaira(OUTBOUND_FEE)} — the payout fee.` : undefined}
         >
@@ -136,6 +156,14 @@ export function TargetBasedConfigStep({ state, onChange, showErrors }: TargetBas
             error={targetAmountTooLow}
           />
         </Field>
+
+        {isValidTargetAmount(state.targetAmountNaira) && (
+          <Text size="xs" color="secondary">
+            Recipient will receive{" "}
+            {formatNaira(subtractNaira(toNairaAmount(state.targetAmountNaira)!, OUTBOUND_FEE))} once this fires — the
+            flat {formatNaira(OUTBOUND_FEE)} payout fee comes out of the {formatNaira(toNairaAmount(state.targetAmountNaira)!)} target.
+          </Text>
+        )}
       </Card>
 
       {showErrors && !hasAtLeastOneCondition && (

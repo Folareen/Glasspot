@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import db, { contributions, contributionPayments, users, type Contribution } from "@/db";
+import db, { contributions, contributionPayments, pots, users, type Contribution } from "@/db";
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
@@ -8,7 +8,7 @@ import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
-import { INBOUND_FEE, inboundFeeLegs } from "@/lib/fees";
+import { inboundFeeFor, inboundFeeLegs, overpaymentRefundLegs, OUTBOUND_FEE } from "@/lib/fees";
 import { PotError } from "./pots.errors";
 import { getViewablePotOrThrow } from "./pot-authorization";
 import { ContributeInput } from "./pots.schema";
@@ -113,12 +113,10 @@ export const ContributionsService = {
 
     const expiresAt = new Date(Date.now() + CONTRIBUTION_EXPIRY_HOURS * 60 * 60 * 1000);
 
-    // expectedAmount stores the GROSS amount (intended amount + the flat ₦20 inbound fee) — this
-    // is what the contributor must actually send for the pot to receive their full intended
-    // amount once Nomba's real ₦10 cut is split out in confirmFunding(). amount itself (validated
-    // against minContribution/maxContribution above) stays the intended net figure throughout —
-    // see apps/backend/src/lib/fees.ts.
-    const grossExpectedAmount = amount + INBOUND_FEE;
+    // expectedAmount stores the GROSS amount (intended amount + inboundFeeFor(amount)) — what the
+    // contributor must actually send for the pot to receive their full intended amount once the
+    // fee is split out in confirmFunding(). `amount` itself is stored as-is (intendedAmount).
+    const grossExpectedAmount = amount + inboundFeeFor(amount);
 
     // Nomba's expectedAmount is in naira, our amounts are kobo (see
     // docs/system-rules.md) — convert via koboToNairaString for the API
@@ -141,6 +139,7 @@ export const ContributionsService = {
         virtualAccountNumber: virtualAccount.bankAccountNumber,
         virtualAccountBankName: virtualAccount.bankName,
         expectedAmount: grossExpectedAmount,
+        intendedAmount: amount,
         anonymous: input.anonymous ?? false,
         refundAccountNumber,
         refundAccountName,
@@ -243,15 +242,14 @@ export const ContributionsService = {
     const nombaFeeExpense = await AccountsService.getOrCreateSystemAccount("nomba_fee_expense");
     const nombaClearing = await AccountsService.getOrCreateSystemAccount("nomba_clearing");
 
-    // contribution.expectedAmount is the GROSS figure (intended amount + INBOUND_FEE, see
-    // create()'s comment) — the pot must only ever be credited the intended net amount, with both
-    // fee cuts split into their own ledger legs, never folded into the pot's credit.
-    const intendedAmount = contribution.expectedAmount - INBOUND_FEE;
+    // The pot is credited the intended net amount, never the gross expectedAmount.
+    const intendedAmount = contribution.intendedAmount;
 
     const transaction = await LedgerService.postTransaction({
       type: "contribution",
       reference: `contribution_${contribution.id}`,
       externalReference: payment.transaction.transactionId,
+      amount: intendedAmount,
       entries: inboundFeeLegs(
         {
           platformFloatId: platformFloat.id,
@@ -300,7 +298,41 @@ export const ContributionsService = {
       // this payment (capped at amount itself, since this payment
       // can't be blamed for more excess than its own size).
       const thisPaymentNeeded = amount - excess > 0n ? amount - excess : 0n;
-      await nomba.refundOverpayment(payment, Number(koboToNairaString(thisPaymentNeeded)));
+
+      // This payment's own share of the total excess (mirrors thisPaymentNeeded's derivation
+      // above): amount actually collected minus the portion that was needed.
+      const thisPaymentExcess = amount - thisPaymentNeeded;
+
+      if (thisPaymentExcess > OUTBOUND_FEE) {
+        // The refund is fee-bearing, same as every other outbound transfer — the sender receives
+        // thisPaymentExcess - OUTBOUND_FEE, not the full excess. Inflating expectedAmountNaira by
+        // the fee (in naira) makes refundOverpayment's own excess computation come out exactly
+        // OUTBOUND_FEE lower, without needing a second parameter on that method.
+        const refundAmount = thisPaymentExcess - OUTBOUND_FEE;
+        const suspense = await AccountsService.getOrCreateSystemAccount("suspense");
+
+        await LedgerService.postTransaction({
+          type: "refund",
+          reference: `overpayment_refund_${payment.transaction.transactionId}`,
+          amount: refundAmount,
+          entries: overpaymentRefundLegs(
+            {
+              suspenseId: suspense.id,
+              platformFloatId: platformFloat.id,
+              platformRevenueId: platformRevenue.id,
+              nombaFeeExpenseId: nombaFeeExpense.id,
+              nombaClearingId: nombaClearing.id,
+            },
+            refundAmount
+          ),
+          metadata: { potId: contribution.potId, contributionId: contribution.id },
+        });
+
+        const feeAdjustedExpected = thisPaymentNeeded + OUTBOUND_FEE;
+        await nomba.refundOverpayment(payment, Number(koboToNairaString(feeAdjustedExpected)));
+      }
+      // else: excess doesn't even cover the outbound fee — not worth refunding (would cost more to
+      // send than the sender would receive), left unrefunded same as before this fix existed.
     }
   },
 
@@ -317,6 +349,20 @@ export const ContributionsService = {
 
     if (!contribution || contribution.status !== "funded" || !contribution.transactionId) {
       return;
+    }
+
+    // A pot mid-payout/refund (pendingOperation set) has already committed to a specific balance
+    // figure for that operation — reversing an unrelated earlier contribution right now could
+    // leave less in the pot than that operation assumed, even if it wouldn't drive the balance
+    // negative outright. Throwing here (rather than swallowing) leaves this webhook's
+    // providerEvents row unprocessed, so Nomba's own redelivery retries it later, by which point
+    // the in-flight operation has normally resolved and released the lock.
+    const [pot] = await db.select().from(pots).where(eq(pots.id, contribution.potId));
+    if (pot?.pendingOperation) {
+      throw new PotError(
+        `Cannot reverse contribution ${contribution.id} while pot ${contribution.potId} has a payout/refund in flight`,
+        409
+      );
     }
 
     await LedgerService.reverseTransaction(contribution.transactionId, `contribution_${contribution.id}_reversal`);

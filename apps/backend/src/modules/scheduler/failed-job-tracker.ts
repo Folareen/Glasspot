@@ -9,12 +9,14 @@ export const FailedJobTracker = {
     const queue = new Queue(queueName, { connection });
 
     events.on('failed', async ({ jobId, failedReason }) => {
-      // Only persist once attempts are exhausted — BullMQ retries automatically before this.
+      // BullMQ's own moveToFailed() only reaches the terminal 'failed' event (as opposed to
+      // moveToDelayed/retryJob, which silently retry) once retries are truly exhausted OR the
+      // processor threw UnrecoverableError to skip them outright — either way, attemptsMade can be
+      // well under opts.attempts at this point (an UnrecoverableError thrown on attempt 1 of a
+      // configured 5 still lands here with attemptsMade === 1), so there's no additional exhaustion
+      // check to make: reaching this event at all already means "no further retries will happen."
       const job = await queue.getJob(jobId);
       if (!job) return;
-
-      const exhausted = job.attemptsMade >= (job.opts.attempts ?? 1);
-      if (!exhausted) return;
 
       await db.insert(failedJobs).values({
         queueName,

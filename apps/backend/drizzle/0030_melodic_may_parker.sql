@@ -1,0 +1,1 @@
+ALTER TABLE "action_otp_codes" ADD COLUMN "consumed_by_idempotency_key" text;

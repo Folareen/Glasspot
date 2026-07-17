@@ -6,6 +6,7 @@ import {
   closePotHandler,
   contributeHandler,
   createPotHandler,
+  deleteDraftPotHandler,
   getPotHandler,
   leavePotHandler,
   listPendingMembersHandler,
@@ -35,8 +36,6 @@ import {
   UpdateMemberRoleInput,
   UpdatePotInput,
 } from "./pots.schema";
-import { TransferQueueService } from "../scheduler/transfer-queue.service";
-import type { DisbursementJobData } from "@/modules/scheduler/disbursement-job.types";
 
 /** Registers all pot-related routes; each passes its RouteGenericInterface explicitly since fastify-zod's $ref() schemas can't be inferred by Fastify. */
 async function potsRoutes(server: FastifyInstance) {
@@ -87,6 +86,18 @@ async function potsRoutes(server: FastifyInstance) {
       },
     },
     updatePotHandler
+  );
+
+  server.delete<{ Params: PotIdParams }>(
+    "/:id",
+    {
+      preHandler: [server.authenticate],
+      schema: {
+        params: $ref("potIdParamsSchema"),
+        response: { 200: $ref("messageResponseSchema") },
+      },
+    },
+    deleteDraftPotHandler
   );
 
   server.post<{ Params: PotIdParams }>(
@@ -281,21 +292,6 @@ async function potsRoutes(server: FastifyInstance) {
     },
     leavePotHandler
   );
-
-  server.post<{ Body: { amount?: string } }>("/transfers/test-payout", async (request, reply) => {
-    const payload = {
-      kind: "payout",
-      potId: "test-pot-id",
-      amount: request.body?.amount ?? "10000",
-      destinationAccount: "1000000001",
-      destinationBank: "000013",
-      reference: `dev-test-payout-${Date.now()}`,
-    };
-
-    // @ts-ignore
-    const job = await TransferQueueService.enqueuePayout(payload);
-    return reply.send({ jobId: job.id });
-  });
 }
 
 export default potsRoutes;

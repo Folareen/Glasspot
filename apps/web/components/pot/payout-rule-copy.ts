@@ -17,6 +17,7 @@ export function describePayoutRule(pot: PotResponse): string {
       return "An admin can send the balance to any account whenever they choose. The destination is picked at the time of payout, and stays visible to everyone afterward.";
     }
     case "target_based": {
+      const hasDate = "targetDate" in config && Boolean(config.targetDate);
       const conditions: string[] = [];
       if ("targetDate" in config && config.targetDate) {
         conditions.push(`the target date, ${formatDate(config.targetDate)}, arrives`);
@@ -25,7 +26,13 @@ export function describePayoutRule(pot: PotResponse): string {
         conditions.push(`the pot reaches ${formatNaira(config.targetAmount)}`);
       }
       if (conditions.length === 0) return "This pot pays out once its conditions are set.";
-      return `This pot pays out once ${conditions.join(", or ")}.`;
+      const trigger = `This pot pays out once ${conditions.join(", or ")}.`;
+      // A target date makes this a one-shot commitment regardless of which condition actually
+      // fires it — the pot closes right after. A pure amount target (no date at all) instead
+      // fires again every time contributions bring the balance back up to that amount.
+      return hasDate
+        ? `${trigger} It pays out once, then closes.`
+        : `${trigger} It can pay out again any time the balance reaches that amount — it doesn't close on its own.`;
     }
     case "recurring": {
       if (!("amount" in config)) return "This pot pays out on a fixed interval, repeating automatically.";

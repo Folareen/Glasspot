@@ -7,6 +7,12 @@ export function isPositiveAmount(raw: string): boolean {
   return Boolean(raw) && nairaAmountToNumber(raw) > 0;
 }
 
+/** True for a wizard interval field holding a positive integer number of days — mirrors the backend's recurringPayoutConfigSchema (intervalDays: z.number().int().min(1)). Same truthiness trap as isPositiveAmount: "0" is a non-empty string, so `state.recurringIntervalDays &&` alone would accept it. */
+export function isValidIntervalDays(raw: string): boolean {
+  const n = Number(raw);
+  return Boolean(raw) && Number.isInteger(n) && n >= 1;
+}
+
 /**
  * True for a target_based target amount that could actually pay out something — target_based
  * always disburses the pot's full balance, netting the flat ₦50 outbound fee out of it (see
@@ -41,7 +47,11 @@ export function buildPayoutConfig(state: WizardState): CreatePotInput["payoutCon
         destinationAccount: state.recurringDestinationAccount,
         destinationBank: state.recurringDestinationBank,
         amount: wireAmount(state.recurringAmountNaira),
-        intervalDays: Number(state.recurringIntervalDays) || 30,
+        // isConfigStepValid already requires isValidIntervalDays before this step can be left, so
+        // this is never actually reached with an invalid value — no silent "0 becomes 30" fallback
+        // anymore (a prior version did `|| 30`, changing what's submitted without telling the
+        // user, since the review step still showed whatever they'd typed).
+        intervalDays: Number(state.recurringIntervalDays),
         nextRunAt: toIsoDate(state.recurringNextRunAt),
       };
     case "scheduled":
@@ -67,28 +77,37 @@ export function buildPayoutConfig(state: WizardState): CreatePotInput["payoutCon
 export function isConfigStepValid(state: WizardState) {
   switch (state.payoutMode) {
     case "manual":
-      // Destination is optional, but if either half is filled in, both
-      // must be — mirrors the backend's both-or-neither validation.
-      return Boolean(state.manualDestinationAccount) === Boolean(state.manualDestinationBank);
+      // Destination is optional, but if either half is filled in, both must be — mirrors the
+      // backend's both-or-neither validation — and once both are, the account name must have
+      // resolved too (a typo'd account otherwise only fails at final pot creation).
+      return Boolean(state.manualDestinationAccount) === Boolean(state.manualDestinationBank) &&
+        (!state.manualDestinationAccount || Boolean(state.manualDestinationConfirmedName));
     case "recurring":
       return Boolean(
         state.recurringDestinationAccount &&
           state.recurringDestinationBank &&
+          state.recurringDestinationConfirmedName &&
           isPositiveAmount(state.recurringAmountNaira) &&
-          state.recurringIntervalDays &&
+          isValidIntervalDays(state.recurringIntervalDays) &&
           state.recurringNextRunAt
       );
     case "scheduled":
       return (
         state.scheduledLegs.length > 0 &&
         state.scheduledLegs.every(
-          (leg) => leg.destinationAccount && leg.destinationBank && isPositiveAmount(leg.amount) && leg.scheduledDate
+          (leg) =>
+            leg.destinationAccount &&
+            leg.destinationBank &&
+            leg.destinationConfirmedName &&
+            isPositiveAmount(leg.amount) &&
+            leg.scheduledDate
         )
       );
     case "target_based":
       return Boolean(
         state.targetDestinationAccount &&
           state.targetDestinationBank &&
+          state.targetDestinationConfirmedName &&
           (state.targetDate || isValidTargetAmount(state.targetAmountNaira))
       );
     default:

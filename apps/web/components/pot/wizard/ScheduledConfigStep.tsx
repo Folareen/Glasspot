@@ -16,6 +16,7 @@ export function ScheduledConfigStep({ state, onChange, showErrors }: ScheduledCo
     {
       destinationAccount: "",
       destinationBank: "",
+      destinationConfirmedName: null,
       sequenceOrder: 0,
       amount: "",
       scheduledDate: "",

@@ -36,8 +36,12 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
   const balanceNaira = nairaAmountToNumber(balance);
   const wireAmount = amount ? (toNairaAmount(amount) ?? undefined) : undefined;
   // Same flat ₦50 outbound fee rule as PayoutAmountModal — see that file's comment.
-  const maxSendableNaira = nairaAmountToNumber(subtractNaira(balance, OUTBOUND_FEE));
   const fullBalancePayout = subtractNaira(balance, OUTBOUND_FEE);
+  const maxSendableNaira = nairaAmountToNumber(fullBalancePayout);
+  // Below the fee threshold, nothing can be sent at all (even the "leave blank" full-balance
+  // path would fail the same fee check server-side) — block the whole flow instead of showing a
+  // negative amount.
+  const belowFeeThreshold = maxSendableNaira <= 0;
 
   function handleClose() {
     setStep("destination");
@@ -99,101 +103,115 @@ export function PayoutDestinationModal({ open, onClose, potId, onConfirmed, bala
             time, everyone in the pot will be able to see it afterward.
           </Text>
 
-          <Field label="Account number" htmlFor="payout-destination-account" required error={errors.account}>
-            <Input
-              id="payout-destination-account"
-              inputMode="numeric"
-              maxLength={10}
-              value={account}
-              onChange={(e) => {
-                setAccount(e.target.value);
-                setErrors((prev) => ({ ...prev, account: undefined }));
-              }}
-              placeholder="0123456789"
-              error={Boolean(errors.account)}
-            />
-          </Field>
-
-          <Field label="Bank" htmlFor="payout-destination-bank" required error={errors.bank}>
-            <Select
-              id="payout-destination-bank"
-              value={bank}
-              onChange={(e) => {
-                setBank(e.target.value);
-                setErrors((prev) => ({ ...prev, bank: undefined }));
-              }}
-              error={Boolean(errors.bank)}
-              searchable
-              searchPlaceholder="Search banks..."
-            >
-              <option value="">Select a bank</option>
-              {banks.map((b) => (
-                <option key={b.code} value={b.code}>
-                  {b.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          {isLookingUp && (
-            <div className="flex items-center gap-2">
-              <Spinner size="sm" />
-              <Text size="sm" color="secondary">
-                Verifying account...
+          {belowFeeThreshold ? (
+            <>
+              <Text size="sm" color="error">
+                This pot's balance ({formatNaira(balance)}) doesn't cover the flat {formatNaira(OUTBOUND_FEE)} payout
+                fee, so nothing can be sent right now.
               </Text>
-            </div>
-          )}
+              <Button variant="secondary" className="w-full" onClick={handleClose}>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <Field label="Account number" htmlFor="payout-destination-account" required error={errors.account}>
+                <Input
+                  id="payout-destination-account"
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={account}
+                  onChange={(e) => {
+                    setAccount(e.target.value);
+                    setErrors((prev) => ({ ...prev, account: undefined }));
+                  }}
+                  placeholder="0123456789"
+                  error={Boolean(errors.account)}
+                />
+              </Field>
 
-          {confirmedName && !isLookingUp && (
-            <Field label="Account name">
-              <Text weight="medium">{confirmedName}</Text>
-            </Field>
-          )}
+              <Field label="Bank" htmlFor="payout-destination-bank" required error={errors.bank}>
+                <Select
+                  id="payout-destination-bank"
+                  value={bank}
+                  onChange={(e) => {
+                    setBank(e.target.value);
+                    setErrors((prev) => ({ ...prev, bank: undefined }));
+                  }}
+                  error={Boolean(errors.bank)}
+                  searchable
+                  searchPlaceholder="Search banks..."
+                >
+                  <option value="">Select a bank</option>
+                  {banks.map((b) => (
+                    <option key={b.code} value={b.code}>
+                      {b.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
 
-          {lookupError && !isLookingUp && (
-            <Text size="sm" color="error">
-              {lookupError}
-            </Text>
-          )}
+              {isLookingUp && (
+                <div className="flex items-center gap-2">
+                  <Spinner size="sm" />
+                  <Text size="sm" color="secondary">
+                    Verifying account...
+                  </Text>
+                </div>
+              )}
 
-          <Field
-            label="Amount"
-            htmlFor="payout-destination-amount"
-            helperText={errors.amount ? undefined : `Optional. Leave blank to send the full balance minus fee (${formatNaira(fullBalancePayout)}). A flat ${formatNaira(OUTBOUND_FEE)} fee applies on top of any amount you enter.`}
-            error={errors.amount}
-          >
-            <Input
-              id="payout-destination-amount"
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => {
-                setAmount(sanitizeAmountInput(e.target.value));
-                setErrors((prev) => ({ ...prev, amount: undefined }));
-              }}
-              placeholder={String(balanceNaira)}
-              error={Boolean(errors.amount)}
-            />
-          </Field>
-          {amount && !errors.amount && (
-            <Text size="sm" color="secondary">
-              {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot — {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
-            </Text>
-          )}
+              {confirmedName && !isLookingUp && (
+                <Field label="Account name">
+                  <Text weight="medium">{confirmedName}</Text>
+                </Field>
+              )}
 
-          <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={handleContinue}
-              disabled={isSubmitting || !account || !bank || !confirmedName}
-            >
-              {isSubmitting && <Spinner size="sm" />}
-              Continue
-            </Button>
-          </div>
+              {lookupError && !isLookingUp && (
+                <Text size="sm" color="error">
+                  {lookupError}
+                </Text>
+              )}
+
+              <Field
+                label="Amount"
+                htmlFor="payout-destination-amount"
+                helperText={errors.amount ? undefined : `Optional. Leave blank to send the full balance minus fee (${formatNaira(fullBalancePayout)}). A flat ${formatNaira(OUTBOUND_FEE)} fee applies on top of any amount you enter.`}
+                error={errors.amount}
+              >
+                <Input
+                  id="payout-destination-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(sanitizeAmountInput(e.target.value));
+                    setErrors((prev) => ({ ...prev, amount: undefined }));
+                  }}
+                  placeholder={String(balanceNaira)}
+                  error={Boolean(errors.amount)}
+                />
+              </Field>
+              {amount && !errors.amount && (
+                <Text size="sm" color="secondary">
+                  {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot — {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
+                </Text>
+              )}
+
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={handleClose}>
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={handleContinue}
+                  disabled={isSubmitting || !account || !bank || !confirmedName}
+                >
+                  {isSubmitting && <Spinner size="sm" />}
+                  Continue
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <OtpStep

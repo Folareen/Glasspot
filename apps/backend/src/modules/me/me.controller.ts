@@ -1,23 +1,10 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { AuthService } from "@/modules/auth/auth.service";
-import { AuthError } from "@/modules/auth/auth.errors";
-import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import { PotsService } from "@/modules/pots/pots.service";
 import { displayNameFor } from "@/modules/pots/pots.controller";
 import { koboToNairaString } from "@/lib/money";
 import { UpdateRefundProfileInput } from "./me.schema";
-
-/** Maps a thrown error to the right HTTP response: the error's own statusCode for an AuthError, a failed Nomba bank lookup as 400, or a generic 500. */
-function handleMeError(e: unknown, request: FastifyRequest, reply: FastifyReply) {
-  if (e instanceof AuthError) {
-    return reply.code(e.statusCode).send({ message: e.message });
-  }
-  if (e instanceof NombaApiError) {
-    return reply.code(400).send({ message: `Could not verify bank account: ${e.message}` });
-  }
-  request.log.error({ err: e }, "Unhandled error in me route");
-  return reply.code(500).send({ message: "Something went wrong" });
-}
+import { sendErrorResponse as handleMeError } from "@/lib/http-errors";
 
 /** Returns the caller's own profile, including defaultRefundAccount/defaultRefundBank — previously write-only via PATCH /me/refund-profile. */
 export async function getMeHandler(request: FastifyRequest, reply: FastifyReply) {

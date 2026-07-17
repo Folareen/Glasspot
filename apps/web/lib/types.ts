@@ -198,8 +198,8 @@ export type ContributionResponse = {
   virtualAccountRef: string;
   virtualAccountNumber: string | null;
   virtualAccountBankName: string | null;
-  // GROSS figure — what the contributor must actually send, inclusive of the flat inbound fee
-  // (see lib/money.ts's INBOUND_FEE). intendedAmount is the net amount the pot is credited.
+  // GROSS figure — what the contributor must actually send, inclusive of the inbound fee (see
+  // lib/money.ts's inboundFeeFor). intendedAmount is the net amount the pot is credited.
   expectedAmount: string;
   intendedAmount: string;
   status: ContributionStatus;

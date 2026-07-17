@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -17,23 +18,35 @@ type ManualConfigStepProps = {
 
 export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigStepProps) {
   const { banks } = useBanks();
-  // Both-or-neither, mirroring isConfigStepValid (wizard-helpers.ts): the
-  // destination is optional, but if the user has started filling in one
-  // half, flag the other half as the thing missing rather than staying
-  // silent until they notice Continue is disabled.
-  const accountError =
-    showErrors && state.manualDestinationBank && !state.manualDestinationAccount
-      ? "Add an account number too."
-      : undefined;
-  const bankError =
-    showErrors && state.manualDestinationAccount && !state.manualDestinationBank
-      ? "Add a bank too."
-      : undefined;
   const {
     confirmedName,
     isLookingUp,
     error: lookupError,
   } = useBankAccountLookup(state.manualDestinationAccount, state.manualDestinationBank);
+
+  // See TargetBasedConfigStep.tsx's identical sync effect for why this is needed.
+  useEffect(() => {
+    if (state.manualDestinationConfirmedName !== confirmedName) {
+      onChange({ manualDestinationConfirmedName: confirmedName });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only confirmedName changing should re-sync; onChange/state aren't independent triggers here.
+  }, [confirmedName]);
+
+  // Both-or-neither, mirroring isConfigStepValid (wizard-helpers.ts): the
+  // destination is optional, but if the user has started filling in one
+  // half, flag the other half as the thing missing rather than staying
+  // silent until they notice Continue is disabled. Once both halves are in,
+  // also require the account name to be confirmed before letting Continue proceed.
+  const accountError =
+    showErrors && state.manualDestinationBank && !state.manualDestinationAccount
+      ? "Add an account number too."
+      : showErrors && state.manualDestinationAccount && state.manualDestinationBank && !confirmedName
+        ? "Wait for the account name to be confirmed."
+        : undefined;
+  const bankError =
+    showErrors && state.manualDestinationAccount && !state.manualDestinationBank
+      ? "Add a bank too."
+      : undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -66,7 +79,7 @@ export function ManualConfigStep({ state, onChange, showErrors }: ManualConfigSt
           inputMode="numeric"
           maxLength={10}
           value={state.manualDestinationAccount}
-          onChange={(e) => onChange({ manualDestinationAccount: e.target.value })}
+          onChange={(e) => onChange({ manualDestinationAccount: e.target.value.replace(/\D/g, "") })}
           placeholder="0123456789"
           error={Boolean(accountError)}
         />

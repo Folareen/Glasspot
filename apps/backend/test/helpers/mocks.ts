@@ -51,5 +51,9 @@ export function mockNomba(t: TestContext) {
     merchantTxRef: "mock-transfer-ref",
   }));
 
-  return { lookupBankAccount, createVirtualAccount, refundOverpayment, transferToBankAccount };
+  const expireVirtualAccount = t.mock.method(nomba, "expireVirtualAccount", async () => ({
+    expired: true,
+  }));
+
+  return { lookupBankAccount, createVirtualAccount, refundOverpayment, transferToBankAccount, expireVirtualAccount };
 }

@@ -75,17 +75,11 @@ describe("POST /pots", () => {
     assert.equal(response.statusCode, 401);
   });
 
-  test("a manual payoutConfig with only one of destinationAccount/destinationBank set is silently treated as no destination", async () => {
-    // NOT the behavior you'd guess from manualPayoutConfigSchema's
-    // .refine() requiring both-or-neither — zod-to-json-schema drops
-    // .refine() entirely (see this schema file's own comment on
-    // targetBasedPayoutConfigSchema), so AJV never enforces it, and
-    // insertPayoutConfig's manual case treats a half-set destination
-    // identically to "no destination": the account number the caller
-    // sent is silently discarded, no error surfaces. Flagging this as a
-    // real gap rather than asserting the 400 I originally expected —
-    // worth a deliberate fix (a manual check in insertPayoutConfig,
-    // since .refine() won't help) if partial data should be rejected.
+  test("a manual payoutConfig with only one of destinationAccount/destinationBank set is rejected", async () => {
+    // manualPayoutConfigSchema's .refine() requires both-or-neither, but zod-to-json-schema drops
+    // .refine() entirely (no JSON Schema equivalent), so AJV's wire-level validation alone never
+    // enforces it — PotsService.create runs the payoutConfig through validatePayoutModeConfig
+    // (a real Zod .safeParse(), refines included) before insertPayoutConfig, closing that gap.
     const { authHeader } = await createAuthenticatedUser(app);
 
     const response = await app.inject({
@@ -101,8 +95,7 @@ describe("POST /pots", () => {
       },
     });
 
-    assert.equal(response.statusCode, 201);
-    assert.equal(response.json().payoutMode, "manual");
+    assert.equal(response.statusCode, 400);
   });
 
   test("rejects a payoutMode not present in the discriminated union", async () => {

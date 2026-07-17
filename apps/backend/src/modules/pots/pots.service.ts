@@ -156,6 +156,12 @@ async function insertPayoutConfig(potId: string, input: PayoutModeConfigPair) {
   }
 }
 
+/** Turns a failed safeParse's ZodError into one readable sentence for a PotError's client-facing message — never the raw ZodError.message (a JSON-ish stringified issue array, not copy authored for an end user). Joins every issue's own message (already human-readable, e.g. a .refine()'s custom message) rather than Zod's default formatting. */
+function zodIssuesToMessage(payoutMode: CreatePotInput["payoutMode"], error: z.ZodError): string {
+  const issues = error.issues.map((issue) => issue.message).join("; ");
+  return `payoutConfig does not match payoutMode '${payoutMode}': ${issues}`;
+}
+
 /** Confirms a { payoutMode, payoutConfig } pair from UpdatePotInput actually correspond (updatePotSchema alone only guarantees payoutConfig matches SOME mode, not necessarily this one), and narrows it into a real PayoutModeConfigPair. */
 function validatePayoutModeConfig(
   payoutMode: CreatePotInput["payoutMode"],
@@ -165,28 +171,28 @@ function validatePayoutModeConfig(
     case "target_based": {
       const result = targetBasedPayoutConfigSchema.safeParse(payoutConfig);
       if (!result.success) {
-        throw new PotError(`payoutConfig does not match payoutMode 'target_based': ${result.error.message}`, 400);
+        throw new PotError(zodIssuesToMessage("target_based", result.error), 400);
       }
       return { payoutMode, payoutConfig: result.data };
     }
     case "manual": {
       const result = manualPayoutConfigSchema.safeParse(payoutConfig);
       if (!result.success) {
-        throw new PotError(`payoutConfig does not match payoutMode 'manual': ${result.error.message}`, 400);
+        throw new PotError(zodIssuesToMessage("manual", result.error), 400);
       }
       return { payoutMode, payoutConfig: result.data };
     }
     case "recurring": {
       const result = recurringPayoutConfigSchema.safeParse(payoutConfig);
       if (!result.success) {
-        throw new PotError(`payoutConfig does not match payoutMode 'recurring': ${result.error.message}`, 400);
+        throw new PotError(zodIssuesToMessage("recurring", result.error), 400);
       }
       return { payoutMode, payoutConfig: result.data };
     }
     case "scheduled": {
       const result = scheduledPayoutConfigSchema.safeParse(payoutConfig);
       if (!result.success) {
-        throw new PotError(`payoutConfig does not match payoutMode 'scheduled': ${result.error.message}`, 400);
+        throw new PotError(zodIssuesToMessage("scheduled", result.error), 400);
       }
       return { payoutMode, payoutConfig: result.data };
     }
@@ -348,7 +354,13 @@ export const PotsService = {
       })
       .returning();
 
-    await insertPayoutConfig(pot.id, input);
+    // Fastify's request-body validation only checks the compiled JSON Schema (AJV), which drops
+    // every Zod .refine() (no JSON Schema equivalent) — validatePayoutModeConfig re-parses through
+    // the real Zod schema so those refines (targetAmount > fee, at least one of
+    // targetDate/targetAmount, manual's both-or-neither destination) actually get enforced here,
+    // same as the update() path below already does.
+    const pair = validatePayoutModeConfig(input.payoutMode, input.payoutConfig);
+    await insertPayoutConfig(pot.id, pair);
 
     // Creator is inserted as a plain admin row — no special 'creator'
     // privilege exists. See pot-members.ts schema comment.
@@ -454,6 +466,18 @@ export const PotsService = {
       .returning();
 
     return updated;
+  },
+
+  /** Admin-only. Deletes a draft pot outright — no ledger rows can exist yet (money only ever moves on an 'open' pot), so this is a hard delete rather than a status transition; payout config and membership rows cascade via FK. */
+  async deleteDraft(potId: string, userId: string): Promise<void> {
+    await assertIsAdmin(potId, userId);
+    const pot = await getPotOrThrow(potId);
+
+    if (pot.status !== "draft") {
+      throw new PotError("Only a draft pot can be deleted", 409);
+    }
+
+    await db.delete(pots).where(eq(pots.id, potId));
   },
 
   /** Admin-only. draft -> open, one-way. payoutMode/refundType/config become immutable from this point on. */
@@ -629,10 +653,17 @@ export const PotsService = {
   },
 
   /**
-   * Resolves a payout/refund transaction left 'processing' after a PENDING_BILLING transfer,
-   * once Nomba's webhook reports the outcome. Idempotent — a no-op if already resolved or
-   * unknown. Decrements pendingOperationLegCount rather than unconditionally clearing the lock,
-   * since a fan-out refund has N independent legs that must all resolve before it releases.
+   * Resolves a payout/refund/contribution-expiry-refund transaction left 'processing' after a
+   * PENDING_BILLING transfer, once Nomba's webhook reports the outcome. Idempotent — a no-op if
+   * already resolved or unknown. Decrements pendingOperationLegCount rather than unconditionally
+   * clearing the lock, since a fan-out refund has N independent legs that must all resolve before
+   * it releases. On success, also applies the transaction's persisted onSuccess side effect (see
+   * transactions.onSuccess's schema comment) — this is the async counterpart to worker.ts's own
+   * synchronous success branch, which only covers a transfer that resolved SUCCESS immediately,
+   * never one that came back PENDING_BILLING and settled later via this webhook path.
+   * A contribution-expiry refund (see worker.ts's processContributionRefund) has no potId/lock at
+   * all — its metadata carries contributionPaymentId instead, and success additionally flips that
+   * payment's `refunded` flag, mirroring the worker's own synchronous success branch.
    */
   async resolvePendingTransfer(transactionReference: string, outcome: "success" | "failed"): Promise<void> {
     const [transaction] = await db.select().from(transactions).where(eq(transactions.reference, transactionReference));
@@ -641,18 +672,32 @@ export const PotsService = {
       return;
     }
 
-    const potId = (transaction.metadata as { potId?: string } | null)?.potId;
-    if (!potId) {
+    const metadata = transaction.metadata as { potId?: string; contributionPaymentId?: string } | null;
+    const potId = metadata?.potId;
+    const contributionPaymentId = metadata?.contributionPaymentId;
+
+    if (!potId && !contributionPaymentId) {
       return;
     }
 
     if (outcome === "success") {
       await LedgerService.markCompleted(transaction.id);
+      if (transaction.onSuccess) {
+        // Dynamic import breaks a module cycle: apply-on-success.ts -> target-based-payout.service.ts
+        // -> pots.service.ts (for postDisbursement) would otherwise import back into this file.
+        const { applyOnSuccess } = await import("@/modules/scheduler/apply-on-success");
+        await applyOnSuccess(transaction.onSuccess);
+      }
+      if (contributionPaymentId) {
+        await db.update(contributionPayments).set({ refunded: true }).where(eq(contributionPayments.id, contributionPaymentId));
+      }
     } else {
       await LedgerService.reverseTransaction(transaction.id, `${transaction.reference}_reversal`);
     }
 
-    await decrementPendingOperationLeg(potId);
+    if (potId) {
+      await decrementPendingOperationLeg(potId);
+    }
   },
 };
 
@@ -664,7 +709,7 @@ export const PotsService = {
  * the balance itself, so the recipient actually receives `balance - OUTBOUND_FEE`, not the full
  * balance (see apps/backend/src/lib/fees.ts).
  */
-async function postDisbursement(
+export async function postDisbursement(
   pot: Pot,
   kind: "payout" | "refund",
   destination: { destinationAccount: string; destinationBank: string },
@@ -779,6 +824,34 @@ function distributeExactly(
   }
   const remainder = pool - allocated;
   legs[largestIndex].amount += remainder;
+}
+
+/**
+ * Narrows `legs` down to the subset that ends up with a positive share once each firing leg's own
+ * flat ₦50 outbound fee is reserved from `balance` — reserving a fee for a leg whose rounded share
+ * comes out to zero would strand that ₦50 in the pot forever, since nothing ever fires for it and
+ * nothing gives the reservation back. Mutates every leg's `.amount` in place via distributeExactly
+ * (firing legs get their real share, dropped legs land on exactly 0n) and returns the surviving
+ * legs — an empty array if the balance can't even cover one leg's fee, in which case every leg's
+ * `.amount` is explicitly zeroed too.
+ */
+function narrowToFeeCoveredLegs<T extends { numerator: bigint; denominator: bigint; amount: bigint }>(
+  legs: T[],
+  balance: bigint
+): T[] {
+  let firing = legs;
+  while (firing.length > 0) {
+    const distributable = balance - BigInt(firing.length) * OUTBOUND_FEE;
+    if (distributable <= 0n) {
+      for (const leg of firing) leg.amount = 0n;
+      return [];
+    }
+    distributeExactly(firing, distributable);
+    const nextFiring = firing.filter((leg) => leg.amount > 0n);
+    if (nextFiring.length === firing.length) return firing;
+    firing = nextFiring;
+  }
+  return [];
 }
 
 /**
@@ -941,18 +1014,14 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
   // Each leg is its own independent outbound transfer, so each one needs its own flat ₦50
   // outbound fee reserved (see apps/backend/src/lib/fees.ts) — the worker debits
   // `leg.amount + OUTBOUND_FEE` from the pot per leg, mirroring every other disbursement path.
-  // Rescale every leg's share against the distributable pool (balance minus the total fee
-  // reserve for however many legs actually resulted) rather than the raw balance used above,
-  // using the same numerator/denominator ratio already tracked per leg.
-  const feeReserve = BigInt(legs.length) * OUTBOUND_FEE;
-  const distributable = balance - feeReserve;
-  if (distributable <= 0n) {
+  // narrowToFeeCoveredLegs recomputes that reserve from only the legs that actually end up
+  // firing, so a leg whose rounded share is zero never strands its reserved fee in the pot.
+  if (narrowToFeeCoveredLegs(legs, balance).length === 0) {
     throw new PotError(
-      `Pot's balance (${balance}) does not cover the ₦50 outbound fee for each of its ${legs.length} contributor refund(s)`,
+      `Pot's balance (${balance}) does not cover the ₦50 outbound fee for even one of its ${legs.length} contributor refund(s)`,
       409
     );
   }
-  distributeExactly(legs, distributable);
 
   const claimed = await db
     .update(pots)
@@ -971,17 +1040,11 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
   // claiming the lock just now — re-read and rescale each leg's share
   // against the fresh balance (same numerator/denominator ratio)
   // rather than posting against a stale snapshot, mirroring
-  // postFixedAmountDisbursement's re-read-after-lock pattern. Rescale against the
-  // fresh balance's own distributable pool (same leg count/fee reserve as above) so the
-  // per-leg outbound fee stays accounted for even if the balance moved.
+  // postFixedAmountDisbursement's re-read-after-lock pattern. Same fee-reserve narrowing as
+  // above — never charged a fee reserve against the fresh balance for a leg that won't fire.
   const freshBalance = await LedgerService.getBalance(potAccount.id);
   if (freshBalance !== balance) {
-    const freshDistributable = freshBalance - feeReserve;
-    if (freshDistributable > 0n) {
-      distributeExactly(legs, freshDistributable);
-    } else {
-      for (const leg of legs) leg.amount = 0n;
-    }
+    narrowToFeeCoveredLegs(legs, freshBalance);
   }
 
   for (const leg of legs) {

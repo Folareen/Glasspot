@@ -13,10 +13,12 @@ test('GET /health returns 200', async () => {
   });
 
   assert.equal(response.statusCode, 200);
-  assert.deepEqual(response.json(), {
-    status: 'ok',
-    db: 'ok',
-  });
+  const body = response.json();
+  assert.equal(body.status, 'ok');
+  assert.equal(body.db, 'ok');
+  assert.equal(body.redis, 'ok');
+  assert.equal(body.cron.status, 'ok');
+  assert.equal(typeof body.cron.schedulers, 'number');
 
   await app.close();
 });

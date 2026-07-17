@@ -37,7 +37,7 @@ pnpm dev
 
 - Web: http://localhost:3000
 - API: http://localhost:4000/health
-- Postgres: `localhost:5434` (see `apps/backend/.env` for credentials)
+- Postgres: `localhost:5433` (see `apps/backend/.env` for credentials)
 - Redis: `localhost:6389` (see `apps/backend/.env` for credentials)
 
 Fill in `apps/backend/.env` with real values before anything Nomba- or email-related will work:
@@ -58,24 +58,45 @@ pnpm db:studio      # browse data with Drizzle Studio
 
 Glasspot's backend treats the ledger as the single source of truth for all balances — double-entry, integer kobo amounts, immutable rows, idempotent writes. Read [docs/system-rules.md](docs/system-rules.md) in full before touching any code that involves contributions, payouts, refunds, or account balances.
 
-## Final fixes (pre-submission)
+## System architecture
 
-Three money-handling bugs reported during testing, investigated and fixed on the backend:
+Three moving pieces talk to each other over HTTP and Redis — no shared process, no shared memory:
 
-### 1. Virtual account creation was sending `expectedAmount` to Nomba, causing payment failures
+```
+┌─────────────┐        same-origin /api/*        ┌──────────────────────┐
+│   Browser   │ ───────────────────────────────▶ │  Next.js (apps/web)  │
+│             │ ◀─────────────────────────────── │  Route Handlers act  │
+└─────────────┘      httpOnly session cookie      │  as a BFF proxy      │
+                                                    └──────────┬───────────┘
+                                                               │ Bearer JWT
+                                                               ▼
+                                                    ┌──────────────────────┐
+                                                    │  Fastify API          │
+                                                    │  (apps/backend)       │
+                                                    │  server.ts             │
+                                                    └────┬─────────────┬────┘
+                                                         │             │
+                                              enqueues   │             │ reads/writes
+                                              jobs        ▼             ▼
+                                                    ┌──────────┐  ┌──────────────┐
+                                                    │  Redis    │  │  PostgreSQL   │
+                                                    │  (BullMQ) │  │  (Drizzle)    │
+                                                    └────┬──────┘  └──────────────┘
+                                                         │ dequeues jobs
+                                                         ▼
+                                                    ┌──────────────────────┐
+                                                    │  Worker process        │
+                                                    │  (apps/backend/src/    │
+                                                    │  workers/worker.ts)    │
+                                                    │  → calls Nomba APIs    │
+                                                    └──────────────────────┘
+```
 
-`NombaClient.createVirtualAccount()` was forwarding an `expectedAmount` field on every virtual account it created (`apps/backend/src/integrations/nomba/nomba.client.ts`). In production this made Nomba fail/reject the inbound transfer whenever the contributor sent a different amount than expected — even off by a few kobo (over- or under-payment) — even though our own code already documents that Nomba's bank rails "accept any amount even when expectedAmount is set" (see `NombaClient.evaluatePayment`'s doc comment). We only need `expectedAmount` locally, to classify a payment as exact/over/under once it lands — never on the wire to Nomba. Fixed: the client still accepts `expectedAmountNaira` as an input (so we keep storing our own expectation), but it's no longer sent in the `createVirtualAccount` request body.
+- **Browser never talks to the backend directly.** The frontend is a BFF (backend-for-frontend): the browser only calls same-origin `/api/*` routes on the Next.js server, which holds the JWT access/refresh token pair in httpOnly cookies (never exposed to client-side JS, never carried in a URL) and forwards each request to the real Fastify API with a `Bearer` header — transparently refreshing on a `401` and retrying once. See [apps/web's README](apps/web/README.md#auth--the-bff-proxy) for the full flow.
+- **API process vs. worker process are two separate deployables sharing one Redis instance.** The API (`server.ts`) handles HTTP requests and *enqueues* work; it never calls Nomba directly for money movement and never processes a BullMQ job itself. The worker (`workers/worker.ts`) is the only process that calls Nomba's transfer API — this means a slow/failing Nomba call, or a burst of scheduled payouts, can't take down request handling, and worker concurrency scales independently of API traffic. See [docs/bullmq-architecture.md](docs/bullmq-architecture.md) for the full queue/cron/retry design.
+- **The ledger (Postgres) is the single source of truth for money**, never a cache or a derived value held only in Redis or application memory — see [docs/system-rules.md](docs/system-rules.md).
+- **Nomba is the actual money-mover.** The backend never moves money itself; every payout/refund is a `POST` to Nomba's transfer API, gated behind BullMQ's rate limiting and a per-recipient throttle (`RedisTransferThrottle`) since Nomba caps transfer requests per subaccount and per recipient. Nomba webhooks notify the backend of inbound funding/outbound settlement, but a webhook is never trusted as the sole source of truth — a reconciliation cron sweep re-polls Nomba's own transaction list to catch anything missed, delayed, or duplicated (see [docs/system-rules.md](docs/system-rules.md)'s "webhooks are a notification, not a source of truth" rule).
 
-### 2. Target-based payout not firing at the configured amount
+**Known gap:** inbound (contribution) reconciliation matching isn't implemented yet — the field Nomba's transaction-list endpoint uses to correlate a funding row back to a local contribution is still unconfirmed. Outbound (payout/refund) reconciliation is fully working. See [docs/bullmq-architecture.md](docs/bullmq-architecture.md)'s open items for the specific blocker — flagging this here so it's visible rather than silently missing, fix planned soon.
 
-Investigated the full trigger path — the threshold comparison (`balance >= config.targetAmount`), the immediate post-contribution check (`TargetBasedPayoutService.checkAndFireForPot`, called right after a contribution is confirmed funded), the daily cron safety-net sweep, cron registration, and the `fired` flag (which only flips once Nomba confirms the transfer succeeded) — and found no bug in the trigger logic itself; it's correctly wired end to end. The far more likely explanation, given bug #1 above: a contribution can only push the pot's balance to its target once it actually reaches `funded` status, and a contribution stuck at `pending`/`underpaid` (because Nomba rejected or mismatched the inbound transfer — bug #1) never credits the ledger, so the pot's real balance never reaches the target even if the contributor believes they've paid enough. Fixing #1 removes the most likely cause of contributions silently failing to fund; if payouts still don't fire after this fix, the next step is to check the specific pot's contributions for `pending`/`underpaid` status rather than assuming the trigger logic itself is at fault.
-
-### 3. Refund logic: pot balance could never reach zero after a contributors refund
-
-This was a real bug, distinct from what it looked like. `refundType='contributors'` fans out a refund proportionally across every contributor (and, for a contributor with no refund account on file, proportionally across each of their individual funding payments — a contributor who paid in more than one transfer legitimately gets refunded to each sender). Each leg's share was computed independently via integer-kobo division truncated down, which — by design — could leave a small remainder (up to `number of legs - 1` kobo) uncollected. The problem: `pots.service.ts`'s `close()` requires the pot's ledger balance to be **exactly** zero, so that leftover dust permanently stranded the pot in an un-closeable state after any refund whose shares didn't divide evenly. This is very likely what testers experienced as "refund is behaving weirdly" — money appears to go out, but the pot balance doesn't zero out and the pot can't be closed.
-
-Fixed via a new `distributeExactly()` helper (`apps/backend/src/modules/pots/pots.service.ts`): every leg still truncates down to the kobo except the leg with the largest share, which now absorbs whatever remainder is left over. The legs always sum to exactly the distributable pool — no kobo is ever left stranded in the pot. Added a regression test (`test/pots-trigger-refund.test.ts`) covering a 3-way split that doesn't divide evenly, asserting the total disbursed matches the distributable pool exactly.
-
-While fixing this, also found and corrected several **stale test expectations** unrelated to the above bug: `test/pots-trigger-refund.test.ts` and `test/pots-trigger-payout.test.ts` had hardcoded amounts written before the Nomba real-fee-accounting change (flat ₦50 outbound fee netted out of every payout/refund) was merged, so several tests were asserting pre-fee amounts and failing on current `master`. Updated their expected values to match the current, correct fee-netted math (verified by hand and by the test run itself). Confirmed via a clean-`master` baseline run that these were pre-existing failures, not something introduced by this branch's changes.
-
-**Not in scope for this pass:** three other pre-existing test failures unrelated to money logic (`test/health.test.ts`, `test/pot-members.test.ts`, `test/contributions-confirm-funcding.test.ts`) were also found failing on a clean `master` baseline. Left untouched since they're outside what was reported and touching unfamiliar test infra this close to submission carries more risk than benefit.
+For a deeper dive into each side: [apps/backend/README.md](apps/backend/README.md) (modules, request lifecycle, queues, jobs) and [apps/web/README.md](apps/web/README.md) (route structure, BFF proxy, component/data conventions).

@@ -12,7 +12,7 @@ import {
 } from "./auth.controller";
 import { $ref } from "./auth.schema";
 
-/** Registers all /auth/* routes with their per-endpoint rate limits — verification endpoints allow 10 req/min, issuance endpoints (login, resend-otp) allow 5 req/min. */
+/** Registers all /auth/* routes — each has its own rate limit set on its `config.rateLimit` below (they aren't a uniform two-tier split; resend-otp is deliberately the tightest at 2/min since it re-sends a code rather than issuing new credentials). `/logout` has no rate limit since it requires an authenticated session already. */
 async function authRoutes(server: FastifyInstance) {
   server.post(
     "/register",

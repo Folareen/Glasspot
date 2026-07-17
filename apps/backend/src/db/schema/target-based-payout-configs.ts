@@ -3,11 +3,14 @@ import { sql } from 'drizzle-orm';
 import { pots } from './pots';
 
 /**
- * Payout rule for payoutMode='target_based': fires once to a single destination when targetDate
- * OR targetAmount is met (at least one must be set, enforced below). No admin-manual-trigger
- * option — that's manual mode's job now; this fires exclusively via
- * TargetBasedPayoutService's cron sweep. One row per pot, set during 'draft', immutable once
- * 'open'.
+ * Payout rule for payoutMode='target_based': fires to a single destination when targetDate OR
+ * targetAmount is met (at least one must be set, enforced below). A config with a targetDate set
+ * fires once and closes its pot; a pure-amount config (no targetDate at all) fires repeatedly,
+ * every time contributions bring the balance back up to targetAmount, and never closes the pot on
+ * its own (see target-based-payout.service.ts's stillEligible and worker.ts's
+ * mark_target_based_fired handling). No admin-manual-trigger option — that's manual mode's job
+ * now; this fires exclusively via TargetBasedPayoutService's cron sweep. One row per pot, set
+ * during 'draft', immutable once 'open'.
  *
  * This payout mode always disburses the pot's full balance (see pots.service.ts's
  * postDisbursement), which nets the flat ₦50 outbound fee out of that balance rather than

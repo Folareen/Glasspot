@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import db, { otpCodes, users } from "@/db";
 import { hashPassword, verifyPassword } from "@/lib/hash";
 import { generateOtpCode, hashOtpCode, verifyOtpCode } from "@/lib/otp";
@@ -12,6 +12,13 @@ import { PendingMembersService } from "@/modules/pots/pending-members.service";
 import type { UpdateRefundProfileInput } from "@/modules/me/me.schema";
 
 type OtpPurposeValue = "signup_verification" | "login" | "password_reset";
+
+// A fixed, valid-shaped "salt:hash" string used only to keep login's scrypt cost identical whether
+// or not the email is registered — never a real credential, never checked against anything.
+// Without this, `login()` returning immediately on `!user` (skipping verifyPassword's scrypt call
+// entirely) makes a nonexistent-email response measurably faster than a wrong-password response,
+// letting an attacker enumerate registered emails by timing alone.
+const DUMMY_PASSWORD_HASH = hashPassword("dummy-password-for-constant-time-login-checks");
 
 // A function the controller hands in that wraps request.jwt.sign — keeps
 // this service free of any Fastify request/reply coupling.
@@ -149,8 +156,8 @@ function toPublicUser(user: typeof users.$inferSelect) {
   };
 }
 
-/** Issues a fresh access+refresh token pair for userId, persisting hash(jti) as the new refreshTokenHash so any previously issued refresh token is invalidated. */
-async function issueTokenPair(userId: string, sign: SignFn) {
+/** Issues a fresh access+refresh token pair for userId, persisting hash(jti) as the new refreshTokenHash so any previously issued refresh token is invalidated. tokenVersion is embedded in the access token so a later revocation (logout/reset/reuse) can invalidate it before its 15-minute expiry — see users.ts's tokenVersion comment. */
+async function issueTokenPair(userId: string, tokenVersion: number, sign: SignFn) {
   const { token: refreshToken, jti, expiresAt } = signRefreshToken(userId);
 
   await db
@@ -161,7 +168,7 @@ async function issueTokenPair(userId: string, sign: SignFn) {
     })
     .where(eq(users.id, userId));
 
-  const accessToken = sign({ sub: userId });
+  const accessToken = sign({ sub: userId, tokenVersion });
 
   return { accessToken, refreshToken };
 }
@@ -194,7 +201,7 @@ export const AuthService = {
     return { userId: user.id, email: user.email };
   },
 
-  /** Issues a new OTP for the given email + purpose; resolves silently (no error) if the email doesn't match a user, so callers can't use this to enumerate accounts. */
+  /** Issues a new OTP for the given email + purpose; resolves silently (no error) if the email doesn't match a user, or (for signup_verification) if it's already verified — same generic outcome either way so callers can't use this to enumerate accounts or distinguish a verified account from an unknown one. */
   async resendOtp(email: string, purpose: OtpPurposeValue) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
     if (!user) {
@@ -203,7 +210,9 @@ export const AuthService = {
       return;
     }
     if (purpose === "signup_verification" && user.emailVerifiedAt) {
-      throw new AuthError("Email is already verified", 400);
+      // Same silent no-op as the unknown-email case above — a distinct error here would let a
+      // caller distinguish "exists and already verified" from "doesn't exist."
+      return;
     }
     await createOtp(user.id, user.email, purpose);
   },
@@ -211,11 +220,10 @@ export const AuthService = {
   /** Confirms the signup-verification code, marks the email verified, issues a token pair (verification doubles as login), and activates any pending pot invites addressed to this email. */
   async verifyEmail(email: string, code: string, sign: SignFn) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
-    if (!user) {
+    if (!user || user.emailVerifiedAt) {
+      // Same generic message for "no such account" and "already verified" — a distinct message
+      // for the latter would let a caller enumerate which emails are registered and verified.
       throw new AuthError("Invalid email or code", 400);
-    }
-    if (user.emailVerifiedAt) {
-      throw new AuthError("Email is already verified", 400);
     }
 
     await verifyOtp(user.id, "signup_verification", code);
@@ -223,23 +231,22 @@ export const AuthService = {
     await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, user.id));
     await PendingMembersService.activateForEmail(user.id, user.email);
 
-    const tokens = await issueTokenPair(user.id, sign);
+    const tokens = await issueTokenPair(user.id, user.tokenVersion, sign);
     return { ...tokens, user: toPublicUser(user) };
   },
 
   /** Verifies email/password and, on success, sends a login OTP — does not itself issue tokens; that only happens after verifyLoginOtp. */
   async login(email: string, password: string) {
     const user = await db.query.users.findFirst({ where: eq(users.email, email) });
-    if (!user) {
+    // Always run the scrypt comparison, even for a nonexistent email — comparing against
+    // DUMMY_PASSWORD_HASH when there's no real user keeps this call's cost identical to the
+    // real-user path, so response timing can't be used to enumerate which emails are registered.
+    const isValid = verifyPassword({ candidatePassword: password, hash: user?.passwordHash ?? DUMMY_PASSWORD_HASH });
+    if (!user || !isValid) {
       throw new AuthError("Invalid email or password", 401);
     }
 
-    const isValid = verifyPassword({ candidatePassword: password, hash: user.passwordHash });
-    if (!isValid) {
-      throw new AuthError("Invalid email or password", 401);
-    }
-
-    if (isValid && !user.emailVerifiedAt) {
+    if (!user.emailVerifiedAt) {
       throw new AuthError("Please verify your email before logging in", 403);
     }
 
@@ -257,7 +264,7 @@ export const AuthService = {
 
     await verifyOtp(user.id, "login", code);
 
-    const tokens = await issueTokenPair(user.id, sign);
+    const tokens = await issueTokenPair(user.id, user.tokenVersion, sign);
     return { ...tokens, user: toPublicUser(user) };
   },
 
@@ -286,21 +293,22 @@ export const AuthService = {
       // match what's currently on file for this user (e.g. an old,
       // already-rotated-away token). Kill the session immediately rather
       // than silently rejecting — this is the signal a token was stolen.
+      // tokenVersion bump also invalidates any access token already issued (see users.ts).
       await db
         .update(users)
-        .set({ refreshTokenHash: null, refreshTokenExpiresAt: null })
+        .set({ refreshTokenHash: null, refreshTokenExpiresAt: null, tokenVersion: sql`${users.tokenVersion} + 1` })
         .where(eq(users.id, user.id));
       throw new AuthError("Refresh token reuse detected, session revoked", 401);
     }
 
-    return issueTokenPair(user.id, sign);
+    return issueTokenPair(user.id, user.tokenVersion, sign);
   },
 
-  /** Clears the stored refresh token hash, immediately invalidating the current session's refresh token. */
+  /** Clears the stored refresh token hash and bumps tokenVersion, immediately invalidating both the current session's refresh token and any access token already issued (see users.ts's tokenVersion comment). */
   async logout(userId: string) {
     await db
       .update(users)
-      .set({ refreshTokenHash: null, refreshTokenExpiresAt: null })
+      .set({ refreshTokenHash: null, refreshTokenExpiresAt: null, tokenVersion: sql`${users.tokenVersion} + 1` })
       .where(eq(users.id, userId));
   },
 
@@ -343,7 +351,7 @@ export const AuthService = {
     await createOtp(user.id, user.email, "password_reset");
   },
 
-  /** Confirms the password_reset code, sets the new password hash, and revokes any existing session (clears refreshTokenHash) so every device is forced to log in again with the new password. */
+  /** Confirms the password_reset code, sets the new password hash, and revokes any existing session (clears refreshTokenHash, bumps tokenVersion) so every device — including one holding a still-live access token — is forced to log in again with the new password. */
   async resetPassword(input: ResetPasswordInput) {
     const user = await db.query.users.findFirst({ where: eq(users.email, input.email) });
     if (!user) {
@@ -360,6 +368,7 @@ export const AuthService = {
         passwordHash,
         refreshTokenHash: null,
         refreshTokenExpiresAt: null,
+        tokenVersion: sql`${users.tokenVersion} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(users.id, user.id));

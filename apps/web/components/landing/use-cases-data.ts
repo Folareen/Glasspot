@@ -53,6 +53,7 @@ export function buildTemplateFromUseCase(useCase: UseCase): WizardState {
           {
             destinationAccount: "",
             destinationBank: "",
+            destinationConfirmedName: null,
             sequenceOrder: 0,
             amount: "5000.00",
             scheduledDate: fourWeeksIso,
