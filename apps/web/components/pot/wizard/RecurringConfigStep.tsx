@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
@@ -5,8 +6,8 @@ import { Text } from "@/components/ui/Text";
 import { Spinner } from "@/components/ui/Spinner";
 import { useBanks } from "@/lib/useBanks";
 import { useBankAccountLookup } from "@/lib/useBankAccountLookup";
-import { sanitizeAmountInput } from "@/lib/money";
-import { isPositiveAmount } from "./wizard-helpers";
+import { addNaira, formatNaira, OUTBOUND_FEE, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
+import { isPositiveAmount, isValidIntervalDays } from "./wizard-helpers";
 import type { WizardState } from "./wizard-types";
 
 type RecurringConfigStepProps = {
@@ -18,23 +19,38 @@ type RecurringConfigStepProps = {
 
 export function RecurringConfigStep({ state, onChange, showErrors }: RecurringConfigStepProps) {
   const { banks } = useBanks();
-  // Errors mirror isConfigStepValid's "recurring" case (wizard-helpers.ts)
-  // field for field, so a message only shows for whichever condition that
-  // rule is actually failing on.
-  const accountError =
-    showErrors && !state.recurringDestinationAccount ? "Enter the payout account number." : undefined;
-  const bankError = showErrors && !state.recurringDestinationBank ? "Choose the payout bank." : undefined;
-  const amountError =
-    showErrors && !isPositiveAmount(state.recurringAmountNaira) ? "Enter an amount greater than 0." : undefined;
-  const intervalError =
-    showErrors && !state.recurringIntervalDays ? "Enter how many days between payouts." : undefined;
-  const nextRunError =
-    showErrors && !state.recurringNextRunAt ? "Choose the first payout date." : undefined;
   const {
     confirmedName,
     isLookingUp,
     error: lookupError,
   } = useBankAccountLookup(state.recurringDestinationAccount, state.recurringDestinationBank);
+
+  // See TargetBasedConfigStep.tsx's identical sync effect for why this is needed.
+  useEffect(() => {
+    if (state.recurringDestinationConfirmedName !== confirmedName) {
+      onChange({ recurringDestinationConfirmedName: confirmedName });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only confirmedName changing should re-sync; onChange/state aren't independent triggers here.
+  }, [confirmedName]);
+
+  // Errors mirror isConfigStepValid's "recurring" case (wizard-helpers.ts)
+  // field for field, so a message only shows for whichever condition that
+  // rule is actually failing on.
+  const accountError =
+    showErrors && !state.recurringDestinationAccount
+      ? "Enter the payout account number."
+      : showErrors && state.recurringDestinationAccount && state.recurringDestinationBank && !confirmedName
+        ? "Wait for the account name to be confirmed."
+        : undefined;
+  const bankError = showErrors && !state.recurringDestinationBank ? "Choose the payout bank." : undefined;
+  const amountError =
+    showErrors && !isPositiveAmount(state.recurringAmountNaira) ? "Enter an amount greater than 0." : undefined;
+  const intervalError =
+    showErrors && !isValidIntervalDays(state.recurringIntervalDays)
+      ? "Enter how many days between payouts — must be at least 1."
+      : undefined;
+  const nextRunError =
+    showErrors && !state.recurringNextRunAt ? "Choose the first payout date." : undefined;
 
   return (
     <div className="flex flex-col gap-5">
@@ -44,7 +60,7 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
           inputMode="numeric"
           maxLength={10}
           value={state.recurringDestinationAccount}
-          onChange={(e) => onChange({ recurringDestinationAccount: e.target.value })}
+          onChange={(e) => onChange({ recurringDestinationAccount: e.target.value.replace(/\D/g, "") })}
           placeholder="0123456789"
           error={Boolean(accountError)}
         />
@@ -92,7 +108,7 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
       <Field
         label="Amount per payout"
         htmlFor="recurring-amount"
-        helperText={amountError ? undefined : "In naira. Must be greater than 0."}
+        helperText={amountError ? undefined : "In naira. Must be greater than 0. The recipient gets exactly this amount each time."}
         required
         error={amountError}
       >
@@ -106,6 +122,14 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
           error={Boolean(amountError)}
         />
       </Field>
+
+      {isPositiveAmount(state.recurringAmountNaira) && (
+        <Text size="xs" color="secondary">
+          Pot needs {formatNaira(addNaira(toNairaAmount(state.recurringAmountNaira)!, OUTBOUND_FEE))} available each
+          time this fires — {formatNaira(toNairaAmount(state.recurringAmountNaira)!)} to the recipient plus the{" "}
+          {formatNaira(OUTBOUND_FEE)} payout fee.
+        </Text>
+      )}
 
       <Field
         label="Repeat every"

@@ -1,12 +1,19 @@
 import { pgTable, uuid, text, bigint, timestamp, pgEnum, jsonb } from 'drizzle-orm/pg-core';
+import type { DisbursementOnSuccess } from '@/modules/scheduler/disbursement-job.types';
 
 /**
  * The business-readable wrapper around a money event (funding, contribution, payout, etc); one
  * transaction can spawn multiple ledgerEntries rows. status is the transaction's own lifecycle —
  * entries themselves are immutable and have no status. reference is our idempotency key, unique
  * so a retry never double-posts; externalReference is Nomba's id, nullable for purely-internal
- * transactions. amount is informational/gross only — never derive a balance from it, only from
- * the sum of this transaction's ledgerEntries.
+ * transactions. amount is the actual cash moved by this transaction (never a fee-inflated/gross
+ * figure) — set explicitly by the poster, since only it knows which leg is real money vs. a fee
+ * split; still never derive a balance from it, only from the sum of this transaction's
+ * ledgerEntries. onSuccess carries a payout/refund's declared side effect (e.g. "mark this
+ * target_based config fired") so it survives past the enqueueing BullMQ job and can still be
+ * applied later by the async webhook-driven settlement path (resolvePendingTransfer), not just the
+ * worker's own synchronous success branch — see DisbursementOnSuccess in
+ * modules/scheduler/disbursement-job.types.ts for its shape.
  */
 export const transactionTypeEnum = pgEnum('transaction_type', [
   'funding',
@@ -33,6 +40,7 @@ export const transactions = pgTable('transactions', {
   externalReference: text('external_reference'),
   amount: bigint('amount', { mode: 'bigint' }).notNull(),
   metadata: jsonb('metadata'),
+  onSuccess: jsonb('on_success').$type<DisbursementOnSuccess>(),
   initiatedAt: timestamp('initiated_at', { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

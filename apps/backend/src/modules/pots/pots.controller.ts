@@ -7,6 +7,7 @@ import { assertIsAdmin, getViewablePotOrThrow } from "./pot-authorization";
 import { PotError } from "./pots.errors";
 import { ActionOtpService } from "./action-otp.service";
 import { hashRequest, withIdempotencyKey } from "@/lib/idempotency.service";
+import { sendErrorResponse } from "@/lib/http-errors";
 import {
   AddMemberInput,
   ContributeInput,
@@ -22,7 +23,6 @@ import {
   UpdatePotInput,
 } from "./pots.schema";
 import { koboToNairaString, nairaStringToKobo } from "@/lib/money";
-import { INBOUND_FEE } from "@/lib/fees";
 import type { Pot } from "@/db";
 
 /**
@@ -112,21 +112,6 @@ async function serializePot(pot: Pot) {
 }
 
 
-// Catches PotError as well as errors from collaborating modules this
-// controller now calls into (e.g. LedgerService's LedgerError via
-// ContributionsService) — both shapes carry the same
-// { name, message, statusCode } contract, so a structural check here
-// avoids importing every module's error class into this file.
-/** Maps a thrown PotError (or any error exposing a numeric statusCode, e.g. from LedgerService) to its corresponding HTTP response, or a generic 500 otherwise. */
-function handlePotError(e: unknown, reply: FastifyReply) {
-  if (e instanceof PotError || (e instanceof Error && "statusCode" in e && typeof e.statusCode === "number")) {
-    const statusCode = e instanceof PotError ? e.statusCode : (e as { statusCode: number }).statusCode;
-    return reply.code(statusCode).send({ message: e.message });
-  }
-  console.log(e);
-  return reply.code(500).send({ message: "Something went wrong" });
-}
-
 // request.user's type claims it's always present (see jwt.ts's FastifyJWT
 // augmentation), but that's only true behind the hard `server.authenticate`
 // preHandler. Routes here use `optionalAuthenticate` instead, which can
@@ -166,7 +151,7 @@ export async function createPotHandler(
     const pot = await PotsService.create(userId, request.body);
     return reply.code(201).send(await serializePot(pot));
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -179,7 +164,7 @@ export async function listPotsHandler(
     const pots = await PotsService.list(currentUserId(request), request.query.scope, request.query.q);
     return reply.code(200).send(await Promise.all(pots.map(serializePot)));
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -192,7 +177,7 @@ export async function getPotHandler(
     const pot = await getViewablePotOrThrow(request.params.id, currentUserId(request));
     return reply.code(200).send(await serializePot(pot));
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -206,7 +191,21 @@ export async function updatePotHandler(
     const pot = await PotsService.update(request.params.id, userId, request.body);
     return reply.code(200).send(await serializePot(pot));
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
+  }
+}
+
+/** Deletes a draft pot (admin-only). */
+export async function deleteDraftPotHandler(
+  request: FastifyRequest<{ Params: PotIdParams }>,
+  reply: FastifyReply
+) {
+  try {
+    const userId = requireUserId(request);
+    await PotsService.deleteDraft(request.params.id, userId);
+    return reply.code(200).send({ message: "Pot deleted" });
+  } catch (e) {
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -220,7 +219,7 @@ export async function activatePotHandler(
     const pot = await PotsService.activate(request.params.id, userId);
     return reply.code(200).send(await serializePot(pot));
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -234,7 +233,7 @@ export async function closePotHandler(
     const pot = await PotsService.close(request.params.id, userId);
     return reply.code(200).send(await serializePot(pot));
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -249,7 +248,7 @@ export async function requestPayoutOtpHandler(
     await ActionOtpService.request(userId, "trigger_payout", request.params.id, request.body);
     return reply.code(200).send({ message: "Confirmation code sent" });
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -265,7 +264,7 @@ export async function triggerPayoutHandler(
     const requestHash = hashRequest({ method: "POST", path: request.url, userId, body: request.body });
     const { statusCode } = await withIdempotencyKey(key, requestHash, async () => {
       const { otpCode, ...otpContext } = request.body;
-      await ActionOtpService.verify(userId, "trigger_payout", request.params.id, otpContext, otpCode);
+      await ActionOtpService.verify(userId, "trigger_payout", request.params.id, otpContext, otpCode, key);
       const destination =
         request.body?.destinationAccount && request.body?.destinationBank
           ? { destinationAccount: request.body.destinationAccount, destinationBank: request.body.destinationBank }
@@ -276,7 +275,7 @@ export async function triggerPayoutHandler(
     });
     return reply.code(statusCode).send();
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -291,7 +290,7 @@ export async function requestRefundOtpHandler(
     await ActionOtpService.request(userId, "trigger_refund", request.params.id, undefined);
     return reply.code(200).send({ message: "Confirmation code sent" });
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -306,13 +305,13 @@ export async function triggerRefundHandler(
     const key = requireIdempotencyKey(request);
     const requestHash = hashRequest({ method: "POST", path: request.url, userId });
     const { statusCode } = await withIdempotencyKey(key, requestHash, async () => {
-      await ActionOtpService.verify(userId, "trigger_refund", request.params.id, undefined, request.body.otpCode);
+      await ActionOtpService.verify(userId, "trigger_refund", request.params.id, undefined, request.body.otpCode, key);
       await PotsService.triggerRefund(request.params.id, userId);
       return { statusCode: 202, body: undefined };
     });
     return reply.code(statusCode).send();
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -332,10 +331,7 @@ export async function contributeHandler(
               body: {
                 ...contribution,
                 expectedAmount: koboToNairaString(contribution.expectedAmount),
-                // intendedAmount is never stored — it's expectedAmount (the gross figure the
-                // contributor must send) minus the flat inbound fee, computed fresh here so it's
-                // never at risk of drifting from INBOUND_FEE if that constant ever changes.
-                intendedAmount: koboToNairaString(contribution.expectedAmount - INBOUND_FEE),
+                intendedAmount: koboToNairaString(contribution.intendedAmount),
               },
             };
     });
@@ -345,7 +341,7 @@ export async function contributeHandler(
     // withIdempotencyKey) — so no further conversion happens on this path.
     return reply.code(statusCode).send(body);
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -365,7 +361,7 @@ export async function listTransactionsHandler(
       }))
     );
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -381,7 +377,7 @@ export async function listMembersHandler(
     const members = await PotMembersService.list(request.params.id);
     return reply.code(200).send(members);
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -397,7 +393,7 @@ export async function addMemberHandler(
     const body = result.kind === "member" ? result.member : result.pending;
     return reply.code(201).send(body);
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -412,7 +408,7 @@ export async function listPendingMembersHandler(
     const pending = await PendingMembersService.list(request.params.id);
     return reply.code(200).send(pending);
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -427,7 +423,7 @@ export async function removePendingMemberHandler(
     await PendingMembersService.remove(request.params.id, request.params.pendingId);
     return reply.code(200).send({ message: "Pending member removed" });
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -446,7 +442,7 @@ export async function updateMemberRoleHandler(
     );
     return reply.code(200).send(member);
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -461,7 +457,7 @@ export async function removeMemberHandler(
     await PotMembersService.remove(request.params.id, request.params.userId);
     return reply.code(200).send({ message: "Member removed" });
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }
 
@@ -475,6 +471,6 @@ export async function leavePotHandler(
     await PotMembersService.leave(request.params.id, userId);
     return reply.code(200).send({ message: "Left pot" });
   } catch (e) {
-    return handlePotError(e, reply);
+    return sendErrorResponse(e, request, reply);
   }
 }

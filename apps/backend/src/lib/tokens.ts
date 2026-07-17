@@ -23,14 +23,15 @@ export function signRefreshToken(userId: string): {
   const jti = crypto.randomUUID();
   const token = jwt.sign({ sub: userId, jti }, REFRESH_TOKEN_SECRET, {
     expiresIn: `${REFRESH_TOKEN_TTL_DAYS}d`,
+    algorithm: "HS256",
   });
   const expiresAt = new Date(Date.now() + REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000);
   return { token, jti, expiresAt };
 }
 
-/** Verifies only the JWT's signature and exp claim — proves the token was issued by us and unexpired, NOT that it's the current token for the user; reuse detection is a separate check against refreshTokenHash in AuthService.refresh. */
+/** Verifies only the JWT's signature and exp claim — proves the token was issued by us and unexpired, NOT that it's the current token for the user; reuse detection is a separate check against refreshTokenHash in AuthService.refresh. Pins `algorithms` explicitly — jsonwebtoken's own docs warn this must always be passed to verify(), since a shared-secret (HMAC) token that omits it can be forged by an attacker who crafts a header claiming a different algorithm. */
 export function verifyRefreshTokenSignature(token: string): RefreshTokenPayload {
-  return jwt.verify(token, REFRESH_TOKEN_SECRET) as RefreshTokenPayload;
+  return jwt.verify(token, REFRESH_TOKEN_SECRET, { algorithms: ["HS256"] }) as RefreshTokenPayload;
 }
 
 /** Hashes a token/jti with SHA-256 for storage as the user's refreshTokenHash. */

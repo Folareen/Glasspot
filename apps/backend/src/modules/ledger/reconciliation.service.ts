@@ -1,4 +1,4 @@
-import { and, eq, gte, lte, isNotNull } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import db, {
   settlementBatches,
   reconciliationRecords,
@@ -46,12 +46,20 @@ function toRecordStatus(
 export const ReconciliationService = {
   /** Runs one reconciliation pass for [dateFrom, dateTo) against Nomba's transaction API; safe to re-run over the same window since each call creates a fresh batch + finding rows. */
   async runForWindow(dateFrom: Date, dateTo: Date): Promise<SettlementBatch> {
+    // "Expected" means a transaction whose reference/merchantTxRef should surface somewhere in
+    // Nomba's own transaction list for this window — contribution (inbound funding), payout, and
+    // refund (outbound transfers) all correlate 1:1 with a real Nomba-side call. Filtering on
+    // isNotNull(externalReference) instead would silently exclude every payout/refund: outbound
+    // transactions in this codebase never populate externalReference (only inbound contributions
+    // do, at posting time) — merchantTxRef IS transactions.reference for the outbound side (see
+    // worker.ts's callNomba, which passes data.reference as merchantTxRef), so reference alone is
+    // already the correlating key regardless of whether externalReference happens to be set.
     const expectedInWindow = await db
       .select({ reference: transactions.reference, amount: transactions.amount })
       .from(transactions)
       .where(
         and(
-          isNotNull(transactions.externalReference),
+          inArray(transactions.type, ["contribution", "payout", "refund"]),
           gte(transactions.createdAt, dateFrom),
           lte(transactions.createdAt, dateTo)
         )

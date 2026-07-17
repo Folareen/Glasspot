@@ -80,8 +80,12 @@ export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVe
           clearDraftPot();
           router.push(`/pots/${pot.id}/edit`);
           return;
-        } catch {
+        } catch (e) {
           clearDraftPot();
+          showToast(
+            e instanceof ApiError ? e.message : "Your account's ready, but we couldn't create your pot — try again from Home.",
+            "error"
+          );
         }
       }
 

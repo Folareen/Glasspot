@@ -49,12 +49,12 @@ Every pot picks exactly one payout mode at creation. Most modes fix their destin
 
 ## Fees
 
-Glasspot charges a flat fee on every contribution and every payout/refund, always added on top so the pool amount a group agreed on is never quietly shaved down.
+Glasspot charges a fee on every contribution and every payout/refund, always added on top so the pool amount a group agreed on is never quietly shaved down.
 
-- **Contribution**: a flat ₦20 fee, added on top of the amount the contributor intends to give — the pot is always credited the full intended amount.
+- **Contribution**: Nomba's real cost (1% of the intended amount, floored at ₦10, capped at ₦150) plus a flat ₦10 platform cut, added on top of the amount the contributor intends to give — the pot is always credited the full intended amount.
 - **Payout/refund**: a flat ₦50 fee, added on top of the amount the recipient is meant to receive — the pot's balance is debited the requested amount plus the fee, and the recipient gets the full requested amount.
 - **Full-balance payout/refund** (no explicit amount given, including every `target_based` payout, which always disburses the pot's full balance): the fee comes out of the balance instead, since there's nothing external to add it on top of — the recipient receives `balance - 50`. A `target_based` group must set its target amount inclusive of this eventual fee.
-- Presented to users as a low, flat cost, comparable to an ordinary bank transfer fee — not a percentage cut of the pool.
+- Presented to users as a low, capped cost, comparable to an ordinary bank transfer fee — never an open-ended percentage cut of the pool.
 
 ## Trust and visibility
 

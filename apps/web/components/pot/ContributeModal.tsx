@@ -11,7 +11,7 @@ import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
 import { ApiError, contribute } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import { addNaira, formatNaira, INBOUND_FEE, nairaAmountToNumber, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
+import { addNaira, formatNaira, inboundFeeFor, nairaAmountToNumber, sanitizeAmountInput, toNairaAmount } from "@/lib/money";
 import type { ContributionResponse, PotResponse } from "@/lib/types";
 
 type ContributeModalProps = {
@@ -93,10 +93,11 @@ export function ContributeModal({ open, onClose, pot, onContributed }: Contribut
         {(() => {
           const wireAmount = toNairaAmount(amount);
           if (!wireAmount) return null;
-          const total = addNaira(wireAmount, INBOUND_FEE);
+          const fee = inboundFeeFor(wireAmount);
+          const total = addNaira(wireAmount, fee);
           return (
             <Text size="sm" color="secondary">
-              You&apos;ll send {formatNaira(total)} in total — {formatNaira(wireAmount)} to the pot plus a flat {formatNaira(INBOUND_FEE)} fee.
+              You&apos;ll send {formatNaira(total)} in total — {formatNaira(wireAmount)} to the pot plus a {formatNaira(fee)} fee.
             </Text>
           );
         })()}

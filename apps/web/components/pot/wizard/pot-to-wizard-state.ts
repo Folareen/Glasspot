@@ -40,6 +40,11 @@ export function potToWizardState(pot: PotResponse): WizardState {
       ...base,
       targetDestinationAccount: config.destinationAccount,
       targetDestinationBank: config.destinationBank,
+      // Already resolved server-side when this pot was created/last saved — pre-fill as
+      // confirmed so re-opening the edit form doesn't spuriously demand re-verifying an
+      // unchanged, already-valid destination. Editing either field re-triggers a fresh lookup
+      // (see TargetBasedConfigStep.tsx's sync effect), which naturally supersedes this.
+      targetDestinationConfirmedName: config.destinationAccountName,
       targetDate: toDateInput(config.targetDate),
       targetAmountNaira: toWizardAmount(config.targetAmount),
     };
@@ -55,6 +60,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       ...base,
       manualDestinationAccount: config?.destinationAccount ?? "",
       manualDestinationBank: config?.destinationBank ?? "",
+      manualDestinationConfirmedName: config?.destinationAccountName ?? null,
     };
   }
 
@@ -64,6 +70,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       ...base,
       recurringDestinationAccount: config.destinationAccount,
       recurringDestinationBank: config.destinationBank,
+      recurringDestinationConfirmedName: config.destinationAccountName,
       recurringAmountNaira: toWizardAmount(config.amount),
       recurringIntervalDays: String(config.intervalDays),
       recurringNextRunAt: toDateInput(config.nextRunAt),
@@ -78,6 +85,7 @@ export function potToWizardState(pot: PotResponse): WizardState {
       scheduledLegs: config.legs.map((leg) => ({
         destinationAccount: leg.destinationAccount,
         destinationBank: leg.destinationBank,
+        destinationConfirmedName: leg.destinationAccountName,
         sequenceOrder: leg.sequenceOrder,
         amount: toWizardAmount(leg.amount),
         scheduledDate: toDateInput(leg.scheduledDate),

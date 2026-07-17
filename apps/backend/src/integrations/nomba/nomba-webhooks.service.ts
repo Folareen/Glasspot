@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import db, { providerEvents } from "@/db";
 import { isUniqueViolation } from "@/lib/db-errors";
 import { ContributionsService } from "@/modules/pots/contributions.service";
@@ -44,33 +44,55 @@ export const NombaWebhooksService = {
       }
     }
 
-    switch (event.event_type) {
-      case "payment_success":
-        await ContributionsService.confirmFunding(event.data);
-        break;
-      case "payment_failed":
-        // Funding attempt failed — the contribution simply stays 'pending'
-        // (it can still be paid into again, or expires on its own). No
-        // local state to change; recorded above for audit/visibility.
-        break;
-      case "payment_reversal":
-        // Money we'd already credited to a pot got reversed back out —
-        // unlike payment_failed, this can happen AFTER we've posted a
-        // 'funded' contribution's ledger transaction, so it needs an
-        // actual reversal, not a no-op.
-        await ContributionsService.reverseFunding(event.data);
-        break;
-      case "payout_success":
-        await resolveTransfer(event.data, "success");
-        break;
-      case "payout_failed":
-      case "payout_refund":
-        // payout_refund is the terminal state of a failed transfer once
-        // Nomba auto-refunds it back to our account (see
-        // transferToBankAccount's doc comment) — same local handling as
-        // payout_failed: the transfer never reached its destination.
-        await resolveTransfer(event.data, "failed");
-        break;
+    // Claims this row atomically before dispatch — the row-existence check above only guards the
+    // race between two redeliveries both trying to INSERT; this guards the separate race where a
+    // redelivery arrives while an earlier delivery of the SAME already-inserted row is still
+    // mid-dispatch (processed is still false in both). Whichever caller's UPDATE actually flips
+    // claimedAt wins; the loser sees 0 rows affected and returns without dispatching.
+    const claimed = await db
+      .update(providerEvents)
+      .set({ claimedAt: new Date() })
+      .where(and(eq(providerEvents.id, eventRow.id), isNull(providerEvents.claimedAt)))
+      .returning();
+    if (claimed.length === 0) {
+      return;
+    }
+
+    try {
+      switch (event.event_type) {
+        case "payment_success":
+          await ContributionsService.confirmFunding(event.data);
+          break;
+        case "payment_failed":
+          // Funding attempt failed — the contribution simply stays 'pending'
+          // (it can still be paid into again, or expires on its own). No
+          // local state to change; recorded above for audit/visibility.
+          break;
+        case "payment_reversal":
+          // Money we'd already credited to a pot got reversed back out —
+          // unlike payment_failed, this can happen AFTER we've posted a
+          // 'funded' contribution's ledger transaction, so it needs an
+          // actual reversal, not a no-op.
+          await ContributionsService.reverseFunding(event.data);
+          break;
+        case "payout_success":
+          await resolveTransfer(event.data, "success");
+          break;
+        case "payout_failed":
+        case "payout_refund":
+          // payout_refund is the terminal state of a failed transfer once
+          // Nomba auto-refunds it back to our account (see
+          // transferToBankAccount's doc comment) — same local handling as
+          // payout_failed: the transfer never reached its destination.
+          await resolveTransfer(event.data, "failed");
+          break;
+      }
+    } catch (err) {
+      // Release the claim so the next redelivery (Nomba retries a webhook that didn't 2xx) can
+      // actually retry dispatch, rather than finding claimedAt permanently set and skipping
+      // forever — same "no silent failures" principle as the rest of this handler.
+      await db.update(providerEvents).set({ claimedAt: null }).where(eq(providerEvents.id, eventRow.id));
+      throw err;
     }
 
     await db

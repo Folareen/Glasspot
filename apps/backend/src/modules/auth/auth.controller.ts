@@ -1,7 +1,5 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { AuthService } from "./auth.service";
-import { AuthError, RateLimitError } from "./auth.errors";
-import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import {
   ForgotPasswordInput,
   LoginInput,
@@ -13,24 +11,7 @@ import {
   VerifyEmailInput,
   VerifyLoginOtpInput,
 } from "./auth.schema";
-
-/** Maps a thrown error to the right HTTP response: 429 with Retry-After for rate limits, the error's own statusCode for other AuthErrors, a failed Nomba bank lookup as 400, or a generic 500. */
-function handleAuthError(e: unknown, request: FastifyRequest, reply: FastifyReply) {
-  if (e instanceof RateLimitError) {
-    return reply
-      .code(429)
-      .header("Retry-After", e.retryAfterSeconds)
-      .send({ message: e.message });
-  }
-  if (e instanceof AuthError) {
-    return reply.code(e.statusCode).send({ message: e.message });
-  }
-  if (e instanceof NombaApiError) {
-    return reply.code(400).send({ message: `Could not verify bank account: ${e.message}` });
-  }
-  request.log.error({ err: e }, "Unhandled error in auth route");
-  return reply.code(500).send({ message: "Something went wrong" });
-}
+import { sendErrorResponse as handleAuthError } from "@/lib/http-errors";
 
 /** Registers a new account and responds 201 with the new userId/email plus an instruction to check email for the verification code. */
 export async function registerHandler(

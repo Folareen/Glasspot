@@ -8,12 +8,10 @@
 
 const NAIRA_STRING_PATTERN = /^\d+\.\d{2}$/;
 
-// Flat fees, mirroring apps/backend/src/lib/fees.ts's INBOUND_FEE/OUTBOUND_FEE constants — kept
-// in sync by hand since apps/web has no dependency on apps/backend. Both are added on top of
-// what the user intends to move, never deducted from it: a contribution costs the intended
-// amount plus INBOUND_FEE to send, and a payout/refund amount costs the pot the requested
-// amount plus OUTBOUND_FEE.
-export const INBOUND_FEE = "20.00";
+// Mirrors apps/backend/src/lib/fees.ts — kept in sync by hand since apps/web has no dependency
+// on apps/backend. Both are added on top of what the user intends to move, never deducted from
+// it: a contribution costs the intended amount plus inboundFeeFor(amount) to send, and a
+// payout/refund amount costs the pot the requested amount plus OUTBOUND_FEE.
 export const OUTBOUND_FEE = "50.00";
 
 /** True for a well-formed "NN.NN" naira string — exactly two decimal digits, no sign, no thousands separators. Matches the backend's nairaAmount schema (apps/backend/src/modules/pots/pots.schema.ts). */
@@ -74,14 +72,7 @@ export function nairaAmountToNumber(naira: string): number {
   return Number(naira);
 }
 
-// The two functions below exist only for lib/mock/store.tsx, which
-// simulates the backend's own ledger balance tracking locally (adding a
-// contribution to a pot's running balance, subtracting a payout, etc) —
-// apps/web has no dependency on apps/backend, so this is a small
-// intentional duplicate of that side's lib/money.ts kobo helpers, kept
-// private to this mock-only use rather than exported as a general
-// currency-math API for real UI code (see toNairaAmount/formatNaira above
-// for that).
+// Kobo-bigint helpers, used by lib/mock/store.tsx's local ledger simulation and by inboundFeeFor below.
 
 /** Converts a wire-format naira string ("100.50") to its exact kobo bigint (10050n) — see apps/backend/src/lib/money.ts's nairaStringToKobo for the split-and-combine rationale (no float arithmetic on money). */
 function nairaStringToKobo(naira: string): bigint {
@@ -98,7 +89,7 @@ function koboToNairaString(kobo: bigint): string {
   return `${negative ? "-" : ""}${nairaPart}.${koboPart.toString().padStart(2, "0")}`;
 }
 
-/** Adds two wire-format naira strings via kobo bigints, so lib/mock/store.tsx never touches float arithmetic on money — mirrors how the real backend accumulates balances in the ledger. */
+/** Adds two wire-format naira strings via kobo bigints, so callers never touch float arithmetic on money — mirrors how the real backend accumulates balances in the ledger. */
 export function addNaira(a: string, b: string): string {
   return koboToNairaString(nairaStringToKobo(a) + nairaStringToKobo(b));
 }
@@ -106,4 +97,24 @@ export function addNaira(a: string, b: string): string {
 /** Subtracts b from a (both wire-format naira strings) via kobo bigints, same rationale as addNaira. */
 export function subtractNaira(a: string, b: string): string {
   return koboToNairaString(nairaStringToKobo(a) - nairaStringToKobo(b));
+}
+
+// Mirrors apps/backend/src/lib/fees.ts's nombaInboundFeeFor/inboundFeeFor — a live preview only, the backend recomputes and charges the authoritative fee at contribution-creation time.
+const NOMBA_INBOUND_FEE_MIN = "10.00";
+const NOMBA_INBOUND_FEE_MAX = "150.00";
+const PLATFORM_INBOUND_FEE = "10.00";
+
+/** The Nomba-only slice of the inbound fee for a given intended (wire-format naira) contribution amount. */
+export function nombaInboundFeeFor(intendedNaira: string): string {
+  const intended = nairaStringToKobo(intendedNaira);
+  const min = nairaStringToKobo(NOMBA_INBOUND_FEE_MIN);
+  const max = nairaStringToKobo(NOMBA_INBOUND_FEE_MAX);
+  const raw = (intended * 100n) / 10_000n;
+  const clamped = raw < min ? min : raw > max ? max : raw;
+  return koboToNairaString(clamped);
+}
+
+/** Total inbound fee (Nomba's variable cut + the platform's flat ₦10) for a given intended contribution amount — what ContributeModal adds on top of the amount the user typed. */
+export function inboundFeeFor(intendedNaira: string): string {
+  return addNaira(nombaInboundFeeFor(intendedNaira), PLATFORM_INBOUND_FEE);
 }

@@ -51,11 +51,30 @@ export const PotMembersService = {
       }
     }
 
-    const [updated] = await db
+    await db
       .update(potMembers)
       .set({ role: input.role })
-      .where(and(eq(potMembers.potId, potId), eq(potMembers.userId, targetUserId)))
-      .returning();
+      .where(and(eq(potMembers.potId, potId), eq(potMembers.userId, targetUserId)));
+
+    // Re-fetch joined with users (fullName/username/email) — memberResponseSchema requires them,
+    // same shape as list() above, but a plain .update().returning() only has potMembers' own
+    // columns and would fail response serialization (see this method's own regression: the route
+    // 500'd here because of exactly that missing join).
+    const [updated] = await db
+      .select({
+        id: potMembers.id,
+        potId: potMembers.potId,
+        userId: potMembers.userId,
+        role: potMembers.role,
+        addedByUserId: potMembers.addedByUserId,
+        joinedAt: potMembers.joinedAt,
+        fullName: users.fullName,
+        username: users.username,
+        email: users.email,
+      })
+      .from(potMembers)
+      .innerJoin(users, eq(users.id, potMembers.userId))
+      .where(and(eq(potMembers.potId, potId), eq(potMembers.userId, targetUserId)));
 
     return updated;
   },

@@ -497,17 +497,51 @@
           ]
         },
         {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "me"
+              ]
+            },
+            "description": "The caller's own profile, including defaultRefundAccount/defaultRefundBank."
+          }
+        },
+        {
+          "name": "List My Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/me/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "me",
+                "transactions"
+              ]
+            },
+            "description": "Cross-pot activity feed of every transaction touching the caller (contributions, payouts, refunds) across every pot they're a member of."
+          }
+        },
+        {
           "name": "Update Refund Profile",
           "request": {
             "method": "PATCH",
             "header": [],
             "url": {
-              "raw": "{{baseUrl}}/auth/me/refund-profile",
+              "raw": "{{baseUrl}}/me/refund-profile",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
-                "auth",
                 "me",
                 "refund-profile"
               ]
@@ -521,6 +555,66 @@
                   "language": "json"
                 }
               }
+            }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/forgot-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "forgot-password"
+              ]
+            },
+            "description": "Issues a password_reset OTP for the given email; always 200 regardless of whether the email matches an account (never reveals which emails are registered).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
+            }
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/reset-password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "reset-password"
+              ]
+            },
+            "description": "Confirms the password_reset code and sets a new password. Revokes every existing session (refresh token AND any still-live access token) so every device must log in again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"code\": \"{{otpCode}}\",\n  \"newPassword\": \"a-new-password-123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "auth": {
+              "type": "noauth"
             }
           }
         },
@@ -1226,6 +1320,44 @@
           }
         },
         {
+          "name": "List Pot Transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/transactions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "transactions"
+              ]
+            },
+            "description": "Every ledger-backed transaction (contributions, payouts, refunds) for this pot, newest first."
+          }
+        },
+        {
+          "name": "Leave Pot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/pots/{{potId}}/leave",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "pots",
+                "{{potId}}",
+                "leave"
+              ]
+            },
+            "description": "Self-service removal — a member leaves the pot themselves, distinct from Remove Member (admin removing someone else). Rejected if the caller is the pot's last remaining admin."
+          }
+        },
+        {
           "name": "Members",
           "item": [
             {
@@ -1339,11 +1471,110 @@
                 },
                 "description": "Admin-only. Refuses to remove the pot's last remaining admin."
               }
+            },
+            {
+              "name": "List Pending Members",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots/{{potId}}/pending-members",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots",
+                    "{{potId}}",
+                    "pending-members"
+                  ]
+                },
+                "description": "Members invited by email who haven't verified/signed up yet — resolved into a real pot_members row automatically once they do."
+              }
+            },
+            {
+              "name": "Remove Pending Member",
+              "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/pots/{{potId}}/pending-members/{{pendingMemberId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "pots",
+                    "{{potId}}",
+                    "pending-members",
+                    "{{pendingMemberId}}"
+                  ]
+                },
+                "description": "Cancels a pending email invite before it's been accepted."
+              }
             }
           ]
         }
       ],
       "description": "All mutating routes require a Bearer access token (collection-level auth). Money-moving routes (contribute/payout/refund) additionally require an Idempotency-Key header — pre-filled with Postman's {{$guid}} dynamic variable so retries within the same send get a fresh key; re-send the exact same request twice manually if you want to test idempotency (Postman won't reuse the guid across sends)."
+    },
+    {
+      "name": "Failed Jobs (ops only)",
+      "item": [
+        {
+          "name": "List Failed Jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/failed-jobs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "failed-jobs"
+              ]
+            },
+            "description": "Transfer jobs that exhausted their retries and landed in failed_jobs, needing manual attention. Access restricted to an explicit ops user-id allowlist, not just any authenticated user."
+          }
+        },
+        {
+          "name": "Retry Failed Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/failed-jobs/{{failedJobId}}/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "failed-jobs",
+                "{{failedJobId}}",
+                "retry"
+              ]
+            },
+            "description": "Re-enqueues a failed transfer job for another attempt."
+          }
+        },
+        {
+          "name": "Ignore Failed Job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/failed-jobs/{{failedJobId}}/ignore",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "failed-jobs",
+                "{{failedJobId}}",
+                "ignore"
+              ]
+            },
+            "description": "Marks a failed job as acknowledged/resolved without retrying it."
+          }
+        }
+      ]
     },
     {
       "name": "Webhooks (reference only)",

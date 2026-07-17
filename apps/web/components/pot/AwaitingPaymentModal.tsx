@@ -54,6 +54,8 @@ export function AwaitingPaymentModal({ open, onClose, potId, contribution, onRes
       if (result === null) {
         showToast("Payment not received yet — this can take a moment.", "default");
       }
+    } catch {
+      showToast("Couldn't check payment status — check your connection and try again.", "error");
     } finally {
       setChecking(false);
     }
@@ -86,10 +88,17 @@ export function AwaitingPaymentModal({ open, onClose, potId, contribution, onRes
     <Modal open={open} onClose={onClose} title="Waiting for payment">
       <div className="flex flex-col items-center gap-4 py-2 text-center">
         <Spinner size="md" />
-        <Text color="secondary">
-          Pay <Money naira={contribution.expectedAmount} className="font-semibold" /> to the
-          account below. This screen updates automatically once it lands.
-        </Text>
+        {status === "error" ? (
+          <Text color="error">
+            Couldn&apos;t check for your payment — the connection keeps dropping. Use &quot;I&apos;ve
+            paid&quot; below once you&apos;ve sent the transfer, or reopen this later.
+          </Text>
+        ) : (
+          <Text color="secondary">
+            Pay <Money naira={contribution.expectedAmount} className="font-semibold" /> to the
+            account below. This screen updates automatically once it lands.
+          </Text>
+        )}
         <div className="w-full rounded-md border border-border bg-surface-hover p-4">
           <Text size="xs" color="secondary">
             Account number

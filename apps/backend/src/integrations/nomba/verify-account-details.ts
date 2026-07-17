@@ -16,7 +16,11 @@ export async function verifyAccountDetails(accountNumber: string, bankCode: stri
     return { accountName: resolved.accountName };
   } catch (err) {
     if (err instanceof NombaApiError) {
-      throw new AccountVerificationError(err.message);
+      // Never surface err.message here — it's Nomba's own raw vendor response text (see
+      // nomba.error.ts), not copy authored for an end user. AccountVerificationError's own default
+      // message is the one shown to the client; the real Nomba error is only ever logged, at the
+      // call site that has a request/logger in scope (sendErrorResponse's NombaApiError branch).
+      throw new AccountVerificationError();
     }
     throw err;
   }

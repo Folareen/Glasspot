@@ -122,9 +122,11 @@ the visual design system this all implements.
 
 ## General
 
-- This is a DEMO UI build phase: no API integration, no real data fetching. Use realistic mock/
-  static data shaped like what the real API will eventually return, so wiring up the real API later
-  is a swap, not a rebuild.
+- All API integration is real — `lib/api.ts` calls the actual backend, there is no mock/demo data
+  layer anymore. (The earlier demo-UI build phase used `lib/mock/store.tsx` and
+  `lib/mock/fixtures.ts` for static data; both are gone, fully replaced — `lib/auth.tsx` and
+  `lib/useBanks.ts` are the real `currentUser`/banks-list implementations that took their place.)
+  Any new feature wires directly to a real endpoint, not a local fixture.
 - No dead code, no commented-out blocks, no unused props "for later."
 - When unsure whether something should be a shared component or a one-off, default to shared — it's
   cheaper to keep it in `components/` unused than to retrofit reuse later once duplication has spread.

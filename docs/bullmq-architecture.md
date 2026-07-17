@@ -35,29 +35,28 @@ Worker instances are **not** shared — each `Worker`/`QueueEvents` gets its own
 
 ## Flow 1: Scheduled sweeps (`payout-cron` queue)
 
-All five cron jobs currently run once daily at midnight, staggered by a minute each so they run in a predictable sequence rather than colliding:
+Four cron jobs currently run once daily at midnight, staggered by a minute each so they run in a predictable sequence rather than colliding:
 
 | Time | Job | Handler |
 |---|---|---|
 | 00:00 | `target-based-sweep` | `PayoutCronHandlers.checkTargetBasedPayouts()` |
-| 00:01 | `recurring-sweep` | `PayoutCronHandlers.checkRecurringPayouts()` |
+| 00:01 | `recurring-sweep` | `PayoutCronHandlers.checkRecurringPayouts()` — also fires due `scheduled`-mode legs, see below |
 | 00:02 | `expiry-sweep` | `PayoutCronHandlers.sweepExpiredContributions()` |
-| 00:03 | `reconciliation-frequent` | `PayoutCronHandlers.runReconciliation(1)` |
 | 00:04 | `reconciliation-daily` | `PayoutCronHandlers.runReconciliation(24)` |
 
-**Registration:** `CronSchedulerService.registerAll()` calls `payoutCronQueue.upsertJobScheduler(id, {pattern, tz}, {name, data})` for each entry in the `schedules` array (`cron-scheduler.service.ts`). `upsertJobScheduler` is idempotent — safe to call on every boot/deploy, won't create duplicate repeatable jobs.
+`checkRecurringPayouts()` covers **two** payout modes in one handler, not just `recurring`: it calls both `PayoutSchedulerService.fireDueRecurringPayouts()` and `PayoutSchedulerService.fireDueScheduledLegs()` (`payout-cron-handlers.ts`). There's no separate `scheduled-sweep` cron entry — `scheduled`-mode pots ride along on the `recurring-sweep` job.
+
+**Registration:** `CronSchedulerService.registerAll()` calls `payoutCronQueue.upsertJobScheduler(id, {pattern, tz}, {name, data})` for each entry in the `schedules` array (`cron-scheduler.service.ts`). `upsertJobScheduler` is idempotent — safe to call on every boot/deploy, won't create duplicate repeatable jobs. It also calls `payoutCronQueue.removeJobScheduler(id)` for every id in `removedScheduleIds` (currently just `'reconciliation-frequent'`) on every boot — `upsertJobScheduler` only adds/updates, it never prunes a schedule that was removed from the `schedules` array, so a retired id has to be explicitly torn down this way or it keeps firing forever in Redis.
 
 **Execution:** `worker.ts`'s `payoutCronWorker` has `concurrency: 1` (sweeps must not overlap themselves) and dispatches by `job.name` via the `cronDispatch` map to the matching `PayoutCronHandlers` method. `PayoutCronHandlers` itself knows nothing about BullMQ — it's plain business logic, reusable from one-off scripts too.
 
 > ⚠️ **Known tradeoff:** collapsing these to midnight-only introduces up to a 24h lag between a condition being met (targetDate reached, contribution expired) and it actually firing. Previously polling every 5–15 min. Revisit if this lag becomes a problem for payout-sensitive users.
 
-> ⚠️ **Open item:** `reconciliation-frequent` (`hoursBack: 1`) is still redundant/broken at daily cadence — it only checks the 11pm–midnight window and misses 23 hours. Either delete it or change `hoursBack` to `24` (making it a duplicate of `reconciliation-daily`). Needs a decision — not yet resolved.
-
 ---
 
 ## Flow 2: Enqueueing a transfer (sweep → `transfers` queue)
 
-Each sweep handler, when it finds work to do, does **not** call Nomba directly — it calls `TransferQueueService.enqueuePayout()` / `.enqueueRefund()`, which pushes a job onto the `transfers` queue. This is what funnels **all** money movement through the single rate-limited transfers worker, regardless of which sweep triggered it.
+Each sweep handler, when it finds work to do, does **not** call Nomba directly — it calls `TransferQueueService.enqueuePayout()` / `.enqueuePotRefund()` / `.enqueueContributionRefund()`, which pushes a job onto the `transfers` queue. This is what funnels **all** money movement through the single rate-limited transfers worker, regardless of which sweep triggered it. Three job kinds, not two — `pot_refund` (ledger-recognized, e.g. `refundType='admin'` or a contributors fan-out leg) and `contribution_refund` (refunding an inbound payment that never touched the ledger, e.g. an expired/underfunded contribution) are handled distinctly because only the former needs the ledger-transaction-posting step in the worker.
 
 Example — inside `PayoutCronHandlers.checkTargetBasedPayouts()`:
 
@@ -100,34 +99,50 @@ async checkTargetBasedPayouts() {
 
 The same pattern applies to `checkRecurringPayouts()` (one `enqueuePayout` call per due `recurringPayoutConfigs` row, advancing `nextRunAt` by `intervalDays` after a successful enqueue — not after a successful transfer, since the transfer itself is async and may retry) and to `sweepExpiredContributions()` (calls `TransferQueueService.enqueueRefund()` per contributor needing a refund on an expired, under-funded pot).
 
-`TransferQueueService`:
+`TransferQueueService` (`transfer-queue.service.ts`):
 
 ```typescript
-export class TransferQueueService {
-  static async enqueuePayout(payload: TransferPayload) {
-    return transfersQueue.add(TransferJob.PAYOUT, payload, {
-      priority: TransferPriority.PAYOUT,   // 1
-      attempts: 5,
-      backoff: { type: 'exponential', delay: 5_000 },
-      removeOnComplete: 1000,
-      removeOnFail: false,
-    });
-  }
+const TRANSFER_JOB_OPTS = {
+  attempts: 5,
+  backoff: { type: 'exponential', delay: 5_000 },
+} as const;
 
-  static async enqueueRefund(payload: TransferPayload) {
-    return transfersQueue.add(TransferJob.REFUND, payload, {
-      priority: TransferPriority.REFUND,   // 10
-      attempts: 5,
-      backoff: { type: 'exponential', delay: 5_000 },
+export const TransferQueueService = {
+  async enqueuePayout(payload) {
+    return transfersQueue.add(TransferJob.PAYOUT, payload, {
+      jobId: payload.reference,
+      priority: TransferPriority.PAYOUT,   // 1
+      ...TRANSFER_JOB_OPTS,
       removeOnComplete: 1000,
       removeOnFail: false,
     });
-  }
-}
+  },
+
+  async enqueuePotRefund(payload) {
+    return transfersQueue.add(TransferJob.REFUND, payload, {
+      jobId: payload.reference,
+      priority: TransferPriority.REFUND,   // 10
+      ...TRANSFER_JOB_OPTS,
+      removeOnComplete: 1000,
+      removeOnFail: false,
+    });
+  },
+
+  async enqueueContributionRefund(payload) {
+    return transfersQueue.add(TransferJob.REFUND, payload, {
+      jobId: payload.reference,
+      priority: TransferPriority.REFUND,
+      ...TRANSFER_JOB_OPTS,
+      removeOnComplete: 1000,
+      removeOnFail: false,
+    });
+  },
+};
 ```
 
-- `priority: 1` for payouts, `10` for refunds (**lower number = higher priority** in BullMQ) — refunds are deliberately deprioritized behind payouts on the **same** queue, rather than using two separate queues. This works because priority is a per-job property, so the queue itself doesn't need splitting to get "payouts jump the line."
-- `attempts: 5`, exponential backoff starting at 5s.
+- `priority: 1` for payouts, `10` for both refund kinds (**lower number = higher priority** in BullMQ) — refunds are deliberately deprioritized behind payouts on the **same** queue, rather than using two separate queues. This works because priority is a per-job property, so the queue itself doesn't need splitting to get "payouts jump the line."
+- `jobId: payload.reference` — every call site constructs `reference` as an already-unique idempotency key (e.g. `expiry.service.ts`'s `expiry_refund_<paymentId>`), so a duplicate enqueue with the same `jobId` is a BullMQ no-op rather than a second job. This is what makes a sweep safe to re-run before the previous run's jobs have finished.
+- `attempts: 5`, exponential backoff starting at 5s — for genuinely transient failures (Nomba 5xx, network blip). A **deterministic** failure (insufficient balance, a confirmed Nomba rejection) instead throws BullMQ's `UnrecoverableError` from inside the worker's processor (see Flow 3/4 below), which skips all remaining attempts regardless of this config and goes straight to `failed_jobs` on the first try.
 - `removeOnFail: false` — kept around so `FailedJobTracker` can inspect them after all attempts are exhausted (see Flow 4).
 
 ---
@@ -185,7 +200,7 @@ const response = await nomba.transferToBankAccount({
 
 A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against double-inserting if a job somehow emits `'failed'` more than once after exhausting attempts.
 
-> ⚠️ **Open item, resolved differently than originally proposed:** `recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry. Rather than adding a distinct "insufficient balance, don't retry" error type, all transfer job types (`payout`, `pot_refund`, `contribution_refund` — see `transfer-queue.service.ts`) were switched to `attempts: 1` across the board (`worker.ts`: `// attempts:1 → straight to failed_jobs, no auto-retry`). This does stop blind-retrying insufficient-balance failures, but it also removes retries for genuinely transient failures (a Nomba 5xx or network blip now goes straight to `failed_jobs` too, same as before requiring a human to hit `FailedJobTracker.retry()`). Revisit if transient-failure volume in `failed_jobs` turns out to be high enough that it's worth distinguishing causes again.
+`recurringPayoutConfigs`' schema doc says low-balance failures should "fail and wait," not blind-retry. This is now handled with a distinct error type rather than the blanket `attempts: 1` this doc previously described: every transfer job gets `attempts: 5` with exponential backoff (genuinely transient Nomba 5xx/network failures get retried), but a deterministic failure — insufficient balance, or a confirmed Nomba rejection — makes the worker's processor throw BullMQ's `UnrecoverableError` instead of a plain `Error`, which skips all remaining attempts and goes straight to `failed_jobs` on the first try regardless of the `attempts` config. See `worker.ts`'s processor and `UnrecoverableError` usage.
 
 `FailedJobTracker.ignore()` marks a row `ignored` (reviewed, deliberately not retried) with no BullMQ interaction. Both `retry()` and `ignore()` are wired to admin routes at `POST /api/v1/failed-jobs/:id/retry` and `POST /api/v1/failed-jobs/:id/ignore` (plus `GET /api/v1/failed-jobs` to list pending rows) — see `modules/scheduler/failed-jobs.route.ts`. Gated by the same narrow `BANKS_REFRESH_ALLOWED_USER_IDS` allowlist as `POST /banks/refresh`, since there's still no general staff/admin role in this codebase.
 
@@ -201,7 +216,7 @@ A `(queueName, jobId)` unique constraint + `onConflictDoNothing` guards against 
 - `onReady` hook calls `CronSchedulerService.registerAll()` — this is where the midnight schedules actually get registered with Redis on every app boot.
 - `onClose` hook closes both queues gracefully.
 
-> ⚠️ **Still open:** `onClose` only fires if something calls `app.close()`. `server.ts` (the HTTP API process) has no `SIGTERM`/`SIGINT` handling at all today — it just calls `app.listen(...)` and exits ungracefully on a raw signal. The `SIGTERM`/`SIGINT` handling that does exist (`worker.ts`'s `shutdown()`) is in the separate worker process and only closes BullMQ workers/`QueueEvents` — there's no Fastify `app` in that file to close. The API process itself still needs its own signal handler calling `app.close()`.
+`server.ts` now has its own `SIGTERM`/`SIGINT` handler calling `app.close()`, which drains Fastify's own connections and cascades through `onClose` on every registered plugin (including `bullmqPlugin`'s) — no separate BullMQ cleanup needed in `server.ts` itself. This is distinct from `worker.ts`'s own `shutdown()` in the separate worker process, which closes BullMQ workers/`QueueEvents` directly since there's no Fastify `app` in that file.
 
 ---
 
@@ -225,11 +240,12 @@ Resolved since this doc was first written:
 - [x] Build admin routes for `FailedJobTracker.retry()` / `.ignore()` — `modules/scheduler/failed-jobs.route.ts` now exposes list/retry/ignore under `/api/v1/failed-jobs`, gated by the same allowlist pattern as `POST /banks/refresh`.
 - [x] Blind-reversal-on-ambiguous-failure — `processLedgerDisbursement`'s catch block now only reverses the ledger transaction on a confirmed-not-executed `NombaApiError` (non-zero HTTP status); a `status: 0` network/timeout error leaves the transaction `processing` and the lock held for the webhook/reconciliation to resolve later, rather than guessing.
 - [x] Nomba's per-recipient `/transfer` cap — confirmed via the Nomba dashboard's own rate-limit notice: 5 transfers to the SAME recipient per minute, separate from and narrower than the global `TRANSFER_RATE_LIMIT_MAX`/`_DURATION_MS` limiter. `RedisTransferThrottle` (`src/integrations/nomba/transfer-throttle.ts`) now enforces it per `destinationAccount:destinationBank` via an atomic Redis `EVAL`, delaying (not failing) a throttled job with `job.moveToDelayed()` + `DelayedError` before it ever reaches `processLedgerDisbursement` — see Flow 3 above.
+- [x] `reconciliation-frequent` — removed entirely (`cron-scheduler.service.ts`'s `removedScheduleIds` tears down the leftover Redis-side scheduler on boot); only `reconciliation-daily` (`hoursBack: 24`) remains.
+- [x] `server.ts` (the API process) `SIGTERM`/`SIGINT` handling — added, calls `app.close()`.
+- [x] Blanket `attempts: 1` on all transfer job types — replaced with `attempts: 5` + exponential backoff for genuinely transient failures, and a distinct `UnrecoverableError` throw for deterministic failures (insufficient balance, confirmed Nomba rejection) that skips straight to `failed_jobs`. See Flow 4 above.
 
 Still open:
 
-- [ ] Decide fate of `reconciliation-frequent` now that everything runs daily — still registered with `hoursBack: 1`, still redundant with `reconciliation-daily`. Delete it, or change `hoursBack` to `24`.
-- [ ] Nomba's actual GLOBAL `/transfer` rate limit — still a guessed default (`10`/`1000ms`) for `TRANSFER_RATE_LIMIT_MAX`/`_DURATION_MS`, now at least validated/documented in `env.ts` and `.env.example`. (The separate PER-RECIPIENT cap is resolved — see above.)
-- [ ] Give `server.ts` (the API process) a `SIGTERM`/`SIGINT` handler calling `app.close()` — it currently has none; the worker process's signal handling is separate and doesn't cover the Fastify app.
-- [ ] Revisit blanket `attempts: 1` on all transfer job types — this was the fix applied for "insufficient balance shouldn't blind-retry," but it also removes retries for transient Nomba/network failures, which now go straight to `failed_jobs` same as a real failure. Worth a distinct error type if transient-failure volume becomes noticeable.
-- [ ] No dedicated "get transaction status by reference" call exists against Nomba's API — only bulk/date-range `fetchTransactions`/`reconcile`. Would let the ambiguous-failure path above resolve proactively instead of waiting on the webhook/next reconciliation pass.
+- [ ] Nomba's actual GLOBAL `/transfer` rate limit — still a guessed default (`10`/`1000ms`) for `TRANSFER_RATE_LIMIT_MAX`/`_DURATION_MS`, validated/documented in `env.ts` and `.env.example` but not confirmed against Nomba's real ceiling. (The separate PER-RECIPIENT cap is resolved — see above.)
+- [ ] No dedicated "get transaction status by reference" call exists against Nomba's API — only bulk/date-range `fetchTransactions`/`reconcile`. Would let the ambiguous-failure path (Flow 3/4 above) resolve proactively instead of waiting on the webhook/next reconciliation pass.
+- [ ] **Inbound (contribution) reconciliation matching is unimplemented** — `reconciliation.service.ts`'s `findLocalByRef` matches Nomba transaction-list rows back to local `transactions.reference` by `merchantTxRef`, which correctly correlates outbound payouts/refunds (set by `worker.ts`'s own transfer calls) but is never set on inbound `payment_success`/`payment_reversal` events (see `nomba.types.ts`'s `WebhookTransactionData` doc comment) — those set `aliasAccountReference` instead, which the reconcile-list endpoint's own `Transaction` type doesn't yet declare a field for. **Fix once Nomba's real field is confirmed** (checking their `GET /v1/transactions/accounts` docs/sandbox): add the confirmed field to `nomba.types.ts`'s `Transaction` interface, add a `correlatingRef(tx)` accessor in `nomba.client.ts` that falls back from `merchantTxRef` to it, update `findLocalByRef` to match inbound contributions by it. Until then, `reconcile()` can only catch outbound drift — inbound contributions rely solely on the webhook + `contributions.service.ts`'s own funding logic, with no reconciliation safety net.

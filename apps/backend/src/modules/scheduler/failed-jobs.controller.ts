@@ -5,6 +5,7 @@ import env from "@/config/env";
 import redisConnection from "@/config/redis";
 import { FailedJobTracker } from "./failed-job-tracker";
 import type { FailedJobIdParams } from "./failed-jobs.schema";
+import { sendErrorResponse } from "@/lib/http-errors";
 
 /**
  * Same narrow allowlist pattern as banks.controller.ts's
@@ -30,8 +31,12 @@ function assertAllowed(request: FastifyRequest, reply: FastifyReply): boolean {
 export async function listFailedJobsHandler(request: FastifyRequest, reply: FastifyReply) {
   if (!assertAllowed(request, reply)) return;
 
-  const rows = await db.select().from(failedJobs).where(eq(failedJobs.status, "pending")).orderBy(desc(failedJobs.createdAt));
-  return reply.code(200).send({ failedJobs: rows });
+  try {
+    const rows = await db.select().from(failedJobs).where(eq(failedJobs.status, "pending")).orderBy(desc(failedJobs.createdAt));
+    return reply.code(200).send({ failedJobs: rows });
+  } catch (e) {
+    return sendErrorResponse(e, request, reply);
+  }
 }
 
 /** POST /failed-jobs/:id/retry — re-enqueues the failed job's original data as a new BullMQ job. */
@@ -41,11 +46,15 @@ export async function retryFailedJobHandler(
 ) {
   if (!assertAllowed(request, reply)) return;
 
-  const job = await FailedJobTracker.retry(request.params.id, redisConnection);
-  if (!job) {
-    return reply.code(409).send({ message: "Failed job not found, or already resolved" });
+  try {
+    const job = await FailedJobTracker.retry(request.params.id, redisConnection);
+    if (!job) {
+      return reply.code(409).send({ message: "Failed job not found, or already resolved" });
+    }
+    return reply.code(200).send({ message: "Job re-enqueued", jobId: job.id });
+  } catch (e) {
+    return sendErrorResponse(e, request, reply);
   }
-  return reply.code(200).send({ message: "Job re-enqueued", jobId: job.id });
 }
 
 /** POST /failed-jobs/:id/ignore — marks the failed job reviewed and deliberately not retried. */
@@ -55,9 +64,13 @@ export async function ignoreFailedJobHandler(
 ) {
   if (!assertAllowed(request, reply)) return;
 
-  const row = await FailedJobTracker.ignore(request.params.id);
-  if (!row) {
-    return reply.code(409).send({ message: "Failed job not found, or already resolved" });
+  try {
+    const row = await FailedJobTracker.ignore(request.params.id);
+    if (!row) {
+      return reply.code(409).send({ message: "Failed job not found, or already resolved" });
+    }
+    return reply.code(200).send({ message: "Job marked ignored" });
+  } catch (e) {
+    return sendErrorResponse(e, request, reply);
   }
-  return reply.code(200).send({ message: "Job marked ignored" });
 }

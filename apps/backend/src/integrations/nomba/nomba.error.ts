@@ -7,3 +7,19 @@ export class NombaApiError extends Error {
     this.name = "NombaApiError";
   }
 }
+
+/**
+ * Thrown by NombaClient.handleWebhook itself for a malformed/unauthenticated inbound request
+ * (missing headers, invalid JSON, bad signature, missing requestId) — distinct from an error
+ * thrown by the caller-supplied handler, which means the request was genuinely from Nomba but our
+ * own processing of it failed. The public webhook route uses this distinction to respond 401 with
+ * a safe generic message for this class, vs. 500 with no message leak for anything else, so an
+ * internal DB/service failure downstream of a valid signature never gets reported back to the
+ * caller as a raw error string, and never gets mislabeled as an auth failure either.
+ */
+export class WebhookVerificationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "WebhookVerificationError";
+  }
+}

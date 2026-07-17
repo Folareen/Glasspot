@@ -48,6 +48,8 @@ export const contributions = pgTable('contributions', {
   virtualAccountNumber: text('virtual_account_number'),
   virtualAccountBankName: text('virtual_account_bank_name'),
   expectedAmount: bigint('expected_amount', { mode: 'bigint' }).notNull(),
+  // The intended net amount, stored at creation time — the inbound fee (lib/fees.ts) is amount-dependent, so expectedAmount - fee can't be inverted back to this later without storing it.
+  intendedAmount: bigint('intended_amount', { mode: 'bigint' }).notNull(),
   status: contributionStatusEnum('status').notNull().default('pending'),
   anonymous: boolean('anonymous').notNull().default(false),
   refundAccountNumber: text('refund_account_number'),

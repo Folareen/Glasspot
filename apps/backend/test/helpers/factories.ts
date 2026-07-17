@@ -47,9 +47,9 @@ export async function createTestUser(overrides: Partial<typeof users.$inferInser
   return user;
 }
 
-/** Signs an access token for userId using the app's own JWT instance — same `{ sub: userId }` payload shape as AuthService.issueTokenPair, so `server.authenticate` accepts it identically. */
-export function signAccessToken(app: FastifyInstance, userId: string): string {
-  return app.jwt.sign({ sub: userId });
+/** Signs an access token for userId using the app's own JWT instance — same `{ sub: userId, tokenVersion }` payload shape as AuthService.issueTokenPair, so `server.authenticate` accepts it identically. tokenVersion defaults to 0 (users.tokenVersion's own DB default) — pass a mismatched value to build a stale/revoked token for testing server.authenticate's tokenVersion check. */
+export function signAccessToken(app: FastifyInstance, userId: string, tokenVersion = 0): string {
+  return app.jwt.sign({ sub: userId, tokenVersion });
 }
 
 /** Convenience: creates a user + a valid bearer token in one call. */
@@ -58,7 +58,7 @@ export async function createAuthenticatedUser(
   overrides: Partial<typeof users.$inferInsert> = {}
 ): Promise<{ user: User; accessToken: string; authHeader: string }> {
   const user = await createTestUser(overrides);
-  const accessToken = signAccessToken(app, user.id);
+  const accessToken = signAccessToken(app, user.id, user.tokenVersion);
   return { user, accessToken, authHeader: `Bearer ${accessToken}` };
 }
 
@@ -114,6 +114,7 @@ export async function seedPotBalance(potId: string, amountKobo: bigint): Promise
   await LedgerService.postTransaction({
     type: "funding",
     reference: `test_seed_${potId}_${randomUUID()}`,
+    amount: amountKobo,
     entries: [
       { accountId: platformFloat.id, direction: "debit", amount: amountKobo },
       { accountId: potAccount.id, direction: "credit", amount: amountKobo },
@@ -135,13 +136,15 @@ export async function createFundedContribution(
   overrides: Partial<typeof contributions.$inferInsert> = {}
 ): Promise<typeof contributions.$inferSelect> {
   const unique = randomUUID();
+  const expectedAmount = overrides.expectedAmount ?? 100000n;
   const [contribution] = await db
     .insert(contributions)
     .values({
       potId,
       virtualAccountRef: `test_va_${unique}`,
       virtualAccountNumber: `900000${unique.slice(0, 4)}`,
-      expectedAmount: 100000n,
+      expectedAmount,
+      intendedAmount: overrides.intendedAmount ?? expectedAmount - 2000n,
       status: "funded",
       fundedAt: new Date(),
       expiresAt: new Date(Date.now() + 60 * 60 * 1000),

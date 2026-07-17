@@ -9,7 +9,13 @@ import db, {
   type Transaction,
   type NewLedgerEntry,
 } from "@/db";
-import { DuplicateTransactionReferenceError, LedgerError, UnbalancedTransactionError } from "./ledger.errors";
+import {
+  DuplicateTransactionReferenceError,
+  InsufficientBalanceError,
+  LedgerError,
+  UnbalancedTransactionError,
+} from "./ledger.errors";
+import type { DisbursementOnSuccess } from "@/modules/scheduler/disbursement-job.types";
 
 export type LedgerEntryInput = {
   accountId: string;
@@ -21,9 +27,13 @@ export type PostTransactionInput = {
   type: Transaction["type"];
   reference: string;
   entries: LedgerEntryInput[];
+  /** Actual cash moved by this transaction (never a fee-inflated/gross figure) — the caller decides this, since only it knows which leg represents real money changing hands vs. a fee split. Reconciliation compares this directly against the provider's reported amount. */
+  amount: bigint;
   externalReference?: string;
   metadata?: unknown;
   status?: Transaction["status"];
+  /** A payout/refund's declared post-success side effect — persisted here (not just kept on the BullMQ job payload) so the async webhook-driven settlement path can apply it too, not just the worker's synchronous success branch. See applyOnSuccess in modules/scheduler/apply-on-success.ts. */
+  onSuccess?: DisbursementOnSuccess;
 };
 
 /** Throws unless entries is non-empty and sum(debits) === sum(credits) — the one invariant that must never reach the DB violated. */
@@ -68,6 +78,14 @@ async function applyEntryToBalance(
   const signedDelta = entry.direction === account.normalBalance ? entry.amount : -entry.amount;
   const next = current + signedDelta;
 
+  // A correctly-functioning ledger never drives an account negative in its own normal-balance
+  // direction — this is the last line of defense against every application-level balance check
+  // (which happens earlier, non-atomically) being wrong or raced. Thrown inside the caller's open
+  // transaction, so the whole posting rolls back rather than landing a partial, corrupt balance.
+  if (next < 0n) {
+    throw new InsufficientBalanceError(account.id);
+  }
+
   if (lockedBalance) {
     await tx
       .update(balances)
@@ -105,7 +123,13 @@ export const LedgerService = {
         const accountsById = new Map(affectedAccounts.map((a) => [a.id, a]));
         for (const id of accountIds) {
           if (!accountsById.has(id)) {
-            throw new LedgerError(`Account '${id}' does not exist`);
+            // Never triggered by client input (postTransaction's callers always resolve accountId
+            // server-side via AccountsService) — an invariant violation, not a user-facing error.
+            // The client-facing message stays free of the raw internal id regardless, consistent
+            // with every other LedgerError subclass (see ledger.errors.ts); logged here since this
+            // error carries no request/logger of its own to attach it to.
+            console.error(`[ledger] postTransaction referenced a non-existent account: ${id}`);
+            throw new LedgerError("Account does not exist", 400);
           }
         }
 
@@ -118,8 +142,9 @@ export const LedgerService = {
               status: input.status ?? "completed",
               reference: input.reference,
               externalReference: input.externalReference,
-              amount: input.entries.filter((e) => e.direction === "debit").reduce((sum, e) => sum + e.amount, 0n),
+              amount: input.amount,
               metadata: input.metadata,
+              onSuccess: input.onSuccess,
               completedAt: input.status === undefined || input.status === "completed" ? new Date() : undefined,
             })
             .returning();
@@ -177,7 +202,9 @@ export const LedgerService = {
   async reverseTransaction(originalTransactionId: string, reference: string): Promise<Transaction> {
     const [original] = await db.select().from(transactions).where(eq(transactions.id, originalTransactionId));
     if (!original) {
-      throw new LedgerError(`Transaction '${originalTransactionId}' does not exist`, 404);
+      // originalTransactionId is an internal transaction UUID, never client-supplied.
+      console.error(`[ledger] reverseTransaction referenced a non-existent transaction: ${originalTransactionId}`);
+      throw new LedgerError("Transaction does not exist", 404);
     }
 
     const originalEntries = await db
@@ -203,6 +230,7 @@ export const LedgerService = {
           type: "reversal",
           reference,
           entries: reversedEntries,
+          amount: original.amount,
           metadata: { reversalOf: originalTransactionId },
         },
         tx
@@ -222,7 +250,10 @@ export const LedgerService = {
       .where(eq(transactions.id, transactionId))
       .returning();
     if (!updated) {
-      throw new LedgerError(`Transaction '${transactionId}' does not exist`, 404);
+      // transactionId is an internal transaction UUID, never client-supplied — same
+      // invariant-violation reasoning as postTransaction's own accountId check above.
+      console.error(`[ledger] markCompleted referenced a non-existent transaction: ${transactionId}`);
+      throw new LedgerError("Transaction does not exist", 404);
     }
     return updated;
   },

@@ -220,6 +220,64 @@ describe("manual payout trigger", () => {
     assert.equal(potJobs.length, 1);
   });
 
+  test("retrying the same Idempotency-Key after a downstream failure does not require a fresh OTP", async (t) => {
+    // Regression: ActionOtpService.verify marks the OTP consumed BEFORE PotsService.triggerPayout
+    // runs. If triggerPayout then throws (e.g. a transient failure, simulated here by a
+    // pendingOperation lock already held), withIdempotencyKey deletes the idempotency key row on
+    // any plain throw — so a client retry with the SAME key used to re-enter fn() from scratch and
+    // hit "No active confirmation code found," even though this is legitimately the same logical
+    // request retrying, not a new one, and the client has no way to obtain a fresh code for an
+    // OTP flow it already completed.
+    const { user: admin, authHeader } = await createAuthenticatedUser(app);
+    const pot = await createTestPot(admin.id, { payoutMode: "manual" });
+    await openPot(pot.id);
+    await seedPotBalance(pot.id, 500_000n);
+    mockNomba(t);
+
+    const code = "123456";
+    const destination = { destinationAccount: "1000000001", destinationBank: "000013" };
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/pots/${pot.id}/payout/otp`,
+      headers: { authorization: authHeader },
+      payload: destination,
+    });
+    await forceActionOtpCode(admin.id, "trigger_payout", pot.id, destination, code);
+
+    // Simulate an in-flight operation blocking the first attempt downstream of OTP verification —
+    // triggerPayout's pendingOperation claim will fail and throw.
+    await db.update(pots).set({ pendingOperation: "payout", pendingOperationLegCount: 1 }).where(eq(pots.id, pot.id));
+
+    const idempotencyKey = randomUUID();
+    const payload = { ...destination, otpCode: code };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/pots/${pot.id}/payout`,
+      headers: { authorization: authHeader, "idempotency-key": idempotencyKey },
+      payload,
+    });
+    assert.equal(first.statusCode, 409, "first attempt fails downstream of OTP verification, after the code is consumed");
+
+    // Clear the lock — the transient condition that caused the first failure is now resolved.
+    await db.update(pots).set({ pendingOperation: null, pendingOperationLegCount: null }).where(eq(pots.id, pot.id));
+
+    // Retry with the SAME idempotency key and the SAME (already-consumed) OTP code — the client
+    // has no other code to send, since the first attempt consumed it and the server never issues a
+    // reusable code. This must succeed, not fail with "No active confirmation code found."
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/v1/pots/${pot.id}/payout`,
+      headers: { authorization: authHeader, "idempotency-key": idempotencyKey },
+      payload,
+    });
+
+    assert.equal(second.statusCode, 202);
+    const jobs = await getTransferQueueJobs();
+    assert.equal(jobs.filter((j) => "potId" in j.data && j.data.potId === pot.id).length, 1);
+  });
+
   test("PotsService.triggerPayout rejects a second trigger while one is already in flight (pendingOperation lock)", async (t) => {
     const admin = (await createAuthenticatedUser(app)).user;
     const pot = await createTestPot(admin.id, { payoutMode: "manual" });

@@ -47,7 +47,10 @@ export type TransferStatus =
 
 export interface TransferResult {
   id: string;
-  status: "SUCCESS" | "PENDING_BILLING";
+  // The full TransferStatus union, not just the "fine" outcomes — a 2xx HTTP response can still
+  // carry a failure code in the body (see transferToBankAccount's own doc comment), and callers
+  // must branch on all of them, not just 'SUCCESS'.
+  status: TransferStatus;
   /** Naira, as returned by Nomba — not kobo. */
   amount: string;
   fee: number;

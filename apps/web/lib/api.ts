@@ -213,6 +213,10 @@ export function activatePot(potId: string) {
   return apiFetch<PotResponse>(`/pots/${potId}/activate`, { method: "POST" });
 }
 
+export function deletePot(potId: string) {
+  return apiFetch<{ message: string }>(`/pots/${potId}`, { method: "DELETE" });
+}
+
 export function closePot(potId: string) {
   return apiFetch<PotResponse>(`/pots/${potId}/close`, { method: "POST" });
 }

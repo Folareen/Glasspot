@@ -90,8 +90,25 @@ export const ActionOtpService = {
     await sendMail({ to: admin.email, subject, text, html });
   },
 
-  /** Validates `code` against the newest unconsumed action-OTP for {userId, action, potId}, also requiring context to hash to the contextHash it was issued for; marks it consumed on success, else bumps attempt count and throws. */
-  async verify(userId: string, action: ActionOtpAction, potId: string, context: unknown, code: string): Promise<void> {
+  /**
+   * Validates `code` against the newest unconsumed action-OTP for {userId, action, potId}, also
+   * requiring context to hash to the contextHash it was issued for; marks it consumed (recording
+   * `idempotencyKey`) on success, else bumps attempt count and throws.
+   *
+   * If there's no unconsumed code but the most recently consumed one for {userId, action, potId}
+   * was consumed by this exact `idempotencyKey`, this is a retry of a request that already passed
+   * verification (e.g. the enqueue step after this call threw a transient error and the caller's
+   * withIdempotencyKey wrapper is re-running fn() from scratch) — return normally instead of
+   * demanding a code the client already used and can't get back.
+   */
+  async verify(
+    userId: string,
+    action: ActionOtpAction,
+    potId: string,
+    context: unknown,
+    code: string,
+    idempotencyKey?: string
+  ): Promise<void> {
     const [otp] = await db
       .select()
       .from(actionOtpCodes)
@@ -107,6 +124,19 @@ export const ActionOtpService = {
       .limit(1);
 
     if (!otp) {
+      if (idempotencyKey) {
+        const [lastConsumed] = await db
+          .select()
+          .from(actionOtpCodes)
+          .where(
+            and(eq(actionOtpCodes.userId, userId), eq(actionOtpCodes.action, action), eq(actionOtpCodes.potId, potId))
+          )
+          .orderBy(desc(actionOtpCodes.createdAt))
+          .limit(1);
+        if (lastConsumed?.consumedByIdempotencyKey === idempotencyKey) {
+          return;
+        }
+      }
       throw new PotError("No active confirmation code found. Request a new one.", 400);
     }
 
@@ -129,6 +159,9 @@ export const ActionOtpService = {
       throw new PotError("Incorrect confirmation code", 400);
     }
 
-    await db.update(actionOtpCodes).set({ consumedAt: new Date() }).where(eq(actionOtpCodes.id, otp.id));
+    await db
+      .update(actionOtpCodes)
+      .set({ consumedAt: new Date(), consumedByIdempotencyKey: idempotencyKey })
+      .where(eq(actionOtpCodes.id, otp.id));
   },
 };

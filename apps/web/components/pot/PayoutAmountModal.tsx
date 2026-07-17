@@ -31,8 +31,12 @@ export function PayoutAmountModal({ open, onClose, potId, onConfirmed, balance }
   // A payout amount is charged a flat ₦50 fee on top (pot debited amount+50, recipient gets
   // amount in full) — leaving the field blank instead sends the full balance, which nets that
   // fee out of the balance since there's nothing to add it on top of. See lib/money.ts.
-  const maxSendableNaira = nairaAmountToNumber(subtractNaira(balance, OUTBOUND_FEE));
   const fullBalancePayout = subtractNaira(balance, OUTBOUND_FEE);
+  const maxSendableNaira = nairaAmountToNumber(fullBalancePayout);
+  // Below the fee threshold, fullBalancePayout/maxSendableNaira go negative — nothing can be
+  // sent at all (even the "leave blank" full-balance path would fail the same fee check
+  // server-side), so block the whole flow here instead of showing a negative amount.
+  const belowFeeThreshold = maxSendableNaira <= 0;
 
   function handleClose() {
     setStep("amount");
@@ -82,40 +86,54 @@ export function PayoutAmountModal({ open, onClose, potId, onConfirmed, balance }
             This releases money to the payout account on file. This cannot be undone.
           </Text>
 
-          <Field
-            label="Amount"
-            htmlFor="payout-amount"
-            helperText={amountError ? undefined : `Optional. Leave blank to send the full balance minus fee (${formatNaira(fullBalancePayout)}). A flat ${formatNaira(OUTBOUND_FEE)} fee applies on top of any amount you enter.`}
-            error={amountError || undefined}
-          >
-            <Input
-              id="payout-amount"
-              type="text"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => {
-                setAmount(sanitizeAmountInput(e.target.value));
-                setAmountError("");
-              }}
-              placeholder={String(balanceNaira)}
-              error={Boolean(amountError)}
-            />
-          </Field>
-          {amount && !amountError && (
-            <Text size="sm" color="secondary">
-              {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot — {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
-            </Text>
-          )}
+          {belowFeeThreshold ? (
+            <>
+              <Text size="sm" color="error">
+                This pot's balance ({formatNaira(balance)}) doesn't cover the flat {formatNaira(OUTBOUND_FEE)} payout
+                fee, so nothing can be sent right now.
+              </Text>
+              <Button variant="secondary" className="w-full" onClick={handleClose}>
+                Close
+              </Button>
+            </>
+          ) : (
+            <>
+              <Field
+                label="Amount"
+                htmlFor="payout-amount"
+                helperText={amountError ? undefined : `Optional. Leave blank to send the full balance minus fee (${formatNaira(fullBalancePayout)}). A flat ${formatNaira(OUTBOUND_FEE)} fee applies on top of any amount you enter.`}
+                error={amountError || undefined}
+              >
+                <Input
+                  id="payout-amount"
+                  type="text"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(sanitizeAmountInput(e.target.value));
+                    setAmountError("");
+                  }}
+                  placeholder={String(balanceNaira)}
+                  error={Boolean(amountError)}
+                />
+              </Field>
+              {amount && !amountError && (
+                <Text size="sm" color="secondary">
+                  {formatNaira(addNaira(toNairaAmount(amount) ?? "0.00", OUTBOUND_FEE))} will be deducted from the pot — {formatNaira(toNairaAmount(amount) ?? "0.00")} to the recipient plus the {formatNaira(OUTBOUND_FEE)} fee.
+                </Text>
+              )}
 
-          <div className="flex gap-3">
-            <Button variant="secondary" className="flex-1" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button className="flex-1" onClick={handleContinue} disabled={isSubmitting}>
-              {isSubmitting && <Spinner size="sm" />}
-              Continue
-            </Button>
-          </div>
+              <div className="flex gap-3">
+                <Button variant="secondary" className="flex-1" onClick={handleClose}>
+                  Cancel
+                </Button>
+                <Button className="flex-1" onClick={handleContinue} disabled={isSubmitting}>
+                  {isSubmitting && <Spinner size="sm" />}
+                  Continue
+                </Button>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <OtpStep
