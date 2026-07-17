@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { backendClient } from "@/lib/server/backend-client";
-import { getSessionTokens, refreshSession } from "@/lib/server/session";
+import { clearSessionCookies, getSessionTokens, refreshSession } from "@/lib/server/session";
 
 // Catch-all BFF proxy for every backend call except the auth flows that mint/rotate the session
 // cookie itself (those live under app/api/auth/*, since they need to set cookies on the response
@@ -38,7 +38,7 @@ async function forward(request: NextRequest, path: string[]): Promise<NextRespon
     headers: buildHeaders(accessToken),
   });
 
-  if (response.status === 401 && accessToken) {
+  if (response.status === 401) {
     const { refreshToken } = await getSessionTokens();
     const newAccessToken = refreshToken ? await refreshSession(refreshToken) : null;
     if (newAccessToken) {
@@ -48,6 +48,12 @@ async function forward(request: NextRequest, path: string[]): Promise<NextRespon
         data: body,
         headers: buildHeaders(newAccessToken),
       });
+    } else if (!refreshToken) {
+      // No refresh token to try (or it's already been cleared by a failed refreshSession above) —
+      // this session is dead. Clear the stale access-token cookie too, otherwise proxy.ts (which
+      // only checks cookie *presence*) keeps treating the browser as logged in and bounces it
+      // between /home and /login forever instead of landing on /login.
+      await clearSessionCookies();
     }
   }
 

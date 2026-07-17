@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import db, { potPendingMembers, potMembers, pots, users } from "@/db";
 import { PotError } from "./pots.errors";
-import { getMemberRole } from "./pot-authorization";
+import { assertMembershipIsOpen, getMemberRole } from "./pot-authorization";
 import { AddMemberInput } from "./pots.schema";
 import { sendMail } from "@/lib/mailer";
 import { addedToPotEmail } from "@/lib/added-to-pot-email";
@@ -28,6 +28,7 @@ export const PendingMembersService = {
     if (!pot) {
       throw new PotError("Pot not found", 404);
     }
+    assertMembershipIsOpen(pot);
 
     const existingUser = await db.query.users.findFirst({ where: eq(users.email, email) });
 
@@ -80,6 +81,12 @@ export const PendingMembersService = {
 
   /** Removes a still-pending row (admin-only) — a no-op guard against removing one already joined/removed. */
   async remove(potId: string, pendingId: string) {
+    const [pot] = await db.select().from(pots).where(eq(pots.id, potId)).limit(1);
+    if (!pot) {
+      throw new PotError("Pot not found", 404);
+    }
+    assertMembershipIsOpen(pot);
+
     const pending = await db.query.potPendingMembers.findFirst({
       where: and(eq(potPendingMembers.id, pendingId), eq(potPendingMembers.potId, potId)),
     });

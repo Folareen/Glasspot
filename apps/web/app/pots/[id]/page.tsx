@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { notFound, useRouter } from "next/navigation";
 import { use } from "react";
-import { Check, Link2, LogOut, Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
+import { Check, Globe, Link2, Lock, LogOut, Pencil, Plus, RotateCcw, Send, Trash2, UserPlus } from "lucide-react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PageHeading } from "@/components/layout/PageHeading";
 import { Container } from "@/components/ui/Container";
@@ -104,6 +104,17 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
   const [membersFullscreen, setMembersFullscreen] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
+  async function copyPotLink() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLinkCopied(true);
+      showToast("Link copied", "success");
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      showToast("Couldn't copy the link", "error");
+    }
+  }
+
   const isAdmin = memberRows.some(
     (m) => m.kind === "member" && m.userId === currentUser?.id && m.role === "admin"
   );
@@ -179,6 +190,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
     notFound();
   }
   const currentPot: PotResponse = pot;
+  const PotTypeIcon = currentPot.potType === "public" ? Globe : Lock;
 
   const targetAmount =
     pot.payoutMode === "target_based" && pot.payoutConfig && "targetAmount" in pot.payoutConfig
@@ -353,7 +365,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
             </button>
           ))}
         </div>
-        {isAdmin && (
+        {isAdmin && currentPot.status === "draft" && (
           <Button size="sm" variant="secondary" onClick={() => setAddMemberOpen(true)}>
             <UserPlus className="h-4 w-4" strokeWidth={1.5} />
             Add
@@ -368,6 +380,8 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
       return <EmptyState icon={<Users className="h-6 w-6" strokeWidth={1.5} />} title="No one here yet" />;
     }
 
+    const canEditMembers = isAdmin && currentPot.status === "draft";
+
     return (
       <>
         <TableToolbar
@@ -377,6 +391,11 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           exportRows={membersExportRows}
           onExpand={() => setMembersFullscreen(true)}
         />
+        {isAdmin && currentPot.status !== "draft" && (
+          <Text size="xs" color="secondary" className="mb-4">
+            The pot is live, so who's in it is locked. This keeps things fair for everyone who joined.
+          </Text>
+        )}
         <DataTable
           columns={memberColumns}
           rows={filteredMembers.map((member) => (
@@ -384,7 +403,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
               key={member.id}
               row={member}
               action={
-                isAdmin && (member.kind === "pending" || member.userId !== currentUser?.id) ? (
+                canEditMembers && (member.kind === "pending" || member.userId !== currentUser?.id) ? (
                   <button
                     type="button"
                     onClick={() => setRemoveMemberTarget(member)}
@@ -431,13 +450,29 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
               <StatusBadge status={pot.status} />
               {pot.pendingOperation && <Badge variant="amber">{pot.pendingOperation} in progress</Badge>}
             </div>
-            <div className="flex items-center gap-1.5 text-text-secondary">
-              <PayoutModeIcon mode={pot.payoutMode} className="h-4 w-4" />
-              <Text size="xs" color="secondary">
-                {payoutModeLabels[pot.payoutMode]}
-              </Text>
+            <div className="flex items-center gap-3 text-text-secondary">
+              <div className="flex items-center gap-1.5">
+                <PotTypeIcon className="h-4 w-4" strokeWidth={1.5} />
+                <Text size="xs" color="secondary">
+                  {pot.potType === "public" ? "Public" : "Private"}
+                </Text>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <PayoutModeIcon mode={pot.payoutMode} className="h-4 w-4" />
+                <Text size="xs" color="secondary">
+                  {payoutModeLabels[pot.payoutMode]}
+                </Text>
+              </div>
             </div>
           </div>
+
+          {pot.status === "draft" && isAdmin && (
+            <Text size="xs" color="secondary" className="mt-3">
+              {pot.potType === "public"
+                ? "Public pot: anyone with the link can view it, even before you open it."
+                : "Private pot: only members can view it. Add people before sharing the link."}
+            </Text>
+          )}
 
           <Money naira={pot.balance} size="xl" className="mt-4 font-semibold" />
           <Text size="xs" color="secondary">
@@ -475,9 +510,24 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           <div className="mt-5 flex flex-col gap-2">
             {pot.status === "draft" && isAdmin && (
               <>
-                <Button className="w-full" onClick={() => setActivateOpen(true)}>
-                  Open this pot
-                </Button>
+                <div className="flex gap-2">
+                  <Button className="flex-1" onClick={() => setActivateOpen(true)}>
+                    Open this pot
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="w-11 shrink-0 px-0"
+                    aria-label="Copy pot link"
+                    onClick={copyPotLink}
+                  >
+                    {linkCopied ? (
+                      <Check className="h-5 w-5" strokeWidth={1.5} />
+                    ) : (
+                      <Link2 className="h-5 w-5" strokeWidth={1.5} />
+                    )}
+                  </Button>
+                </div>
                 <Button variant="secondary" className="w-full" onClick={() => setDeleteOpen(true)}>
                   Delete draft
                 </Button>
@@ -491,18 +541,10 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                 </Button>
                 <Button
                   variant="secondary"
-                  className="w-12 px-0"
+                  size="sm"
+                  className="w-11 shrink-0 px-0"
                   aria-label="Copy contribution link"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(window.location.href);
-                      setLinkCopied(true);
-                      showToast("Link copied", "success");
-                      setTimeout(() => setLinkCopied(false), 2000);
-                    } catch {
-                      showToast("Couldn't copy the link", "error");
-                    }
-                  }}
+                  onClick={copyPotLink}
                 >
                   {linkCopied ? (
                     <Check className="h-5 w-5" strokeWidth={1.5} />
@@ -598,7 +640,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
                       onClick={() => setCloseOpen(true)}
                     />
                   )}
-                  {isCurrentMember && (
+                  {isCurrentMember && pot.status === "draft" && (
                     <ActionRow
                       icon={<LogOut className="h-5 w-5" strokeWidth={1.5} />}
                       title="Leave pot"
@@ -663,7 +705,7 @@ export default function PotDetailPage({ params }: PotDetailPageProps) {
           }
         }}
         title="Open this pot?"
-        description="Once open, the payout and refund rules are locked in and can no longer be changed."
+        description="Once open, the payout and refund rules are locked in, and so is who's in the pot. No adding, removing, or role changes after this."
         confirmLabel="Open pot"
       />
 

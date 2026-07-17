@@ -138,7 +138,7 @@ async function verifyOtp(userId: string, purpose: OtpPurposeValue, code: string)
   if (!isValid) {
     await db
       .update(otpCodes)
-      .set({ attemptCount: otp.attemptCount + 1 })
+      .set({ attemptCount: sql`${otpCodes.attemptCount} + 1` })
       .where(eq(otpCodes.id, otp.id));
     throw new AuthError("Incorrect code", 400);
   }
@@ -288,20 +288,42 @@ export const AuthService = {
 
     const presentedHash = hashToken(payload.jti);
 
-    if (presentedHash !== user.refreshTokenHash) {
-      // Reuse detected: someone presented a refresh token that doesn't
-      // match what's currently on file for this user (e.g. an old,
-      // already-rotated-away token). Kill the session immediately rather
-      // than silently rejecting — this is the signal a token was stolen.
-      // tokenVersion bump also invalidates any access token already issued (see users.ts).
-      await db
-        .update(users)
-        .set({ refreshTokenHash: null, refreshTokenExpiresAt: null, tokenVersion: sql`${users.tokenVersion} + 1` })
-        .where(eq(users.id, user.id));
-      throw new AuthError("Refresh token reuse detected, session revoked", 401);
+    // Rotation is a single conditional UPDATE (compare-and-write in one statement) rather than a
+    // separate read-compare-then-blind-UPDATE — the old two-step version let two concurrent
+    // refresh calls presenting the same not-yet-rotated token (e.g. two browser tabs recovering
+    // from the same expired access token at once) both pass the compare and both issue a token
+    // pair, with only the later UPDATE's write actually surviving; the other caller walked away
+    // holding a "valid" pair the DB no longer agreed with. Folding the compare into the UPDATE's
+    // WHERE clause means only one concurrent caller's write can ever match presentedHash, so at
+    // most one token pair is ever real for a given rotation — the loser's UPDATE affects 0 rows
+    // and falls through to the mismatch branch below, same as true reuse. We deliberately don't
+    // try to tell "lost a same-instant race" apart from "presented a stale token well after it was
+    // already rotated away" — both look identical from here (presented hash != stored hash), and
+    // treating a same-instant race as harmless would make a genuinely stolen-and-replayed token
+    // indistinguishable from it too, silently disabling reuse detection. Revoking on every mismatch
+    // keeps that security property intact at the cost of occasionally revoking a legitimate session
+    // that raced itself — rare, and the user just logs in again.
+    const { token: refreshToken, jti, expiresAt } = signRefreshToken(user.id);
+    const rotated = await db
+      .update(users)
+      .set({ refreshTokenHash: hashToken(jti), refreshTokenExpiresAt: expiresAt })
+      .where(and(eq(users.id, user.id), eq(users.refreshTokenHash, presentedHash)))
+      .returning({ id: users.id, tokenVersion: users.tokenVersion });
+
+    if (rotated.length > 0) {
+      const accessToken = sign({ sub: user.id, tokenVersion: rotated[0].tokenVersion });
+      return { accessToken, refreshToken };
     }
 
-    return issueTokenPair(user.id, user.tokenVersion, sign);
+    // Reuse detected (or lost a rotation race, indistinguishable from here — see above): someone
+    // presented a refresh token that doesn't match what's currently on file for this user. Kill the
+    // session immediately rather than silently rejecting — this is the signal a token was stolen.
+    // tokenVersion bump also invalidates any access token already issued (see users.ts).
+    await db
+      .update(users)
+      .set({ refreshTokenHash: null, refreshTokenExpiresAt: null, tokenVersion: sql`${users.tokenVersion} + 1` })
+      .where(eq(users.id, user.id));
+    throw new AuthError("Refresh token reuse detected, session revoked", 401);
   },
 
   /** Clears the stored refresh token hash and bumps tokenVersion, immediately invalidating both the current session's refresh token and any access token already issued (see users.ts's tokenVersion comment). */
