@@ -67,7 +67,7 @@ export const ContributionsService = {
         refundBank = input.refundBankCode;
       }
     } else if (input.refundAccountNumber || input.refundBankCode) {
-      throw new PotError("This pot does not use per-contributor refunds — omit refundAccountNumber/refundBankCode", 400);
+      throw new PotError("This pot does not use per-contributor refunds. Omit refundAccountNumber/refundBankCode", 400);
     }
 
     // accountName for the virtual account: the logged-in contributor's own

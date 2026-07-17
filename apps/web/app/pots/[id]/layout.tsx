@@ -4,7 +4,7 @@ import Link from "next/link";
 import { GlasspotMark } from "@/components/brand/GlasspotLogo";
 import { Button } from "@/components/ui/Button";
 import { AppShell } from "@/components/layout/AppShell";
-import { useAuth } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 
 // This route is reachable without a session (a pot can be public — see
 // proxy.ts's isProtectedPotRoute), so it can't unconditionally use AppShell:
@@ -20,6 +20,14 @@ import { useAuth } from "@/lib/auth";
 // before it swapped to the plain header once getMe() resolved. A real
 // logged-in session still upgrades to AppShell the moment isLoading clears.
 export default function PotDetailLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider>
+      <PotDetailLayoutInner>{children}</PotDetailLayoutInner>
+    </AuthProvider>
+  );
+}
+
+function PotDetailLayoutInner({ children }: { children: React.ReactNode }) {
   const { currentUser, isLoading } = useAuth();
 
   if (currentUser && !isLoading) {

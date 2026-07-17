@@ -391,14 +391,21 @@ export const PotsService = {
         .from(potMembers)
         .where(eq(potMembers.userId, userId));
       const myPotIds = myMemberships.map((m) => m.potId);
-      const myPots = myPotIds.length === 0 ? [] : await db.select().from(pots).where(inArray(pots.id, myPotIds));
+      const myPots =
+        myPotIds.length === 0
+          ? []
+          : await db.select().from(pots).where(inArray(pots.id, myPotIds)).orderBy(desc(pots.createdAt));
       return filterByTitle(myPots, q);
     }
 
     // Public pots are visible to everyone. Private pots only show up for
     // an authenticated member — filtered in application code rather than
     // a single SQL query since "member of" requires a join per-pot type.
-    const allPublic = await db.select().from(pots).where(eq(pots.potType, "public"));
+    const allPublic = await db
+      .select()
+      .from(pots)
+      .where(eq(pots.potType, "public"))
+      .orderBy(desc(pots.createdAt));
 
     if (scope === "public" || !userId) {
       return filterByTitle(allPublic, q);
@@ -413,11 +420,15 @@ export const PotsService = {
     const privatePotsIAmIn =
       myPotIds.size === 0
         ? []
-        : (await db.select().from(pots).where(eq(pots.potType, "private"))).filter((p) =>
-            myPotIds.has(p.id)
-          );
+        : (
+            await db.select().from(pots).where(eq(pots.potType, "private")).orderBy(desc(pots.createdAt))
+          ).filter((p) => myPotIds.has(p.id));
 
-    return filterByTitle([...allPublic, ...privatePotsIAmIn], q);
+    const combined = [...allPublic, ...privatePotsIAmIn].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+
+    return filterByTitle(combined, q);
   },
 
   /** Admin-only. Draft-only — payoutMode/refundType/config are immutable once a pot is 'open' (see pots.ts status semantics). */
@@ -508,7 +519,7 @@ export const PotsService = {
     }
 
     if (pot.pendingOperation !== null) {
-      throw new PotError("A payout or refund is still in flight for this pot — wait for it to resolve before closing", 409);
+      throw new PotError("A payout or refund is still in flight for this pot. Wait for it to resolve before closing", 409);
     }
 
     const potAccount = await AccountsService.getOrCreatePotAccount(potId);
@@ -528,7 +539,7 @@ export const PotsService = {
       .returning();
 
     if (!updated) {
-      throw new PotError("A payout or refund is still in flight for this pot — wait for it to resolve before closing", 409);
+      throw new PotError("A payout or refund is still in flight for this pot. Wait for it to resolve before closing", 409);
     }
 
     return updated;
@@ -719,7 +730,7 @@ export async function postDisbursement(
   const balance = await LedgerService.getBalance(potAccount.id);
   const payoutAmount = balance - OUTBOUND_FEE;
   if (payoutAmount <= 0n) {
-    throw new PotError(`Pot's balance (${balance}) does not cover the ₦50 outbound fee — nothing to ${kind}`, 409);
+    throw new PotError(`Pot's balance (${balance}) does not cover the ₦50 outbound fee. Nothing to ${kind}`, 409);
   }
   await postFixedAmountDisbursement(pot, kind, payoutAmount, destination, onSuccess);
 }
@@ -767,7 +778,7 @@ export async function postFixedAmountDisbursement(
 
   if (claimed.length === 0) {
     throw new PotError(
-      "A payout or refund is already in flight for this pot — wait for it to resolve before triggering another",
+      "A payout or refund is already in flight for this pot. Wait for it to resolve before triggering another",
       409
     );
   }
@@ -1008,7 +1019,7 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
     // when the remaining balance is small relative to contributor count).
     // Claiming the lock here with legCount=0 would never have a leg to
     // decrement it back to zero, stranding pendingOperation permanently.
-    throw new PotError("Remaining pot balance is too small to distribute — every contributor's share rounds to zero", 409);
+    throw new PotError("Remaining pot balance is too small to distribute. Every contributor's share rounds to zero", 409);
   }
 
   // Each leg is its own independent outbound transfer, so each one needs its own flat ₦50
@@ -1031,7 +1042,7 @@ async function postContributorsRefund(pot: Pot): Promise<void> {
 
   if (claimed.length === 0) {
     throw new PotError(
-      "A payout or refund is already in flight for this pot — wait for it to resolve before triggering another",
+      "A payout or refund is already in flight for this pot. Wait for it to resolve before triggering another",
       409
     );
   }

@@ -214,7 +214,7 @@ export function ScheduledLegBuilder({ ordered, legs, onChange, showErrors }: Sch
       <Text size="sm" color="secondary">
         {ordered
           ? "Add each person's turn in order. Every leg gets its own amount and date, and fires once when its turn comes up."
-          : "Add each payout. Every leg gets its own destination, amount, and date, and fires independently once its date arrives — the same destination can repeat across legs."}
+          : "Add each payout. Every leg gets its own destination, amount, and date, and fires independently once its date arrives. The same destination can repeat across legs."}
       </Text>
 
       {legs.map((leg, index) => (

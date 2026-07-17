@@ -47,7 +47,7 @@ export function RecurringConfigStep({ state, onChange, showErrors }: RecurringCo
     showErrors && !isPositiveAmount(state.recurringAmountNaira) ? "Enter an amount greater than 0." : undefined;
   const intervalError =
     showErrors && !isValidIntervalDays(state.recurringIntervalDays)
-      ? "Enter how many days between payouts — must be at least 1."
+      ? "Enter how many days between payouts. Must be at least 1."
       : undefined;
   const nextRunError =
     showErrors && !state.recurringNextRunAt ? "Choose the first payout date." : undefined;

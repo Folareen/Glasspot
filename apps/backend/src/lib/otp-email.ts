@@ -8,7 +8,7 @@ export function otpEmail(options: { code: string; intro: string; ttlMinutes: num
 
   const subject = "Your Glasspot verification code";
 
-  const text = `${intro}\n\nYour code: ${code}\n\nThis code expires in ${ttlMinutes} minutes and can only be used once.\n\nIf you didn't request this, you can safely ignore this email — your account is still secure.\n\nGlasspot`;
+  const text = `${intro}\n\nYour code: ${code}\n\nThis code expires in ${ttlMinutes} minutes and can only be used once.\n\nIf you didn't request this, you can safely ignore this email. Your account is still secure.\n\nGlasspot`;
 
   const html = `
 <!doctype html>
@@ -45,7 +45,7 @@ export function otpEmail(options: { code: string; intro: string; ttlMinutes: num
             <tr>
               <td style="padding:16px 32px 32px 32px;">
                 <p style="margin:0;font-size:13px;line-height:20px;color:#9ca3af;">
-                  Didn't request this? You can safely ignore this email — your account is still secure.
+                  Didn't request this? You can safely ignore this email. Your account is still secure.
                 </p>
               </td>
             </tr>

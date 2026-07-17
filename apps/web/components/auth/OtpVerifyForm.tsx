@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Spinner } from "@/components/ui/Spinner";
 import { Text } from "@/components/ui/Text";
-import { useAuth } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
 import { useToast } from "@/lib/toast";
 import { ApiError, createPot, resendOtp, verifyEmail, verifyLoginOtp } from "@/lib/api";
 import { getDraftPot, clearDraftPot } from "@/lib/draftPot";
@@ -22,11 +22,24 @@ type OtpVerifyFormProps = {
   successMessage: string;
   /** Where to send the user after a successful login — set when they were bounced here from a
    * protected page (proxy.ts's redirect, or apiFetch's redirectToLogin on a dead session).
-   * Login-only: signup has its own draft-pot redirect below, which takes priority regardless. */
+   * Login-only: a pending draft pot (either mode) always takes priority over this regardless. */
   redirectTo?: string;
 };
 
-export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVerifyFormProps) {
+// This page isn't wrapped in AuthProvider by default (see app/layout.tsx — AuthProvider is scoped
+// away from the public login/signup entry pages so they don't fire GET /me on load), but
+// verifying an OTP code both needs useAuth's refresh() afterward and is itself the moment a
+// session starts to exist — so this component brings its own AuthProvider rather than requiring
+// every call site to remember to wrap it.
+export function OtpVerifyForm(props: OtpVerifyFormProps) {
+  return (
+    <AuthProvider>
+      <OtpVerifyFormInner {...props} />
+    </AuthProvider>
+  );
+}
+
+function OtpVerifyFormInner({ email, mode, successMessage, redirectTo }: OtpVerifyFormProps) {
   const router = useRouter();
   const { refresh } = useAuth();
   const { showToast } = useToast();
@@ -36,7 +49,11 @@ export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVe
   const [error, setError] = useState("");
   // Read once on mount, not re-checked per render — this is purely to decide whether to show the
   // "we'll create it for you" banner below; the real read-and-create happens in handleSubmit.
-  const [draftTitle] = useState(() => (mode === "signup" ? getDraftPot()?.title.trim() : undefined));
+  // Checked for both modes: TryItModal always sends a brand-new visitor to /signup, but a
+  // returning visitor can click through to /login from there instead, with the draft still
+  // sitting in localStorage — handleSubmit's draft pickup already runs regardless of mode, so
+  // the banner should match rather than only ever appearing on the signup path.
+  const [draftTitle] = useState(() => getDraftPot()?.title.trim());
 
   const isComplete = code.length === 6;
 
@@ -83,7 +100,7 @@ export function OtpVerifyForm({ email, mode, successMessage, redirectTo }: OtpVe
         } catch (e) {
           clearDraftPot();
           showToast(
-            e instanceof ApiError ? e.message : "Your account's ready, but we couldn't create your pot — try again from Home.",
+            e instanceof ApiError ? e.message : "Your account's ready, but we couldn't create your pot. Try again from Home.",
             "error"
           );
         }

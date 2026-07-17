@@ -28,7 +28,7 @@ export class IdempotencyIndeterminateError extends Error {
   /** Thrown when a prior request with this key failed after an external call may have already gone out — retrying automatically risks double-executing that call, so this key is permanently rejected pending manual reconciliation. */
   constructor() {
     super(
-      "A previous request with this Idempotency-Key failed in an indeterminate state and cannot be safely retried automatically — contact support"
+      "A previous request with this Idempotency-Key failed in an indeterminate state and cannot be safely retried automatically. Contact support"
     );
     this.name = "IdempotencyIndeterminateError";
   }

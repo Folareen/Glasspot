@@ -157,7 +157,7 @@ export const useCasesByMode: Record<MvpPayoutMode, UseCase[]> = {
       id: "installment-purchase",
       title: "Big purchase, paid in installments",
       description:
-        "Friends or family pool toward one big buy — a generator, a fridge, a laptop — and pay the vendor in stages, each installment on its own date, independent of the others.",
+        "Friends or family pool toward one big buy (a generator, a fridge, a laptop) and pay the vendor in stages, each installment on its own date, independent of the others.",
       payoutMode: "scheduled",
       potType: "private",
       refundType: "contributors",

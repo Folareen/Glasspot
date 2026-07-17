@@ -31,5 +31,5 @@ export const payoutModeDescriptions: Record<PayoutMode, string> = {
   manual: "An admin can release the balance at any time, as many times as needed.",
   recurring: "Pays a fixed amount out on a fixed interval, repeating automatically until the pot closes.",
   scheduled:
-    "Set each payout's destination, amount, and date upfront. Choose whether turns go in order — a traditional ajo — or fire independently, for staged payments.",
+    "Set each payout's destination, amount, and date upfront. Choose whether turns go in order (a traditional ajo) or fire independently, for staged payments.",
 };

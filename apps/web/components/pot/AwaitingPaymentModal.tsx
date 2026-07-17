@@ -52,10 +52,10 @@ export function AwaitingPaymentModal({ open, onClose, potId, contribution, onRes
     try {
       const result = await checkNow();
       if (result === null) {
-        showToast("Payment not received yet — this can take a moment.", "default");
+        showToast("Payment not received yet. This can take a moment.", "default");
       }
     } catch {
-      showToast("Couldn't check payment status — check your connection and try again.", "error");
+      showToast("Couldn't check payment status. Check your connection and try again.", "error");
     } finally {
       setChecking(false);
     }

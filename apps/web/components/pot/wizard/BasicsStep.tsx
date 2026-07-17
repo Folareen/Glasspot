@@ -104,7 +104,7 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
         <Field
           label="Minimum contribution"
           htmlFor="pot-min"
-          helperText="In naira. Leave blank for no minimum — don't enter 0."
+          helperText="In naira. Leave blank for no minimum, don't enter 0."
           error={minError}
           info="The smallest amount anyone can contribute in a single contribution. Leave blank if you don't want to enforce a minimum."
         >
@@ -121,7 +121,7 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
         <Field
           label="Maximum contribution"
           htmlFor="pot-max"
-          helperText="Optional. Leave blank for no limit — don't enter 0."
+          helperText="Optional. Leave blank for no limit, don't enter 0."
           error={maxError}
           info="The largest amount anyone can contribute in a single contribution. Useful for keeping one person from dominating the pot. Leave blank for no limit."
         >
@@ -140,7 +140,7 @@ export function BasicsStep({ state, onChange, showErrors }: BasicsStepProps) {
       <Field
         label="Goal amount"
         htmlFor="pot-goal"
-        helperText="Optional, shown to contributors as a progress target — doesn't trigger anything. Leave blank to skip — don't enter 0."
+        helperText="Optional, shown to contributors as a progress target. Doesn't trigger anything. Leave blank to skip, don't enter 0."
         error={goalError}
         info="This is just a visual target shown to contributors, it never triggers a payout on its own. If you want the payout itself to fire once an amount is reached, use the target amount on the next step instead."
       >
