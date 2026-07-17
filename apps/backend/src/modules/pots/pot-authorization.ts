@@ -58,6 +58,13 @@ export async function assertIsAdmin(potId: string, userId: string | undefined): 
   }
 }
 
+/** Throws unless the pot is still in draft — membership is frozen the moment a pot goes live so every member can trust the group they agreed to contribute with. */
+export function assertMembershipIsOpen(pot: Pot): void {
+  if (pot.status !== "draft") {
+    throw new PotError("Pot membership is locked once the pot goes live", 409);
+  }
+}
+
 /** Returns the number of members holding the 'admin' role on potId. */
 export async function countAdmins(potId: string): Promise<number> {
   const rows = await db
