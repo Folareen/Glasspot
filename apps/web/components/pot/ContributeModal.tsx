@@ -22,6 +22,18 @@ type ContributeModalProps = {
   onContributed: (contribution: ContributionResponse) => void;
 };
 
+// Retried up to this many times before giving up and showing the error toast — each attempt sends
+// a fresh Idempotency-Key, so a retry gets a brand new Nomba accountRef rather than replaying
+// whatever the failed attempt got back (see contributions.service.ts's virtual-account guard: a
+// 502 here means Nomba's own response was missing the account number, which a fresh call from
+// Nomba can plausibly succeed at on the next try).
+const VIRTUAL_ACCOUNT_MAX_ATTEMPTS = 3;
+const VIRTUAL_ACCOUNT_RETRY_DELAY_MS = 1500;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export function ContributeModal({ open, onClose, pot, onContributed }: ContributeModalProps) {
   const { showToast } = useToast();
   const [amount, setAmount] = useState("");
@@ -51,13 +63,30 @@ export function ContributeModal({ open, onClose, pot, onContributed }: Contribut
     setAmountError("");
     setIsSubmitting(true);
     try {
-      const contribution = await contribute(pot.id, { amount: wireAmount, anonymous });
-      onContributed(contribution);
-      setAmount("");
-      setAnonymous(false);
-      onClose();
-    } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Couldn't start your contribution", "error");
+      let lastError: unknown;
+      for (let attempt = 1; attempt <= VIRTUAL_ACCOUNT_MAX_ATTEMPTS; attempt++) {
+        try {
+          const contribution = await contribute(pot.id, { amount: wireAmount, anonymous });
+          onContributed(contribution);
+          setAmount("");
+          setAnonymous(false);
+          onClose();
+          return;
+        } catch (e) {
+          lastError = e;
+          // Only retry the "upstream payments provider" failure (502, see
+          // contributions.service.ts's virtual-account guard) — every other error (bad amount,
+          // pot closed, network down, etc) would just fail the same way again, so retrying it
+          // silently would only delay a toast the user needs to see now.
+          const isRetryable = e instanceof ApiError && e.status === 502;
+          if (!isRetryable || attempt === VIRTUAL_ACCOUNT_MAX_ATTEMPTS) break;
+          await sleep(VIRTUAL_ACCOUNT_RETRY_DELAY_MS);
+        }
+      }
+      showToast(
+        lastError instanceof ApiError ? lastError.message : "Couldn't start your contribution",
+        "error"
+      );
     } finally {
       setIsSubmitting(false);
     }

@@ -4,6 +4,7 @@ import db, { contributions, contributionPayments, pots, users, type Contribution
 import { AccountsService } from "@/modules/ledger/accounts.service";
 import { LedgerService } from "@/modules/ledger/ledger.service";
 import { nomba } from "@/integrations/nomba";
+import { NombaApiError } from "@/integrations/nomba/nomba.error";
 import { WebhookTransactionData } from "@/integrations/nomba/nomba.types";
 import { verifyAccountDetails } from "@/integrations/nomba/verify-account-details";
 import { isUniqueViolation } from "@/lib/db-errors";
@@ -129,6 +130,23 @@ export const ContributionsService = {
       expectedAmountNaira: Number(koboToNairaString(grossExpectedAmount)),
       expiryDate: formatNombaExpiryDate(expiresAt),
     });
+
+    // Nomba's client only throws on a non-2xx response — a 2xx with a body missing the account
+    // fields (observed in production for an anonymous contribution) passes through silently
+    // otherwise, storing a contribution the contributor can never actually fund (see
+    // AwaitingPaymentModal.tsx, which has nothing to poll for without a real account number).
+    // Surfacing this as a NombaApiError routes it through sendErrorResponse's existing
+    // vendor-failure handling: logged with the raw body for debugging, 502 to the client, and
+    // withIdempotencyKey deletes the key so a retry gets a fresh accountRef rather than reusing
+    // this dead one.
+    if (!virtualAccount.bankAccountNumber || !virtualAccount.bankName) {
+      throw new NombaApiError(
+        "Nomba returned a virtual account with no account number",
+        200,
+        undefined,
+        virtualAccount
+      );
+    }
 
     const [contribution] = await db
       .insert(contributions)
